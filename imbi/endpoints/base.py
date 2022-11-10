@@ -63,7 +63,7 @@ def require_permission(permission):
 
 class RequestHandler(cors.CORSMixin, postgres.RequestHandlerMixin,
                      mixins.ErrorLogger, problemdetails.ErrorWriter,
-                     mediatype.ContentMixin, web.RequestHandler):
+                     mediatype.content.ContentMixin, web.RequestHandler):
     """Base RequestHandler class used for recipients and subscribers."""
 
     APPLICATION_JSON = 'application/json'
