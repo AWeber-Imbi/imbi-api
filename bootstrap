@@ -47,20 +47,27 @@ wait_for_healthy_containers() {
   report_done
 }
 
-mkdir -p build ddl/build imbi/static/css imbi/static/fonts imbi/static/js
+mkdir -p build/consul-data ddl/build imbi/static/css imbi/static/fonts imbi/static/js
 
 # Stop any running instances and clean up after them, then pull images
 docker-compose down --volumes --remove-orphans
 printf "Pulling and starting containers ... "
 docker-compose pull -q
-docker-compose up -d ldap opensearch postgres redis
+docker-compose up -d consul ldap opensearch postgres redis
 report_done
 
 wait_for_healthy_containers 4
 
 docker-compose exec -T postgres psql -U postgres -d postgres -f /tmp/postgres/dml.sql -q
 
+docker-compose exec -T consul consul acl bootstrap >build/consul-bootstrap-data
+consul_token=`awk '/^SecretID:/{print $2}' build/consul-bootstrap-data`
+docker-compose exec -T consul consul acl policy create -token=$consul_token -name 'Imbi-Administration' -rules 'acl = "write"' >build/consul-policy-data
+docker-compose exec -T consul consul acl token create -policy-name=Imbi-Administration -token=$consul_token -local >build/consul-imbi-token
+imbi_token=`awk '/^SecretID:/{print $2}' build/consul-imbi-token`
+
 cat > .env <<EOF
+export CONSUL_HTTP_TOKEN=$imbi_token
 export ENVIRONMENT=development
 export LDAP_ENABLED=true
 export LDAP_HOST=${TEST_HOST}
@@ -80,6 +87,16 @@ EOF
 cat > build/debug.yaml <<EOF
 ---
 automations:
+  consul:
+    enabled_for: []
+    environments:
+      "Development":
+        datacenter: "development"
+        token: "$imbi_token"
+        url: "http:${TEST_HOST}:$(get_exposed_port consul 8500)"
+    templates:
+      key_value_path: "/{namespace.slug}/{project_type.slug}/{project.slug}"
+      service_url: "http://{project.slug}.services.{environment.datacenter}.consul"
   gitlab:
     project_link_type_id: ~
     restrict_to_user: true

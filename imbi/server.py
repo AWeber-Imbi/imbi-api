@@ -150,6 +150,7 @@ def load_configuration(config: str, debug: bool) -> typing.Tuple[dict, dict]:
 
     settings = {
         'automations': {
+            'consul': automations.get('consul', {}),
             'gitlab': automations_gitlab,
             'grafana': {
                 'enabled': automations_grafana.get('enabled', False),
