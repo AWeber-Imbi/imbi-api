@@ -81,7 +81,7 @@ export OPENSEARCH_HOST=${TEST_HOST}
 export OPENSEARCH_PORT=$(get_exposed_port opensearch 9200)
 export SESSION_REDIS_URL=redis://${TEST_HOST}:$(get_exposed_port redis 6379)/0
 export STATS_REDIS_URL=redis://${TEST_HOST}:$(get_exposed_port redis 6379)/1
-export POSTGRES_URL=postgres://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
+export POSTGRES_URL=postgresql://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
 EOF
 
 cat > build/debug.yaml <<EOF
@@ -93,7 +93,7 @@ automations:
       "Development":
         datacenter: "development"
         token: "$imbi_token"
-        url: "http:${TEST_HOST}:$(get_exposed_port consul 8500)"
+        url: "http://${TEST_HOST}:$(get_exposed_port consul 8500)"
     templates:
       key_value_path: "/{namespace.slug}/{project_type.slug}/{project.slug}"
       service_url: "http://{project.slug}.services.{environment.datacenter}.consul"
@@ -140,7 +140,7 @@ opensearch:
     use_ssl: false
   redis_url: redis://${TEST_HOST}:$(get_exposed_port redis 6379)/2
 postgres:
-  url: postgres://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
+  url: postgresql://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
 project_url_template: http://{slug}.service.{environment}.consul
 ops_log_ticket_slug_template: "https://github.com/AWeber-Imbi/Imbi/issues/{slug}"
 session:
@@ -197,7 +197,7 @@ opensearch:
     use_ssl: false
   redis_url: redis://${TEST_HOST}:$(get_exposed_port redis 6379)/2
 postgres:
-  url: postgres://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
+  url: postgresql://postgres@${TEST_HOST}:$(get_exposed_port postgres 5432)/postgres
 project_url_template: ~
 session:
   redis_url: redis://${TEST_HOST}:$(get_exposed_port redis 6379)/0
