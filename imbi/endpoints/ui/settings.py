@@ -66,8 +66,19 @@ class RequestHandler(base.RequestHandler):
             sentry['project_link_type_id'] = cfg.get('project_link_type_id')
             sentry['enabled'] = cfg['enabled']
 
+        proj_types = results[6].rows
+        consul = {'enabled': False}
+        cfg = automations.get('consul')
+        if cfg:
+            consul['enabled'] = bool(
+                len(cfg['enabled_for']) and len(cfg['environments']))
+            consul['enabled_project_types'] = [
+                t['id'] for t in proj_types if t['name'] in cfg['enabled_for']
+            ]
+
         self.send_response({
             'integrations': {
+                'consul': consul,
                 'grafana': {
                     'enabled': automations['grafana']['enabled'],
                     'project_link_type_id': automations['grafana']
@@ -92,7 +103,7 @@ class RequestHandler(base.RequestHandler):
                 'namespaces': results[3].rows,
                 'project_fact_types': results[4].rows,
                 'project_link_types': results[5].rows,
-                'project_types': results[6].rows
+                'project_types': proj_types,
             },
             'opensearch': {
                 'fields': results[7]
