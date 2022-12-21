@@ -178,6 +178,13 @@ EOF
 
 cat > build/test.yaml <<EOF
 ---
+automations:
+  consul:
+    environment:
+      "Development":
+        datacenter: "development"
+        token: "$imbi_token"
+        url: "http://${TEST_HOST}:$(get_exposed_port consul 8500)"
 http:
   canonical_server_name: imbi.example.org
 ldap:
@@ -219,5 +226,10 @@ logging:
   disable_existing_loggers: true
   incremental: false
 EOF
+
+if test -n "$CI"
+then
+  sed -i "s/00000000-0000-0000-0000-000000000000/$imbi_token/" ci/config.yaml
+fi
 
 printf "\nBootstrap complete\n\n"

@@ -1,4 +1,14 @@
 # Prebuilt configuration file for use INSIDE of the docker compose environment
+automations:
+  consul:
+    environments:
+      "Development":
+        datacenter: "development"
+        token: "00000000-0000-0000-0000-000000000000"
+        url: "http://consul:8500"
+    templates:
+      key_value_path: "/{namespace.slug}/{project_type.slug}/{project.slug}"
+      service_url: "http://{project.slug}.services.{environment.datacenter}.consul"
 http:
   canonical_server_name: imbi
   cookie_secret: imbi
