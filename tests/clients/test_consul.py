@@ -38,7 +38,6 @@ class TemplateExpansionTests(unittest.TestCase):
             ('{string}{number}{bool}', 'value1True'),
             ('{{string}{{number}}{bool}}', '{value{1}True}'),
         ]
-        consul.expand_template('"{string}"', context)
         for template, expectation in candidates:
             self.assertEqual(consul.expand_template(template, context),
                              expectation)
