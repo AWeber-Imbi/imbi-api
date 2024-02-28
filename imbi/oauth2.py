@@ -17,7 +17,7 @@ UNSET_URL = yarl.URL()
 class IntegrationToken:
     integration: 'OAuth2Integration'
     access_token: str
-    refresh_token: str
+    refresh_token: typing.Optional[str]
     oidc_token: typing.Optional[str]
     external_id: str
 
@@ -31,12 +31,17 @@ class OAuth2Integration:
           FROM v1.oauth2_integrations
          WHERE name = %(name)s""")
 
-    SQL_ADD_TOKEN = re.sub(
+    SQL_UPSERT_TOKEN = re.sub(
         r'\s+', ' ', """\
         INSERT INTO v1.user_oauth2_tokens(username, integration, external_id,
-                                          access_token, refresh_token)
+                                          access_token, refresh_token,
+                                          oidc_token)
              VALUES (%(username)s, %(integration)s, %(external_id)s,
-                     %(access_token)s, %(refresh_token)s)""")
+                     %(access_token)s, %(refresh_token)s, %(oidc_token)s)
+        ON CONFLICT (integration, external_id)
+      DO UPDATE SET access_token = EXCLUDED.access_token,
+                    refresh_token = EXCLUDED.refresh_token,
+                    oidc_token = EXCLUDED.oidc_token""")
 
     SQL_GET_TOKENS = re.sub(
         r'\s+', ' ', """\
@@ -95,17 +100,23 @@ class OAuth2Integration:
         else:
             self._reset()
 
-    async def add_user_token(self, user_info: 'user.User', external_id: str,
-                             access_token: str, refresh_token: str) -> None:
+    async def upsert_user_token(
+            self,
+            username: str,
+            external_id: str,
+            access_token: str,
+            refresh_token: typing.Optional[str],
+            oidc_token: typing.Optional[str] = None) -> None:
         async with self._application.postgres_connector(
                 on_error=self._on_postgres_error) as conn:
             await conn.execute(
-                self.SQL_ADD_TOKEN, {
+                self.SQL_UPSERT_TOKEN, {
                     'integration': self.name,
-                    'username': user_info.username,
+                    'username': username,
                     'external_id': external_id,
                     'access_token': access_token,
-                    'refresh_token': refresh_token
+                    'refresh_token': refresh_token,
+                    'oidc_token': oidc_token
                 })
 
     async def get_user_tokens(self, user_info: 'user.User') \
