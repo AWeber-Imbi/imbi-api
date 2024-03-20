@@ -1419,6 +1419,10 @@ paths:
                       description: Optional name of associated Sentry team
                       type: string
                       nullable: true
+                    aws_ssm_slug:
+                      description: Optional slug of the namespace in the AWS SSM path
+                      type: string
+                      nullable: true
                   required:
                     - name
                     - slug
@@ -1433,6 +1437,7 @@ paths:
                       slug: PSE
                       icon_class: fas fa-blind
                       sentry_team_slug: pse
+                      aws_ssm_slug: pse
                       maintained_by:
                         - Developers
                         - Operations
@@ -1483,6 +1488,10 @@ paths:
                       description: Optional name of associated Sentry team
                       type: string
                       nullable: true
+                    aws_ssm_slug:
+                      description: Optional slug of the namespace in the AWS SSM path
+                      type: string
+                      nullable: true
                   required:
                     - name
                     - slug
@@ -1497,6 +1506,7 @@ paths:
                       slug: PSE
                       icon_class: fas fa-blind
                       sentry_team_slug: pse
+                      aws_ssm_slug: pse
                       maintained_by:
                         - Developers
                         - Operations
@@ -1544,6 +1554,10 @@ paths:
                   description: Optional name of associated Sentry team
                   type: string
                   nullable: true
+                aws_ssm_slug:
+                  description: Optional slug of the namespace in the AWS SSM path
+                  type: string
+                  nullable: true
               required:
                 - name
                 - slug
@@ -1557,6 +1571,7 @@ paths:
                   slug: PSE
                   icon_class: fas fa-blind
                   sentry_team_slug: pse
+                  aws_ssm_slug: pse
                   maintained_by:
                     - Developers
                     - Operations
@@ -1571,6 +1586,7 @@ paths:
                   slug: PSE
                   icon_class: fas fa-blind
                   sentry_team_slug: pse
+                  aws_ssm_slug: pse
                   maintained_by:
                     - Developers
                     - Operations
@@ -1604,6 +1620,7 @@ paths:
                       - Developers
                       - Operations
                     sentry_team_slug: pse
+                    aws_ssm_slug: pse
             application/msgpack:
               schema:
                 $ref: '#/paths/~1namespaces/get/responses/200/content/application~1json/schema/items'
@@ -1621,6 +1638,7 @@ paths:
                       - Developers
                       - Operations
                     sentry_team_slug: pse
+                    aws_ssm_slug: pse
         '400':
           $ref: '#/paths/~1groups/post/responses/400'
         '401':
@@ -4789,6 +4807,10 @@ paths:
                           description: Optional ID for the project in PagerDuty
                           type: string
                           nullable: true
+                        configuration_type:
+                          description: Optional configuration system for the project
+                          type: string
+                          nullable: true
                       additionalProperties: false
                   rows:
                     type: number
@@ -4813,6 +4835,7 @@ paths:
                           - Staging
                           - Production
                         archived: false
+                        configuration_type: ssm
                     rows: 1
             application/msgpack:
               schema:
@@ -4882,6 +4905,10 @@ paths:
                           description: Optional ID for the project in PagerDuty
                           type: string
                           nullable: true
+                        configuration_type:
+                          description: Optional configuration system for the project
+                          type: string
+                          nullable: true
                       additionalProperties: false
                   rows:
                     type: number
@@ -4906,6 +4933,7 @@ paths:
                           - Staging
                           - Production
                         archived: false
+                        configuration_type: ssm
                     rows: 1
         '401':
           $ref: '#/paths/~1groups/get/responses/401'
@@ -5015,6 +5043,7 @@ paths:
                       - Staging
                       - Production
                     archived: false
+                    configuration_type: ssm
             application/msgpack:
               schema:
                 $ref: '#/paths/~1projects/get/responses/200/content/application~1json/schema/properties/data/items'
@@ -5037,6 +5066,7 @@ paths:
                       - Staging
                       - Production
                     archived: false
+                    configuration_type: ssm
         '400':
           $ref: '#/paths/~1groups/post/responses/400'
         '401':
@@ -5095,6 +5125,105 @@ paths:
         required: true
         schema:
           type: number
+  '/projects/{id}/configuration/ssm':
+    parameters:
+      - name: id
+        in: path
+        description: ID of the project to get parameters for
+        required: true
+        schema:
+          type: number
+    get:
+      description: Retrieve the SSM parameters for the project
+      summary: Get SSM Parameters
+      tags:
+        - Project Configuration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                title: Project SSM Configuration
+                description: SSM parameters for the project
+                type: array
+                items:
+                  description: The SSM parameter
+                  type: object
+                  properties:
+                    name:
+                      description: The SSM parameter path
+                      type: string
+                    type:
+                      description: The SSM parameter type
+                      type: string
+                      enum:
+                        - String
+                        - SecureString
+                        - StringList
+                    values:
+                      description: The parameter values in each environment
+                      type: array
+                      items:
+                        description: The parameter value in this environment
+                        type: object
+                        properties:
+                          environment:
+                            description: The environment the parameter exists in
+                            type: string
+                          value:
+                            description: The parameter value
+                            type: string
+                        additionalProperties: false
+                        required:
+                          - environment
+                          - value
+                  additionalProperties: false
+                  required:
+                    - name
+                    - type
+                    - values
+              examples:
+                records:
+                  value:
+                    - name: /foo/bar/baz
+                      type: String
+                      values:
+                        - environment: Testing
+                          value: '42'
+                        - environment: Production
+                          value: '9001'
+                    - name: biz/bap/boop
+                      type: SecureString
+                      values:
+                        - environment: Testing
+                          value: password
+                        - environment: Production
+                          value: password123$
+            application/msgpack:
+              schema:
+                $ref: '#/paths/~1projects~1%7Bid%7D~1configuration~1ssm/get/responses/200/content/application~1json/schema'
+              examples:
+                records:
+                  value:
+                    - name: /foo/bar/baz
+                      type: String
+                      values:
+                        - environment: Testing
+                          value: '42'
+                        - environment: Production
+                          value: '9001'
+                    - name: biz/bap/boop
+                      type: SecureString
+                      values:
+                        - environment: Testing
+                          value: password
+                        - environment: Production
+                          value: password123$
+        '401':
+          $ref: '#/paths/~1groups/get/responses/401'
+        '404':
+          $ref: '#/paths/~1groups~1%7Bname%7D/get/responses/404'
   '/projects/{id}/facts':
     get:
       description: Retrieve the current facts for a project
@@ -7527,6 +7656,8 @@ tags:
     description: Endpoints used for the management of projects
   - name: Project Activity Feed
     description: Endpoints that detail activity on a project
+  - name: Project Configuration
+    description: Endpoints to manage project configuration
   - name: Project Dependencies
     description: Endpoints used to manage the relationships of projects to other projects
   - name: Project Facts
@@ -7587,6 +7718,7 @@ x-tagGroups:
   - name: Project Management
     tags:
       - Projects
+      - Project Configuration
       - Project Dependencies
       - Project Facts
       - Project Fact Types
