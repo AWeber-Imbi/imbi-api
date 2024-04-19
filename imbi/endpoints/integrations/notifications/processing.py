@@ -146,16 +146,12 @@ class ProcessingHandler(base.RequestHandler):
         if not self._evaluate_filters(notification, body):
             return
 
-        project = await self._get_project(notification, body)
-        if not project:
-            return
-
-        updates = await self._gather_updates(project, notification, body)
-        if not updates:
-            self.logger.info('no updates found')
-            return
-
-        await self._update_facts(project, updates)
+        for project in await self._get_projects(notification, body):
+            updates = await self._gather_updates(project, notification, body)
+            if updates:
+                self.logger.info('updating %s facts for project ID %s',
+                                 len(updates), project.id)
+                await self._update_facts(project, updates)
 
     async def get(self, *, integration_name: str, notification_name: str,
                   **_kwargs: str) -> None:
@@ -349,13 +345,13 @@ class ProcessingHandler(base.RequestHandler):
             should_process = notification.default_action == 'process'
         return should_process
 
-    async def _get_project(self, notification: Notification,
-                           body) -> ProjectInfo | None:
+    async def _get_projects(self, notification: Notification,
+                            body) -> list[ProjectInfo]:
         surrogate_project_id = notification.id_pattern.resolve(body, None)
         if surrogate_project_id is None:
             self.logger.warning('failed to find surrogate project id using %s',
                                 notification.id_pattern)
-            return None
+            return []
 
         self.logger.debug('looking for project %s@%s', surrogate_project_id,
                           notification.integration.name)
@@ -376,12 +372,11 @@ class ProcessingHandler(base.RequestHandler):
                 surrogate_project_id,
                 notification.integration.name,
             )
-            return None
+            return []
 
-        project = ProjectInfo.model_validate(result.row)
-        self.logger.debug('found project %r for %s@%s', project.id,
+        self.logger.debug('found %s project(s) for %s@%s', len(result),
                           surrogate_project_id, notification.integration.name)
-        return project
+        return [ProjectInfo.model_validate(r) for r in result]
 
     async def _gather_updates(self, project: ProjectInfo,
                               notification: Notification,
@@ -409,4 +404,9 @@ class ProcessingHandler(base.RequestHandler):
                 value = rule.pattern.resolve(body, unspecified)
                 if value is not unspecified:
                     updates[rule.fact_type_id] = value
+            else:
+                self.logger.debug(
+                    'fact_type_id %s is invalid for project type %s'
+                    ' (valid: %r)', rule.fact_type_id, project.project_type_id,
+                    valid_fact_type_ids)
         return updates
