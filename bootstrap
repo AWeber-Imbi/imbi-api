@@ -80,6 +80,11 @@ cat > build/debug.yaml <<EOF
 actions:
   github_deployment:
     enabled: true
+  acceptance_tests:
+    enabled: true
+    workflow_files:
+      apis: python-acceptance-ci.yml
+      frontend-applications: cypress-acceptance-ci.yml
 automations:
   github:
     project_link_type_id: ~

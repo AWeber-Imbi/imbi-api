@@ -31,28 +31,38 @@ class AvailableActionsHandler(base.AuthenticatedRequestHandler):
 
         actions = []
 
-        # Check GitHub deployment action
-        github_action_config = self.application.settings.get(
-            'actions', {}).get('github_deployment', {})
-        github_action_enabled = github_action_config.get('enabled', False)
+        # Consolidate GitHub-related actions and preconditions
+        actions_cfg = self.application.settings.get('actions', {})
+        automations_cfg = self.application.settings.get('automations', {})
+        github_automation_enabled = automations_cfg.get('github', {}).get('enabled', False)
 
-        if github_action_enabled:
+        deployment_enabled = actions_cfg.get('github_deployment', {}).get('enabled', False)
+        acceptance_tests_enabled = actions_cfg.get('acceptance_tests', {}).get('enabled', False)
+
+        if deployment_enabled or acceptance_tests_enabled:
             user_has_github = await self._user_has_integration_token('github')
             project_has_github = 'github' in project.identifiers
-            integration_enabled = self.application.settings.get(
-                'automations', {}).get('github', {}).get('enabled', False)
 
             LOGGER.debug(
-                'GitHub action checks: enabled=%s, user_has_github=%s, '
-                'project_has_github=%s, integration_enabled=%s, '
-                'project.identifiers=%s', github_action_enabled,
-                user_has_github, project_has_github, integration_enabled,
-                project.identifiers)
+                'GitHub preconditions: user_has_github=%s, project_has_github=%s, integration_enabled=%s',
+                user_has_github, project_has_github, github_automation_enabled)
 
-            if user_has_github and project_has_github and integration_enabled:
+            # GitHub Deployment action option
+            if (deployment_enabled and user_has_github and
+                project_has_github and github_automation_enabled):
                 actions.append({
                     'id': 'github_deployment',
                     'name': 'Create GitHub Deployment',
+                    'integration': 'github'
+                })
+
+            # Run Acceptance Tests action option
+            has_acceptance_tests = (project.facts or {}).get('Has Acceptance Tests', False)
+            if (acceptance_tests_enabled and user_has_github and
+                project_has_github and github_automation_enabled and has_acceptance_tests):
+                actions.append({
+                    'id': 'acceptance_tests',
+                    'name': 'Run Acceptance Tests',
                     'integration': 'github'
                 })
 

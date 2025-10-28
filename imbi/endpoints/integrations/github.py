@@ -151,6 +151,27 @@ class GitHubIntegratedHandler(base.AuthenticatedRequestHandler):
                                                      'github',
                                                      self.current_user)
 
+    async def get_environment_slug(self, environment_name: str) -> str:
+        """Fetch the environment slug from the database.
+
+        Args:
+            environment_name: The environment name (e.g., 'Staging', 'Production')
+
+        Returns:
+            The environment slug (e.g., 'staging', 'production')
+
+        Raises:
+            ItemNotFound: If the environment does not exist
+        """
+        result = await self.postgres_execute(
+            'SELECT slug FROM v1.environments WHERE name = %(name)s',
+            {'name': environment_name},
+            metric_name='fetch-environment-slug')
+        if not result.row_count:
+            raise errors.ItemNotFound(f'Environment "{environment_name}" not found',
+                                      instance=self.request.uri)
+        return result.row['slug']
+
 
 class ProjectTagsHandler(GitHubIntegratedHandler):
     """Handler for fetching GitHub tags for a project"""
@@ -241,14 +262,7 @@ class ProjectDeploymentsHandler(GitHubIntegratedHandler):
                 ' for this project')
 
         # Fetch the environment slug from the database
-        result = await self.postgres_execute(
-            'SELECT slug FROM v1.environments WHERE name = %(name)s',
-            {'name': environment},
-            metric_name='fetch-environment-slug')
-        if not result.row_count:
-            raise errors.ItemNotFound(f'Environment "{environment}" not found',
-                                      instance=self.request.uri)
-        environment_slug = result.row['slug']
+        environment_slug = await self.get_environment_slug(environment)
 
         org = project.project_type.github_org or project.project_type.slug
         repo = project.slug
@@ -272,3 +286,83 @@ class ProjectDeploymentsHandler(GitHubIntegratedHandler):
 
         self.set_status(http.HTTPStatus.CREATED)
         self.send_response({'deployments_url': deployments_url})
+
+
+class ProjectAcceptanceTestsHandler(GitHubIntegratedHandler):
+    """Handler for triggering acceptance test workflows"""
+
+    NAME = 'github-project-acceptance-tests'
+
+    async def post(self, project_id: str) -> None:
+        """Trigger acceptance tests workflow for the project
+
+        Expects JSON body with:
+        - environment: Target environment name (testing, staging, production)
+        """
+        try:
+            project_id_int = int(project_id)
+        except ValueError:
+            raise errors.BadRequest('Invalid project ID')
+
+        body = self.get_request_body()
+        if not body:
+            raise errors.BadRequest('Request body is required')
+
+        environment = body.get('environment')
+        if not environment:
+            raise errors.BadRequest('Field "environment" is required')
+
+        project = await models.project(project_id_int, self.application)
+        if project is None:
+            raise errors.ItemNotFound(instance=self.request.uri)
+
+        if 'github' not in project.identifiers:
+            raise errors.ItemNotFound(
+                'Project does not have a GitHub identifier configured',
+                instance=self.request.uri)
+
+        if (project.environments is None
+                or environment not in project.environments):
+            raise errors.BadRequest(
+                f'Environment "{environment}" is not configured'
+                ' for this project')
+
+        # Fetch the environment slug from the database
+        environment_slug = await self.get_environment_slug(environment)
+
+        # Get workflow filename from config based on project type's github_org
+        acceptance_tests_config = self.application.settings.get(
+            'actions', {}).get('acceptance_tests', {})
+        workflow_files = acceptance_tests_config.get('workflow_files', {})
+
+        github_org = project.project_type.github_org or project.project_type.slug
+        workflow_filename = workflow_files.get(github_org)
+
+        if not workflow_filename:
+            raise errors.BadRequest(
+                f'No acceptance test workflow configured for '
+                f'organization "{github_org}"')
+
+        org = github_org
+        repo = project.slug
+
+        try:
+            await self.client.dispatch_workflow(
+                org=org,
+                repo=repo,
+                workflow_filename=workflow_filename,
+                inputs={'test_environment': environment_slug},
+                ref='main'
+            )
+        except Exception as e:
+            self.logger.error('Failed to trigger acceptance tests: %s', e)
+            raise errors.InternalServerError(
+                'Failed to trigger acceptance tests',
+                instance=self.request.uri) from e
+
+        self.set_status(http.HTTPStatus.ACCEPTED)
+        self.send_response({
+            'message': 'Acceptance tests triggered successfully',
+            'workflow': workflow_filename,
+            'environment': environment_slug
+        })

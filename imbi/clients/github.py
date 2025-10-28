@@ -361,3 +361,39 @@ class GitHubClient(sprockets.mixins.http.HTTPClientMixin):
                 'Failed to get matching refs',
             )
         return response.body
+
+    async def dispatch_workflow(
+        self,
+        org: str,
+        repo: str,
+        workflow_filename: str,
+        inputs: typing.Optional[dict] = None,
+        ref: str = 'main',
+    ) -> None:
+        """
+        Trigger a workflow dispatch event for a repository.
+
+        Args:
+            org: The organization that contains the repository
+            repo: The repository name
+            workflow_filename: The workflow file name (e.g., 'python-acceptance-ci.yml')
+            inputs: Dictionary of inputs to pass to the workflow
+            ref: The git ref to run the workflow on (default: 'main')
+
+        Docs: https://docs.github.com/rest/actions/workflows#create-a-workflow-dispatch-event
+        """  # noqa: E501
+        payload = {
+            'ref': ref,
+            'inputs': inputs or {},
+        }
+
+        response = await self.api(
+            f'/repos/{org}/{repo}/actions/workflows/{workflow_filename}/dispatches',
+            method='POST',
+            body=payload,
+        )
+        if not response.ok:
+            raise GitHubAPIFailure(
+                response,
+                'Failed to dispatch workflow',
+            )
