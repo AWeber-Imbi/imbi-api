@@ -80,13 +80,22 @@ cat > build/debug.yaml <<EOF
 actions:
   github_deployment:
     enabled: true
-  acceptance_tests:
+  workflow_dispatch:
     enabled: true
-    workflow_files:
-      apis: python-acceptance-ci.yml
-      frontend-applications: cypress-acceptance-ci.yml
+    workflows:
+      - name: API Acceptance Tests
+        file: python-acceptance-ci.yml
+        inputs:
+          test_environment: request.environment
+        applies_to_project_types: [1]
+      - name: Cypress Acceptance Tests
+        file: cypress-acceptance-ci.yml
+        inputs:
+          test_environment: request.environment
+        applies_to_project_types: [5]
 automations:
   github:
+    enabled: true
     project_link_type_id: ~
   grafana:
     project_link_type_id: ~
