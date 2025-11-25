@@ -67,20 +67,35 @@ class AvailableActionsHandler(base.AuthenticatedRequestHandler):
                     'workflow_dispatch', {})
                 workflows = workflow_dispatch_cfg.get('workflows', [])
 
-                for idx, workflow in enumerate(workflows):
+                for workflow in workflows:
                     # Check if workflow applies to this project type
                     applies_to_types = workflow.get('applies_to_project_types',
                                                     [])
+                    workflow_id = workflow.get('workflow_id')
+                    if not workflow_id:
+                        continue
                     if (not applies_to_types
                             or project.project_type.id in applies_to_types):
-                        # Check if workflow has additional requirements
-                        # (e.g., fact checks). Currently all workflows
-                        # with matching project type are shown
+                        # Check required facts (if any specified)
+                        requires_facts = workflow.get('requires_facts', {})
+                        if requires_facts:
+                            LOGGER.debug(
+                                'Checking facts for workflow %s: '
+                                'requires=%s, proj_facts=%s',
+                                workflow_id, requires_facts, project.facts)
+                            facts_match = all(
+                                project.facts.get(k) == v
+                                for k, v in requires_facts.items()
+                            )
+                            LOGGER.debug('Facts match: %s', facts_match)
+                            if not facts_match:
+                                continue
+
                         actions.append({
-                            'id': f'workflow_dispatch_{idx}',
-                            'name': workflow.get('name', f'Workflow {idx}'),
+                            'id': workflow_id,
+                            'name': workflow.get('name', workflow_id),
                             'integration': 'github',
-                            'workflow_file': workflow.get('file'),
+                            'workflow_file': workflow_id,
                             'required_inputs': list(
                                 workflow.get('inputs', {}).keys())
                         })

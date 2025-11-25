@@ -421,12 +421,12 @@ class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
                       or project.project_type.slug)
         repo = project.slug
 
-        # Validate workflow file is configured
-        workflow_file = workflow_config.get('file')
-        if not workflow_file:
-            raise errors.BadRequest(
+        # Validate workflow_id is configured
+        workflow_id_value = workflow_config.get('workflow_id')
+        if not workflow_id_value:
+            raise errors.InternalServerError(
                 f'Workflow "{workflow_config.get("name")}" is missing '
-                f'required "file" field in configuration')
+                f'required "workflow_id" field in configuration')
 
         # Get ref (branch/tag) to run workflow on
         ref = body.get('ref', 'main')
@@ -436,7 +436,7 @@ class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
             await self.client.dispatch_workflow(
                 org=github_org,
                 repo=repo,
-                workflow_filename=workflow_file,
+                workflow_filename=workflow_id_value,
                 inputs=workflow_inputs,
                 ref=ref)
         except Exception as e:
@@ -447,7 +447,7 @@ class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
         self.set_status(http.HTTPStatus.ACCEPTED)
         self.send_response({
             'message': 'Workflow triggered successfully',
-            'workflow': workflow_file,
+            'workflow': workflow_id_value,
             'workflow_name': workflow_config.get('name'),
             'inputs': workflow_inputs
         })
@@ -456,20 +456,11 @@ class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
         """Get workflow configuration by ID
 
         Args:
-            workflow_id: Workflow identifier (e.g., 'workflow_dispatch_0')
+            workflow_id: Workflow identifier
 
         Returns:
             Workflow configuration dict or None if not found
         """
-        # Extract index from workflow_id (format: workflow_dispatch_{index})
-        if not workflow_id.startswith('workflow_dispatch_'):
-            return None
-
-        try:
-            workflow_index = int(workflow_id.split('_')[-1])
-        except (ValueError, IndexError):
-            return None
-
         # Load workflows from config
         actions_cfg = self.application.settings.get('actions', {})
         workflow_dispatch_cfg = actions_cfg.get('workflow_dispatch', {})
@@ -478,7 +469,10 @@ class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
             return None
 
         workflows = workflow_dispatch_cfg.get('workflows', [])
-        if workflow_index < 0 or workflow_index >= len(workflows):
-            return None
 
-        return workflows[workflow_index]
+        # Find workflow by workflow_id
+        for workflow in workflows:
+            if workflow.get('workflow_id') == workflow_id:
+                return workflow
+
+        return None

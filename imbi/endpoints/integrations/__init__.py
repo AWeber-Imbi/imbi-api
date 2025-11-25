@@ -24,7 +24,7 @@ URLS = [
             github.ProjectDeploymentsHandler),
     web.url(
         r'^/github/projects/(?P<project_id>[0-9]+)/workflows/'
-        r'(?P<workflow_id>[\w-]+)$', github.ProjectWorkflowDispatchHandler),
+        r'(?P<workflow_id>[\w.-]+)$', github.ProjectWorkflowDispatchHandler),
     web.url(r'^/gitlab/auth', gitlab.RedirectHandler, name='gitlab-callback'),
     web.url(r'^/gitlab/namespaces', gitlab.UserNamespacesHandler),
     web.url(r'^/gitlab/projects', gitlab.ProjectsHandler),
