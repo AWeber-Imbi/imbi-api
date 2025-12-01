@@ -143,13 +143,89 @@ class GitHubIntegratedHandler(base.AuthenticatedRequestHandler):
     """Base handler for GitHub-integrated endpoints"""
 
     NAME = 'github-integrated'
+    INTEGRATION_NAME = 'github'
 
     async def prepare(self) -> None:
         await super().prepare()
         if not self._finished:
             self.client = await github.create_client(self.application,
-                                                     'github',
+                                                     self.INTEGRATION_NAME,
                                                      self.current_user)
+
+    async def get_environment_slug(self, environment_name: str) -> str:
+        """Fetch the environment slug from the database.
+
+        Args:
+            environment_name: The environment name (e.g., 'Staging',
+                'Production')
+
+        Returns:
+            The environment slug (e.g., 'staging', 'production')
+
+        Raises:
+            ItemNotFound: If the environment does not exist
+        """
+        result = await self.postgres_execute(
+            'SELECT slug FROM v1.environments WHERE name = %(name)s',
+            {'name': environment_name},
+            metric_name='fetch-environment-slug')
+        if not result.row_count:
+            raise errors.ItemNotFound(
+                f'Environment "{environment_name}" not found',
+                instance=self.request.uri)
+        return result.row['slug']
+
+    async def resolve_workflow_input(self, input_template: str,
+                                     request_body: dict,
+                                     project: models.Project) -> str:
+        """Resolve a workflow input template to its actual value.
+
+        Args:
+            input_template: Template string (e.g., 'request.environment',
+                'project.name')
+
+            request_body: The request body containing user-provided values
+
+            project: The project model
+
+        Returns:
+            The resolved input value
+
+        Raises:
+            BadRequest: If template is invalid or required data is missing
+        """
+        if not input_template or '.' not in input_template:
+            raise errors.BadRequest(
+                f'Invalid input template: {input_template}')
+
+        source, field = input_template.split('.', 1)
+
+        if source == 'request':
+            value = request_body.get(field)
+            if value is None:
+                raise errors.BadRequest(
+                    f'Field "{field}" is required in request body')
+
+            # Special handling for environment field - convert to slug
+            if field == 'environment':
+                return await self.get_environment_slug(value)
+
+            return str(value)
+
+        elif source == 'project':
+            if not hasattr(project, field):
+                raise errors.BadRequest(
+                    f'Project does not have field: {field}')
+            value = getattr(project, field)
+            if value is None:
+                raise errors.BadRequest(f'Project field "{field}" is not set')
+            return str(value)
+
+        elif source == 'literal':
+            return str(field)
+
+        else:
+            raise errors.BadRequest(f'Unknown input source: {source}')
 
 
 class ProjectTagsHandler(GitHubIntegratedHandler):
@@ -241,14 +317,7 @@ class ProjectDeploymentsHandler(GitHubIntegratedHandler):
                 ' for this project')
 
         # Fetch the environment slug from the database
-        result = await self.postgres_execute(
-            'SELECT slug FROM v1.environments WHERE name = %(name)s',
-            {'name': environment},
-            metric_name='fetch-environment-slug')
-        if not result.row_count:
-            raise errors.ItemNotFound(f'Environment "{environment}" not found',
-                                      instance=self.request.uri)
-        environment_slug = result.row['slug']
+        environment_slug = await self.get_environment_slug(environment)
 
         org = project.project_type.github_org or project.project_type.slug
         repo = project.slug
@@ -272,3 +341,138 @@ class ProjectDeploymentsHandler(GitHubIntegratedHandler):
 
         self.set_status(http.HTTPStatus.CREATED)
         self.send_response({'deployments_url': deployments_url})
+
+
+class ProjectWorkflowDispatchHandler(GitHubIntegratedHandler):
+    """Generic handler for triggering GitHub workflow dispatch events"""
+
+    NAME = 'github-project-workflow-dispatch'
+
+    async def post(self, project_id: str, workflow_id: str) -> None:
+        """Trigger a workflow dispatch for the project
+
+        Expects JSON body with fields required by the workflow
+        (typically 'environment')
+        """
+        try:
+            project_id_int = int(project_id)
+        except ValueError:
+            raise errors.BadRequest('Invalid project ID')
+
+        # Load workflow configuration
+        workflow_config = self._get_workflow_config(workflow_id)
+        if not workflow_config:
+            raise errors.ItemNotFound(f'Workflow "{workflow_id}" not found',
+                                      instance=self.request.uri)
+
+        # Load project
+        project = await models.project(project_id_int, self.application)
+        if project is None:
+            raise errors.ItemNotFound(instance=self.request.uri)
+
+        # Validate project type
+        applies_to_types = workflow_config.get('applies_to_project_types', [])
+        if (applies_to_types
+                and project.project_type.id not in applies_to_types):
+            raise errors.BadRequest(
+                f'Workflow "{workflow_config.get("name")}" is not available '
+                f'for project type "{project.project_type.name}"')
+
+        # Validate project has GitHub identifier
+        if self.INTEGRATION_NAME not in project.identifiers:
+            raise errors.ItemNotFound(
+                f'Project does not have a {self.INTEGRATION_NAME.title()} '
+                'identifier configured',
+                instance=self.request.uri)
+
+        # Get request body
+        body = self.get_request_body()
+        if not body:
+            raise errors.BadRequest('Request body is required')
+
+        # Resolve workflow inputs
+        workflow_inputs = {}
+        input_templates = workflow_config.get('inputs', {})
+        for input_name, input_template in input_templates.items():
+            try:
+                workflow_inputs[input_name] = (await
+                                               self.resolve_workflow_input(
+                                                   input_template, body,
+                                                   project))
+            except errors.ApplicationError:
+                raise
+            except Exception as e:
+                self.logger.error(
+                    'Failed to resolve input "%s" with template "%s": %s',
+                    input_name, input_template, e)
+                raise errors.BadRequest(f'Failed to resolve workflow input '
+                                        f'"{input_name}"') from e
+
+        # Validate environment if specified in request
+        if 'environment' in body:
+            if (project.environments is None
+                    or body['environment'] not in project.environments):
+                raise errors.BadRequest(
+                    f'Environment "{body["environment"]}" is not configured '
+                    'for this project')
+
+        # Get GitHub org and repo
+        github_org = (project.project_type.github_org
+                      or project.project_type.slug)
+        repo = project.slug
+
+        # Validate workflow_id is configured
+        workflow_id_value = workflow_config.get('workflow_id')
+        if not workflow_id_value:
+            raise errors.InternalServerError(
+                f'Workflow "{workflow_config.get("name")}" is missing '
+                f'required "workflow_id" field in configuration')
+
+        # Get ref (branch/tag) to run workflow on
+        ref = body.get('ref', 'main')
+
+        # Dispatch workflow
+        try:
+            await self.client.dispatch_workflow(
+                org=github_org,
+                repo=repo,
+                workflow_filename=workflow_id_value,
+                inputs=workflow_inputs,
+                ref=ref)
+        except Exception as e:
+            self.logger.error('Failed to trigger workflow: %s', e)
+            raise errors.InternalServerError('Failed to trigger workflow',
+                                             instance=self.request.uri) from e
+
+        self.set_status(http.HTTPStatus.ACCEPTED)
+        self.send_response({
+            'message': 'Workflow triggered successfully',
+            'workflow': workflow_id_value,
+            'workflow_name': workflow_config.get('name'),
+            'inputs': workflow_inputs
+        })
+
+    def _get_workflow_config(self, workflow_id: str) -> typing.Optional[dict]:
+        """Get workflow configuration by ID
+
+        Args:
+            workflow_id: Workflow identifier
+
+        Returns:
+            Workflow configuration dict or None if not found
+        """
+        # Load workflows from config
+        actions_cfg = self.application.settings.get('actions', {})
+        workflow_dispatch_cfg = actions_cfg.get('workflow_dispatch', {})
+
+        if not workflow_dispatch_cfg.get('enabled', False):
+            return None
+
+        workflows = workflow_dispatch_cfg.get('workflows', [])
+
+        # Find workflow by workflow_id
+        for workflow in workflows:
+            if workflow.get('workflow_id') == workflow_id:
+                return workflow
+
+        return None
