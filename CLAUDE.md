@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Imbi is a DevOps Service Management Platform designed to manage large environments containing many services and applications. Version 2 (currently in alpha) is a complete rewrite using FastAPI, Neo4j for graph data, and ClickHouse for analytics.
 
-**See [ROADMAP.md](ROADMAP.md)** for full v2 vision and planned features including conversational AI, webhook workflows, MCP server integration, and ecosystem of services.
+**See [README.md](README.md)** for project overview, core concepts, and full v2 roadmap including conversational AI, webhook workflows, MCP server integration, and ecosystem of services.
 
 ## Development Setup
 
