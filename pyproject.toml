@@ -27,6 +27,7 @@ classifiers = [
 ]
 dependencies = [
   "asynch",
+  "cypherantic@git+https://github.com/dave-shawley/cypherantic.git#egg=main",
   "fastapi",
   "jsonschema-models",
   "neo4j",
@@ -38,22 +39,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-  "build",
-  "coverage[toml]",
-  "pre-commit",
-  "pytest",
-  "pytest-cov",
-  "ruff",
-  "watchfiles"
-]
-docs = [
-  "griffe-pydantic",
-  "mkdocs>=1.5,<2",
-  "mkdocs-material>9.5,<10",
-  "mkdocstrings[python]",
-  "mkdocstrings-python-xref>=1.6,<2"
-]
 otel = [
   "opentelemetry-distro",
   "opentelemetry-instrumentation-asyncio",
@@ -67,6 +52,7 @@ imbi = "imbi.entrypoint:main"
 directory = "build/coverage"
 
 [tool.coverage.report]
+exclude_also = ["typing.TYPE_CHECKING"]
 fail_under = 90
 show_missing = true
 
@@ -85,8 +71,22 @@ src-layout = true
 python = "python3.12"
 features = ["dev"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.mkdocs]
 config-file = "mkdocs.yml"
+
+[tool.mypy]
+namespace_packages = true
+show_error_codes = true
+strict = true
+
+[tool.pyright]
+include = ["src", "tests"]
+deprecateTypingAliases = true
+reportMissingSuperCall = "hint"
+typeCheckingMode = "strict"
 
 [tool.ruff]
 line-length = 79
@@ -129,3 +129,23 @@ max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S"]
+
+[dependency-groups]
+dev = [
+  "build",
+  "coverage[toml]",
+  "mypy",
+  "pre-commit",
+  "pyright",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "watchfiles"
+]
+docs = [
+  "griffe-pydantic",
+  "mkdocs>=1.5,<2",
+  "mkdocs-material>9.5,<10",
+  "mkdocstrings[python]",
+  "mkdocstrings-python-xref>=1.6,<2"
+]

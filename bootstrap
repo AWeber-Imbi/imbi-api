@@ -9,13 +9,11 @@
 # as is required for <<-EOF heredocs to work.  Please keep
 # it this way!
 set -e
-if test -n "$SHELLDEBUG"
-then
+if test -n "$SHELLDEBUG"; then
 	set -x
 fi
 
-if test "${CI}" = 'true'
-then
+if test "${CI}" = 'true'; then
 	echo "::group::Build logs"
 fi
 
@@ -28,8 +26,7 @@ export PYTHONWARNINGS=ignore
 TEST_HOST=${TEST_HOST:-127.0.0.1}
 
 get_exposed_port() {
-	if port=$(docker compose port "$1" "$2")
-	then
+	if port=$(docker compose port "$1" "$2"); then
 		echo "${port#*:}"
 	else
 		echo "Failed to find port for $1:$2"
@@ -37,44 +34,39 @@ get_exposed_port() {
 	fi
 }
 
-if test "$CI" != 'true'
-then
-	if test -e ./.venv/bin/activate
-	then
-		. ./.venv/bin/activate
-	else
-		python3 -m venv --upgrade-deps .venv
-		. ./.venv/bin/activate
-	fi
-fi
-
 mkdir -p build
 
-pip install --upgrade pip
+uv sync --all-extras --all-groups --locked
 
-printf 'Installing package...'
-pip install -e '.[dev]'
-echo ' done.'
+echo 'Installing pre-commit hook...'
+uv run pre-commit install --install-hooks
 
-printf 'Installing pre-commit hook...'
-pre-commit install --install-hooks
-echo ' done.'
-
-if test "${CI}" != 'true'
-then
+if test "${CI}" != 'true'; then
 	printf 'Cleaning environment...'
 	docker compose down --remove-orphans --volumes
 	echo ' done.'
 fi
 
-printf 'Starting environment...'
+echo 'Starting environment...'
 docker compose up --wait --wait-timeout 120
-echo ' done.'
 
 printf 'Generating .env...'
+cat >.env <<EOF
+FILE_CACHE_ENABLED=no
+TEST_HOST=127.0.0.1
+CLICKHOUSE_URL=http://default:password@127.0.0.1:$(get_exposed_port clickhouse 4317)
+NEO4J_URL=bolt://neo4j:neo4j@127.0.0.1:$(get_exposed_port neo4j 4317)
+OTEL_LOGS_EXPORTER=none
+OTEL_METRICS_EXPORTER=none
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=${TEST_HOST}:$(get_exposed_port jaeger 4317)
+OTEL_EXPORTER_OTLP_TRACES_INSECURE=true
+OTEL_RESOURCE_ATTRIBUTES=service.name=imbi-api,service.environment=development
+OTEL_SERVICE_NAME=imbi-api
+TEST_HOST=${TEST_HOST}
+EOF
 echo ' done.'
 
-if test "${CI}" = 'true'
-then
+if test "${CI}" = 'true'; then
 	echo '::endgroup::'
 fi
