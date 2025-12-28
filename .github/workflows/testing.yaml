@@ -29,6 +29,9 @@ jobs:
         with:
           python-version: '${{ matrix.python }}'
 
+      - name: Install pre-commit
+        uses: pre-commit/action@v3.0.1
+
       - name: Bootstrap environment
         run: ./bootstrap
 
