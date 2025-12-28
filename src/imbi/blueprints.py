@@ -22,8 +22,9 @@ def _map_string_type(prop_schema: typing.Any) -> type[typing.Any]:
 
     # Check for enum constraint
     enum_values = getattr(prop_schema, 'enum', None)
-    if enum_values:
-        return typing.Any  # Literal types need special handling
+    if enum_values and isinstance(enum_values, list):
+        # Create Literal type from enum values
+        return typing.Literal[tuple(enum_values)]  # type: ignore[return-value]
 
     return str
 

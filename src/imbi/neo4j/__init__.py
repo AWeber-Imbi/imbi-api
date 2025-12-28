@@ -221,6 +221,10 @@ def _cypher_property_params(value: dict[str, typing.Any]) -> str:
     return ', '.join(f'{key}: ${key}' for key in (value or {}).keys())
 
 
+# Public alias for backward compatibility
+cypher_property_params = _cypher_property_params
+
+
 def _build_fetch_query(
     model: type[pydantic.BaseModel] | str,
     parameters: dict[str, typing.Any] | None = None,
