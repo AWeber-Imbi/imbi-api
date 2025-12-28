@@ -222,7 +222,7 @@ def _cypher_property_params(value: dict[str, typing.Any]) -> str:
 
 
 def _build_fetch_query(
-    model: type[pydantic.BaseModel],
+    model: type[pydantic.BaseModel] | str,
     parameters: dict[str, typing.Any] | None = None,
     order_by: str | list[str] | None = None,
 ) -> str:
@@ -242,26 +242,26 @@ def _build_fetch_query(
 
 
 async def fetch_node(
-    model: type[pydantic.BaseModel] | str,
+    model: type[ModelType],
     parameters: dict[str, typing.Any],
 ) -> ModelType | None:
     """Fetch a single node from the graph by its unique key fields"""
     query = _build_fetch_query(model, parameters)
     LOGGER.debug('Running Query: %s', query)
     async with run(query, **parameters) as result:
-        result = await result.single()
-    return model.model_validate(result.data()['node']) if result else None
+        record = await result.single()
+    return model.model_validate(record.data()['node']) if record else None
 
 
 async def fetch_nodes(
-    model: type[pydantic.BaseModel] | str,
+    model: type[ModelType],
     parameters: dict[str, typing.Any] | None = None,
     order_by: str | list[str] | None = None,
 ) -> typing.AsyncGenerator[ModelType, None]:
     """Fetch a single node from the graph by its unique key fields"""
     query = _build_fetch_query(model, parameters, order_by)
     LOGGER.debug('Running Query: %s', query)
-    async with run(query, **parameters) as result:
+    async with run(query, **parameters or {}) as result:
         async for record in result:
             yield model.model_validate(record.data()['node'])
 

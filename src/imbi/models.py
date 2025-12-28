@@ -6,7 +6,7 @@ from jsonschema_models.models import Schema
 
 
 class Blueprint(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extras='ignore')
+    model_config = pydantic.ConfigDict(extra='ignore')
 
     name: str
     type: typing.Literal[
@@ -48,7 +48,7 @@ class BlueprintEdge(typing.NamedTuple):
 
 
 class Node(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extras='ignore')
+    model_config = pydantic.ConfigDict(extra='ignore')
 
     name: str
     slug: str

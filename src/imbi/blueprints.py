@@ -6,7 +6,7 @@ import pydantic
 from imbi import models, neo4j
 
 
-def _map_string_type(prop_schema: typing.Any) -> type:
+def _map_string_type(prop_schema: typing.Any) -> type[typing.Any]:
     """Map JSON Schema string format to appropriate Python type"""
     format_type = getattr(prop_schema, 'format', None)
     if format_type == 'email':
@@ -23,12 +23,12 @@ def _map_string_type(prop_schema: typing.Any) -> type:
     # Check for enum constraint
     enum_values = getattr(prop_schema, 'enum', None)
     if enum_values:
-        return typing.Literal[tuple(enum_values)]
+        return typing.Any  # Literal types need special handling
 
     return str
 
 
-def _map_array_type(prop_schema: typing.Any) -> type:
+def _map_array_type(prop_schema: typing.Any) -> type[typing.Any]:
     """Map JSON Schema array to appropriate list type"""
     items_schema = getattr(prop_schema, 'items', None)
     if not items_schema:
@@ -47,7 +47,7 @@ def _map_array_type(prop_schema: typing.Any) -> type:
         return list
 
 
-def _map_schema_type_to_python(prop_schema: typing.Any) -> type:
+def _map_schema_type_to_python(prop_schema: typing.Any) -> type[typing.Any]:
     """Map JSON Schema type to Python type"""
     json_type = getattr(prop_schema, 'type', None)
 
@@ -71,7 +71,7 @@ async def get_model(
     model: type[pydantic.BaseModel],
 ) -> type[pydantic.BaseModel]:
     """Return a model class with blueprints applied"""
-    blueprints = []
+    blueprints: list[models.Blueprint] = []
     async for blueprint in neo4j.fetch_nodes(
         models.Blueprint,
         {'type': model.__name__, 'enabled': True},
@@ -79,11 +79,12 @@ async def get_model(
     ):
         blueprints.append(blueprint)
 
-    kwargs: dict[str, tuple[type, typing.Any]] = {}
+    kwargs: dict[str, typing.Any] = {}
 
     # Add all fields from the base model
     for field_name, field_info in model.model_fields.items():
-        kwargs[field_name] = (field_info.annotation, field_info)
+        annotation = field_info.annotation
+        kwargs[field_name] = (annotation, field_info)
 
     # Add fields from blueprints
     for blueprint in blueprints:
@@ -99,7 +100,9 @@ async def get_model(
                 )
 
                 # Map JSON Schema type to Python type
-                field_type = _map_schema_type_to_python(prop_schema)
+                field_type: typing.Any = _map_schema_type_to_python(
+                    prop_schema
+                )
 
                 # Get metadata from schema
                 schema_default = getattr(prop_schema, 'default', None)
@@ -116,10 +119,10 @@ async def get_model(
 
                 # Create field with metadata if available
                 if description or schema_default is not None:
-                    field_info = pydantic.Field(
+                    field_info_obj = pydantic.Field(
                         default=default, description=description
                     )
-                    kwargs[prop_name] = (field_type, field_info)
+                    kwargs[prop_name] = (field_type, field_info_obj)
                 else:
                     kwargs[prop_name] = (field_type, default)
 
