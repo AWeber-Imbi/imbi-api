@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Imbi is a DevOps Service Management Platform designed to manage large environments containing many services and applications. Version 2 (currently in alpha) is a complete rewrite using FastAPI, Neo4j for graph data, and ClickHouse for analytics.
 
+**See [ROADMAP.md](ROADMAP.md)** for full v2 vision and planned features including conversational AI, webhook workflows, MCP server integration, and ecosystem of services.
+
 ## Development Setup
 
 ### Initial Setup
@@ -31,7 +33,23 @@ NEO4J_USER=username
 NEO4J_PASSWORD=password
 ```
 
+**Neo4j URL credential extraction**: The settings model automatically extracts credentials from URLs like `neo4j://user:pass@host:7687`, URL-decodes them, and strips them from the connection URL for security. Explicit `NEO4J_USER`/`NEO4J_PASSWORD` take precedence over URL credentials.
+
 ## Common Development Commands
+
+### Running the Application
+```bash
+# Run development server with auto-reload
+imbi run-server --dev
+
+# Run production server (uses IMBI_ENVIRONMENT setting)
+imbi run-server
+
+# Access the API
+curl http://localhost:8000/status
+```
+
+The server starts on `localhost:8000` by default (configurable via `IMBI_HOST` and `IMBI_PORT`). Development mode enables auto-reload when source files change.
 
 ### Code Quality
 ```bash
@@ -82,10 +100,17 @@ docker compose logs -f clickhouse
 
 ### High-Level Structure
 - **`src/imbi/`**: Main application code
-  - `models.py`: Core domain models (Namespace, ProjectType, Project)
-  - `settings.py`: Configuration via Pydantic Settings
+  - `app.py`: FastAPI application factory with lifespan management
+  - `entrypoint.py`: CLI commands (Typer-based)
+  - `models.py`: Core domain models (Blueprint, Namespace, ProjectType, Project)
+  - `settings.py`: Configuration via Pydantic Settings with URL credential extraction
+  - `endpoints/`: API endpoint routers
+    - `status.py`: Health check endpoint
   - `neo4j/`: Neo4j graph database integration layer
-- **`tests/`**: Test suite organized by module
+    - `client.py`: Singleton driver with event loop awareness
+    - `__init__.py`: High-level API and cypherantic wrappers
+    - `constants.py`: Index definitions and vector configuration
+- **`tests/`**: Test suite with 100% code coverage (55 tests)
 
 ### Neo4j Integration Pattern
 
@@ -106,6 +131,14 @@ async with neo4j.run('MATCH (n) RETURN n', param=value) as result:
 await neo4j.initialize()  # Set up indexes
 element_id = await neo4j.upsert(node_model, {'id': '123'})
 await neo4j.aclose()  # Cleanup
+
+# Cypherantic wrapper functions (type-safe Pydantic integration):
+node_id = await neo4j.create_node(model_instance)  # Create node from model
+edge_id = await neo4j.create_relationship(
+    source_model, target_model, rel_type='DEPENDS_ON'
+)
+await neo4j.refresh_relationship(model, 'dependencies')  # Lazy-load relationships
+edges = await neo4j.retrieve_relationship_edges(model, 'dependencies')
 ```
 
 **Implementation details** (`src/imbi/neo4j/client.py`):
@@ -119,6 +152,37 @@ await neo4j.aclose()  # Cleanup
 - Takes constraint dict for matching (e.g., `{'id': '123'}`)
 - Automatically maps Pydantic model properties to node properties
 - Returns Neo4j elementId of created/updated node
+
+**Cypherantic integration** (`neo4j/__init__.py`):
+- `create_node()`: Create Neo4j nodes from Pydantic models with automatic label/property mapping
+- `create_relationship()`: Create typed relationships between nodes with optional properties
+- `refresh_relationship()`: Lazy-load relationship properties from graph (on-demand fetching)
+- `retrieve_relationship_edges()`: Fetch relationship edges as Pydantic models
+- Full type safety with TypeVars preserving model types through operations
+
+### FastAPI Application Structure
+
+**Application factory** (`src/imbi/app.py`):
+```python
+from imbi.app import create_app
+
+app = create_app()  # Returns configured FastAPI instance
+```
+
+**Lifespan management**: The application uses FastAPI's lifespan context manager to:
+- Initialize Neo4j indexes on startup (`neo4j.initialize()`)
+- Clean up Neo4j connections on shutdown (`neo4j.aclose()`)
+- Ensures proper resource management across application lifecycle
+
+**Endpoint registration** (`src/imbi/endpoints/`):
+- Each endpoint module exports an `APIRouter`
+- Routers collected in `endpoints/__init__.py:routers` list
+- Automatically registered in `create_app()` via `app.include_router()`
+
+**CLI interface** (`src/imbi/entrypoint.py`):
+- Built with Typer for command-line operations
+- `run-server`: Start uvicorn with development/production modes
+- Configures logging, auto-reload, proxy headers, and custom Server header
 
 ### Data Modeling Conventions
 
@@ -180,6 +244,7 @@ mock_session.__aexit__.return_value = None
 - `E501`: Line too long (many long Pydantic model descriptions)
 - `N818`: Exception class names don't need to end in "Error"
 - `UP040`: Allow non-PEP 695 type aliases
+- `UP047`: Allow non-PEP 695 generic functions (TypeVars for cypherantic compatibility)
 
 ## CI/CD
 
@@ -193,15 +258,29 @@ mock_session.__aexit__.return_value = None
 
 ## Important Notes
 
-**Current development status**: This is a v2 alpha rewrite. Core infrastructure is in place:
-- ✅ Neo4j integration with singleton pattern, indexes, upsert operations
-- ✅ Settings management via Pydantic
-- ✅ Docker Compose development environment
-- 🚧 ClickHouse integration (dependency present, service running, but not yet integrated in code)
-- 🚧 FastAPI routes/endpoints (dependency present but no routes yet)
+**Current development status**: This is a v2 alpha rewrite. Core infrastructure is complete with 100% test coverage (55 tests):
+
+✅ **Implemented**:
+- FastAPI application with lifespan management (Neo4j init/cleanup)
+- Status endpoint with health check (`GET /status`)
+- CLI with `run-server` command (development and production modes)
+- Neo4j integration with singleton pattern, cypherantic wrappers, indexes, upsert operations
+- Settings management via Pydantic with URL credential extraction
+- Core domain models (Blueprint, Namespace, ProjectType, Project)
+- Docker Compose development environment (Neo4j, ClickHouse)
+- Pre-commit hooks with Ruff linting and formatting
+- Bootstrap script for automated setup
+- Comprehensive test suite with 100% code coverage
+
+🚧 **In Progress**:
+- ClickHouse integration (dependency present, service running, but not yet integrated in code)
+- Additional API endpoints (projects, namespaces, blueprints CRUD)
+- Authentication/authorization
+- Webhook service
+- Conversational AI features
 
 **Database strategy**:
 - **Neo4j**: Graph database for service relationships and dependencies
 - **ClickHouse**: Analytics and time-series data (planned)
 
-**Vector embeddings**: Configuration present for 1536-dimensional vectors with cosine similarity (see `neo4j/constants.py`)
+**Vector embeddings**: Configuration present for 1536-dimensional vectors with cosine similarity for AI-powered search (see `neo4j/constants.py`)
