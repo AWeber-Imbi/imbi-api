@@ -10,23 +10,30 @@ Imbi is a DevOps Service Management Platform designed to manage large environmen
 
 ## Development Setup
 
+### Package Manager
+
+This project uses [uv](https://docs.astral.sh/uv/) for fast, reliable Python package management. Dependencies are locked in `uv.lock` for reproducible builds.
+
 ### Initial Setup
 ```bash
 ./bootstrap
 ```
 This script:
-- Creates/activates a Python virtual environment
-- Installs the package with dev dependencies
-- Installs pre-commit hooks
-- Starts Docker Compose services (Neo4j, ClickHouse)
+- Syncs dependencies using `uv sync --all-extras --all-groups --locked`
+- Installs pre-commit hooks via `uv run pre-commit install`
+- Starts Docker Compose services (Neo4j, ClickHouse, Jaeger)
 - Waits for services to be healthy (120s timeout)
+- Generates `.env` file with service URLs and OpenTelemetry configuration
 
 ### Environment Configuration
-Services run without authentication in development (configured in `compose.yaml`):
-- Neo4j: ports 7474 (HTTP), 7687 (Bolt) - `NEO4J_AUTH=none`
-- ClickHouse: ports 8123 (HTTP), 9000 (Native) - default/password
 
-Override settings via environment variables or `.env` file:
+**Docker services** (configured in `compose.yaml`):
+- **Neo4j**: ports 7474 (HTTP), 7687 (Bolt) - `NEO4J_AUTH=none`
+- **ClickHouse**: ports 8123 (HTTP), 9000 (Native) - default/password
+- **Jaeger**: ports 4317 (OTLP), 16686 (UI) - for OpenTelemetry tracing
+
+The bootstrap script automatically generates a `.env` file with dynamically assigned ports and OpenTelemetry configuration. You can override settings via environment variables:
+
 ```bash
 NEO4J_URL=neo4j://localhost:7687
 NEO4J_USER=username
@@ -40,13 +47,16 @@ NEO4J_PASSWORD=password
 ### Running the Application
 ```bash
 # Run development server with auto-reload
-imbi run-server --dev
+uv run imbi run-server --dev
 
 # Run production server (uses IMBI_ENVIRONMENT setting)
-imbi run-server
+uv run imbi run-server
 
 # Access the API
 curl http://localhost:8000/status
+
+# View Jaeger tracing UI
+open http://localhost:16686
 ```
 
 The server starts on `localhost:8000` by default (configurable via `IMBI_HOST` and `IMBI_PORT`). Development mode enables auto-reload when source files change.
@@ -54,31 +64,38 @@ The server starts on `localhost:8000` by default (configurable via `IMBI_HOST` a
 ### Code Quality
 ```bash
 # Run all pre-commit checks (includes ruff linting + formatting)
-pre-commit run --all-files
+uv run pre-commit run --all-files
 
 # Run ruff directly
-ruff check .                    # Lint
-ruff check --fix .             # Lint with auto-fix
-ruff format .                   # Format code
+uv run ruff check .                    # Lint
+uv run ruff check --fix .             # Lint with auto-fix
+uv run ruff format .                   # Format code
+
+# Run mypy type checking
+uv run mypy
 ```
 
 ### Testing
 ```bash
-# Run all tests with coverage
-coverage run && coverage report
+# Run all tests with coverage (uses pytest-cov via pyproject.toml)
+uv run pytest
 
 # Run specific test file
-python -m pytest tests/neo4j/test_client.py
+uv run pytest tests/neo4j/test_client.py
 
 # Run specific test class or method
-python -m pytest tests/neo4j/test_client.py::Neo4jClientTestCase
-python -m pytest tests/neo4j/test_client.py::Neo4jClientTestCase::test_singleton
+uv run pytest tests/neo4j/test_client.py::Neo4jClientTestCase
+uv run pytest tests/neo4j/test_client.py::Neo4jClientTestCase::test_singleton
 
 # Run with verbose output
-python -m pytest -v tests/
+uv run pytest -v
 ```
 
-**Coverage requirement**: 90% minimum (enforced in `pyproject.toml`)
+**Coverage configuration** (`pyproject.toml`):
+- Minimum coverage: 90% (enforced via `tool.coverage.report.fail_under`)
+- Automatic coverage collection via `pytest --cov` (configured in `tool.pytest.ini_options.addopts`)
+- XML output: `build/coverage.xml` (for Codecov)
+- HTML report: `build/coverage/` (for local review)
 
 ### Docker Services
 ```bash
@@ -241,20 +258,50 @@ mock_session.__aexit__.return_value = None
 - Security tests disabled in test files (`[tool.ruff.lint.per-file-ignores]`)
 
 **Ignored rules**:
-- `E501`: Line too long (many long Pydantic model descriptions)
 - `N818`: Exception class names don't need to end in "Error"
+- `RSE`: Contradicts Python Style Guide
+- `TRY003`: Message text in exception initializers is okay
+- `TRY400`: logging.exception is not always preferable
 - `UP040`: Allow non-PEP 695 type aliases
 - `UP047`: Allow non-PEP 695 generic functions (TypeVars for cypherantic compatibility)
+
+**Type checking**:
+- **mypy**: Configured for strict type checking of `src/imbi` (run with `uv run mypy`)
+- **pyright**: Configured to check `src/` and `tests/` with strict mode
 
 ## CI/CD
 
 **GitHub Actions workflows** (`.github/workflows/`):
-- `testing.yaml`: Runs on Python 3.12, includes pre-commit checks, pytest with 90% coverage, Codecov upload
-- `docs.yaml`: Builds and deploys MkDocs documentation to GitHub Pages
+
+1. **`testing.yaml`**: Runs on every push to `main` and all pull requests
+   - Tests across Python 3.12, 3.13, and 3.14
+   - Uses `astral-sh/setup-uv@v7` for fast dependency installation
+   - Runs pre-commit checks (linting, formatting)
+   - Executes full test suite via `uv run pytest`
+   - Uploads coverage reports to Codecov (90% minimum required)
+   - Starts Docker services (Neo4j, ClickHouse, Jaeger) via bootstrap
+
+2. **`docs.yaml`**: Builds and deploys documentation to GitHub Pages
+   - Triggers on pushes to `main` affecting docs/ or mkdocs.yml
+   - Uses Python 3.12 and pip for MkDocs dependencies
+   - Builds with `mkdocs build --strict`
+   - Deploys to GitHub Pages
+
+3. **`deploy.yaml`**: Publishes releases to PyPI
+   - Triggers on GitHub release creation
+   - Uses Python 3.14
+   - Builds wheel with `python -m build`
+   - Validates with `twine check`
+   - Publishes via trusted publisher (OIDC)
 
 **Pre-commit hooks** (`.pre-commit-config.yaml`):
 - Standard checks: trailing whitespace, EOF, YAML/TOML validation, merge conflicts
 - Ruff: Linting with `--fix` and formatting
+
+**Dependency management**:
+- Dependencies locked in `uv.lock` for reproducibility
+- Development dependencies in `[dependency-groups]` section
+- Documentation dependencies in separate `docs` group
 
 ## Important Notes
 
