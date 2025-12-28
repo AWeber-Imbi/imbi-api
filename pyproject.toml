@@ -143,6 +143,7 @@ max-complexity = 15
 dev = [
   "build",
   "coverage[toml]",
+  "httpx",
   "mypy",
   "pre-commit",
   "pyright",
