@@ -2,12 +2,12 @@ name: Testing
 on:
   pull_request:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
     paths-ignore:
       - 'docs/**'
       - '*.md'
       - '*.rst'
-    tags-ignore: ["*"]
+    tags-ignore: [ "*" ]
 
 env:
   TEST_HOST: postgres
@@ -18,24 +18,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12"]
-        postgres: [18]
-    services:
-      postgres:
-        image: postgres:${{ matrix.postgres }}
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --name postgres
-          --hostname postgres
-
+        python: [ "3.12" ]
     steps:
+      -
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -56,11 +41,7 @@ jobs:
         run: pre-commit run --all-files
 
       - name: Run tests
-        run: |
-          coverage run
-          coverage report
-          coverage xml
-
+        run: pytest --cov --cov-report=xml
       - name: Upload Coverage
         uses: codecov/codecov-action@v5
         with:
