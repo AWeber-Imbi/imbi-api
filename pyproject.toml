@@ -61,7 +61,7 @@ branch = true
 source = ["src/imbi"]
 
 [tool.coverage.xml]
-output = "build/reports/coverage.xml"
+output = "build/coverage.xml"
 
 [tool.hatch.build.targets.wheel]
 src-layout = true
@@ -86,6 +86,14 @@ include = ["src", "tests"]
 deprecateTypingAliases = true
 reportMissingSuperCall = "hint"
 typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--cov=src/imbi",
+  "--cov-report=xml:build/coverage.xml",
+  "--cov-report=term",
+]
 
 [tool.ruff]
 line-length = 79
