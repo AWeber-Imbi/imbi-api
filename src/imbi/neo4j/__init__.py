@@ -198,8 +198,11 @@ async def retrieve_relationship_edges(
 
     """
     async with session() as sess:
-        return await cypherantic.retrieve_relationship_edges(  # type: ignore[no-any-return]
-            sess, model, rel_name, direction, edge_cls
+        return typing.cast(
+            list[EdgeType],
+            await cypherantic.retrieve_relationship_edges(
+                sess, model, rel_name, direction, edge_cls
+            ),
         )
 
 
