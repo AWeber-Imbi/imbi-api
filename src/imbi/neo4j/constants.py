@@ -7,4 +7,7 @@ _EMBEDDING_INDEX_CONFIG = """\
 }
 """
 
-INDEXES: list[str] = []
+INDEXES: list[str] = [
+    'CREATE CONSTRAINT blueprint_pkey IF NOT EXISTS FOR (n:Blueprint) '
+    'REQUIRE (n.name, n.type) IS UNIQUE;',
+]
