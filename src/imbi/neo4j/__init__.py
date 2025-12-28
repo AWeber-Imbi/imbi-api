@@ -49,7 +49,8 @@ async def create_node(model: ModelType) -> neo4j.graph.Node:
 
     This method uses cypherantic to create a node with:
     - Labels extracted from model's ``cypherantic_config`` or class name
-    - Automatic unique constraints for fields marked with ``Field(unique=True)``
+    - Automatic unique constraints for fields marked with
+      ``Field(unique=True)``
     - Properties from the model's fields (excluding relationship fields)
 
     :param model: Pydantic model instance to create as a node
@@ -88,16 +89,20 @@ async def create_relationship(
 
     This method creates a relationship by:
 
-    - Matching nodes by their unique key fields (``Field(unique=True)`` metadata)
-    - Using relationship type from ``rel_props.cypherantic_config`` or ``rel_type`` parameter
+    - Matching nodes by their unique key fields
+      (``Field(unique=True)`` metadata)
+    - Using relationship type from ``rel_props.cypherantic_config``
+      or ``rel_type`` parameter
     - Attaching properties from ``rel_props`` model if provided
 
-    Either ``rel_props`` (a Pydantic model with relationship properties and config)
-    or ``rel_type`` (a string relationship type) must be provided.
+    Either ``rel_props`` (a Pydantic model with relationship properties
+    and config) or ``rel_type`` (a string relationship type) must be
+    provided.
 
     :param from_node: Source node model instance
     :param to_node: Target node model instance
-    :param rel_props: Optional Pydantic model containing relationship properties
+    :param rel_props: Optional Pydantic model containing relationship
+        properties
     :param rel_type: Optional explicit relationship type name
     :returns: The created Neo4j relationship object
 
@@ -167,15 +172,19 @@ async def retrieve_relationship_edges(
     returning them as "edge" instances that contain both the target node and
     the relationship properties.
 
-    The ``edge_cls`` must be a type (typically a NamedTuple or dataclass) with:
+    The ``edge_cls`` must be a type (typically a NamedTuple or dataclass)
+    with:
     - ``node`` attribute: The target node Pydantic model class
-    - ``properties`` attribute: The relationship properties Pydantic model class
+    - ``properties`` attribute: The relationship properties Pydantic
+      model class
 
     :param model: Source node model instance to query from
     :param rel_name: Relationship type name to traverse
-    :param direction: Direction to traverse (INCOMING, OUTGOING, or UNDIRECTED)
+    :param direction: Direction to traverse (INCOMING, OUTGOING, or
+        UNDIRECTED)
     :param edge_cls: Edge type class containing node and properties
-    :returns: List of edge instances, each containing a node and its relationship properties
+    :returns: List of edge instances, each containing a node and its
+        relationship properties
 
     Example::
 

@@ -212,8 +212,8 @@ class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
             # Verify cypherantic.create_relationship was called correctly
             mock_create.assert_called_once()
             call_args = mock_create.call_args
-            # Should be called with 3 positional args (session, from_node, to_node)
-            # and rel_type as keyword argument
+            # Should be called with 3 positional args
+            # (session, from_node, to_node) and rel_type as keyword argument
             self.assertEqual(len(call_args[0]), 3)
             self.assertEqual(call_args[0][1], from_node)
             self.assertEqual(call_args[0][2], to_node)
