@@ -35,11 +35,11 @@ async def initialize() -> None:
 async def session() -> typing.AsyncGenerator[cypherantic.SessionType, None]:
     """Return a Neo4j AsyncSession for use in queries"""
     instance = client.Neo4j.get_instance()
-    async with instance.session() as sess:  # type: ignore
+    async with instance.session() as sess:
         yield sess
 
 
-def cypher_property_params(value: dict) -> str:
+def cypher_property_params(value: dict[str, typing.Any]) -> str:
     """Turn a dict into a Cypher-friendly string of properties for querying"""
     return ', '.join(f'{key}: ${key}' for key in (value or {}).keys())
 
@@ -103,9 +103,16 @@ async def create_relationship(
 
     """
     async with session() as sess:
-        return await cypherantic.create_relationship(
-            sess, from_node, to_node, rel_props, rel_type=rel_type
-        )
+        if rel_props is not None:
+            return await cypherantic.create_relationship(
+                sess, from_node, to_node, rel_props
+            )
+        elif rel_type is not None:
+            return await cypherantic.create_relationship(
+                sess, from_node, to_node, rel_type=rel_type
+            )
+        else:
+            raise ValueError('Either rel_props or rel_type must be provided')
 
 
 async def refresh_relationship(model: SourceNode, rel_property: str) -> None:
@@ -199,13 +206,15 @@ async def run(
     """Run a Cypher query and return the result as an AsyncResult"""
     async with session() as sess:
         result = await sess.run(
-            typing.cast(typing.LiteralString, re.sub(r'\s+', ' ', query)),
+            re.sub(r'\s+', ' ', query),
             **parameters,
         )
         yield result
 
 
-async def upsert(node: pydantic.BaseModel, constraint: dict) -> str:
+async def upsert(
+    node: pydantic.BaseModel, constraint: dict[str, typing.Any]
+) -> str:
     """Save a node to the graph, returning the elementId"""
     properties = node.model_dump(by_alias=True)
     labels = node.__class__.__name__.lower()
@@ -229,5 +238,7 @@ async def upsert(node: pydantic.BaseModel, constraint: dict) -> str:
     LOGGER.debug('Upsert parameters: %r', parameters)
     # Upsert the node
     async with run(query, **parameters) as result:
-        temp = await result.single()
-        return temp['nodeId']
+        record = await result.single()
+        if record is None:
+            raise ValueError('Upsert query returned no results')
+        return str(record['nodeId'])

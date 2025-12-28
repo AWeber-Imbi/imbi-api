@@ -7,4 +7,4 @@ _EMBEDDING_INDEX_CONFIG = """\
 }
 """
 
-INDEXES = []
+INDEXES: list[str] = []

@@ -31,7 +31,7 @@ class Neo4jClientTestCase(unittest.IsolatedAsyncioTestCase):
         self.mock_driver_class = self.driver_patcher.start()
         self.addCleanup(self.driver_patcher.stop)
 
-    def test_graph_singleton(self) -> None:
+    async def test_graph_singleton(self) -> None:
         """Test that Graph uses singleton pattern."""
         instance1 = client.Neo4j.get_instance()
         instance2 = client.Neo4j.get_instance()

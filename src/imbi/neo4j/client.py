@@ -24,7 +24,7 @@ EdgeType = typing.TypeVar('EdgeType')
 
 
 class Neo4j:
-    instance = None
+    _instance: typing.ClassVar[typing.Optional['Neo4j']] = None
 
     def __init__(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -32,16 +32,16 @@ class Neo4j:
         self._neo4j = self._create_client()
 
     @classmethod
-    def get_instance(cls) -> typing.Self:
-        if cls.instance is None:
-            cls.instance = Neo4j()
+    def get_instance(cls) -> 'Neo4j':
+        if cls._instance is None:
+            cls._instance = Neo4j()
         else:
             current_loop = asyncio.get_event_loop()
-            if cls.instance._loop != current_loop:
+            if cls._instance._loop != current_loop:
                 LOGGER.debug('Event loop changed, reinitializing Neo4j')
-                cls.instance._loop = current_loop
-                cls.instance._neo4j = cls.instance._create_client()
-        return cls.instance
+                cls._instance._loop = current_loop
+                cls._instance._neo4j = cls._instance._create_client()
+        return cls._instance
 
     async def aclose(self) -> None:
         LOGGER.debug('Closing Neo4j')
@@ -68,12 +68,15 @@ class Neo4j:
             default_access_mode=default_access_mode,
             fetch_size=fetch_size,
         ) as session:
-            yield session  # type: ignore
+            yield session
 
     def _create_client(self) -> neo4j.AsyncDriver:
+        auth: tuple[str, str] | None = None
+        if self._settings.user and self._settings.password:
+            auth = (self._settings.user, self._settings.password)
         return neo4j.AsyncGraphDatabase.driver(
             uri=str(self._settings.url),
-            auth=(self._settings.user, self._settings.password),
+            auth=auth,
             keep_alive=self._settings.keep_alive,
             liveness_check_timeout=self._settings.liveness_check_timeout,
             max_connection_lifetime=self._settings.max_connection_lifetime,

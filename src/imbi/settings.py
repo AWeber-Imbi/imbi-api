@@ -1,19 +1,16 @@
-import urllib.parse
+from urllib import parse
 
 import pydantic
 import pydantic_settings
 
-BASE_SETTINGS = {
-    'case_sensitive': False,
-    'env_file': '.env',
-    'env_file_encoding': 'utf-8',
-    'extra': 'ignore',
-}
-
 
 class Neo4j(pydantic_settings.BaseSettings):
     model_config = pydantic_settings.SettingsConfigDict(
-        env_prefix='NEO4J_', **BASE_SETTINGS
+        env_prefix='NEO4J_',
+        case_sensitive=False,
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
     )
     url: pydantic.AnyUrl = pydantic.AnyUrl('neo4j://localhost:7687')
     user: str | None = None
@@ -34,11 +31,11 @@ class Neo4j(pydantic_settings.BaseSettings):
         """
         if self.url.username and not self.user:
             # Decode URL-encoded username
-            self.user = urllib.parse.unquote(self.url.username)
+            self.user = parse.unquote(self.url.username)
 
         if self.url.password and not self.password:
             # Decode URL-encoded password
-            self.password = urllib.parse.unquote(self.url.password)
+            self.password = parse.unquote(self.url.password)
 
         # Strip credentials from URL if present
         if self.url.username or self.url.password:
@@ -60,7 +57,11 @@ class Neo4j(pydantic_settings.BaseSettings):
 
 class ServerConfig(pydantic_settings.BaseSettings):
     model_config = pydantic_settings.SettingsConfigDict(
-        env_prefix='IMBI_', **BASE_SETTINGS
+        env_prefix='IMBI_',
+        case_sensitive=False,
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
     )
     environment: str = 'development'
     host: str = 'localhost'
