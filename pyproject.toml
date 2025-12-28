@@ -59,7 +59,6 @@ show_missing = true
 [tool.coverage.run]
 branch = true
 source = ["src/imbi"]
-command_line = "-m pytest tests/"
 
 [tool.coverage.xml]
 output = "build/reports/coverage.xml"
@@ -116,9 +115,10 @@ select = [
   "UP", # pyupgrade
 ]
 ignore = [
-  "E501", # line too long - many long description strings in Pydantic models
   "N818", # exception class names are not required to end in Error
   "RSE", # contradicts Python Style Guide
+  "TRY003", # message text in exception initializers is okay
+  "TRY400", # logging.exception is not always preferable
   "UP040", # allow non-pep695-type-alias
   "UP047", # allow non-pep695-generic-functions
 ]
