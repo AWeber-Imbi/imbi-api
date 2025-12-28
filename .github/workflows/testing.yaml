@@ -23,26 +23,22 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           python-version: '${{ matrix.python }}'
+          enable-cache: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '${{ matrix.python }}'
+      - name: Install Python 3.12
+        run: uv python install ${{ matrix.python }}
 
       - name: Install pre-commit
         uses: pre-commit/action@v3.0.1
 
-      - name: Bootstrap environment
-        run: ./bootstrap
-
       - name: Lint Check
         run: pre-commit run --all-files
 
-      - name: Install dependencies
-        run: uv sync --all-extras --all-groups
+      - name: Bootstrap environment
+        run: ./bootstrap
 
       - name: Run tests
-        run: pytest
+        run: uv run pytest
 
       - name: Upload Coverage
         uses: codecov/codecov-action@v5
