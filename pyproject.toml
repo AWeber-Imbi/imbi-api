@@ -78,12 +78,6 @@ allow-direct-references = true
 [tool.mkdocs]
 config-file = "mkdocs.yml"
 
-[tool.mypy]
-files = ["src/imbi"]
-namespace_packages = true
-show_error_codes = true
-strict = true
-
 [tool.pyright]
 include = ["src", "tests"]
 deprecateTypingAliases = true

@@ -45,7 +45,7 @@ class Blueprint(pydantic.BaseModel):
 
     @pydantic.field_serializer('json_schema')
     def serialize_json_schema(self, value: Schema) -> str:
-        return typing.cast(str, value.model_dump_json(indent=0))
+        return value.model_dump_json(indent=0)
 
 
 class BlueprintAssignment(pydantic.BaseModel):
