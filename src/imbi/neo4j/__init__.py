@@ -265,7 +265,7 @@ async def fetch_nodes(
     parameters: dict[str, typing.Any] | None = None,
     order_by: str | list[str] | None = None,
 ) -> typing.AsyncGenerator[ModelType, None]:
-    """Fetch a single node from the graph by its unique key fields"""
+    """Fetch nodes from the graph, optionally filtered by parameters"""
     query = _build_fetch_query(model, parameters, order_by)
     LOGGER.debug('Running Query: %s', query)
     async with run(query, **parameters or {}) as result:

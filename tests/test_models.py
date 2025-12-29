@@ -86,12 +86,17 @@ class ProjectModelTestCase(unittest.TestCase):
 
     def test_project_url_validation(self) -> None:
         """Test Project URL validation."""
+        # Create minimal valid related objects
+        org = models.Organization(name='Org', slug='org')
+        team = models.Team(name='Team', slug='team', member_of=org)
+        project_type = models.ProjectType(name='Type', slug='type')
+
         with self.assertRaises(pydantic.ValidationError):
             models.Project(
                 name='Test',
                 slug='test',
-                team=None,
-                project_type=None,
+                team=team,
+                project_type=project_type,
                 links={'repo': 'not-a-url'},  # Invalid URL
                 urls={},
                 identifiers={},
