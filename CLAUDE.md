@@ -303,6 +303,40 @@ mock_session.__aexit__.return_value = None
 - Development dependencies in `[dependency-groups]` section
 - Documentation dependencies in separate `docs` group
 
+## Git Workflow
+
+**Branching strategy**:
+- Main development branch: `feature/v2` (for v2 alpha development)
+- Feature branches: `feature/v2-<feature-name>` (branch off from `feature/v2`)
+- Production branch: `main` (for stable releases)
+
+**Creating pull requests**:
+- **IMPORTANT**: All PRs for v2 development must target the `feature/v2` branch, not `main`
+- Create feature branches from `feature/v2`
+- Use descriptive branch names: `feature/v2-blueprints`, `feature/v2-api-endpoints`, etc.
+- PR titles should be clear and concise
+- Include comprehensive PR descriptions with:
+  - Summary of changes
+  - Testing instructions
+  - Examples (if applicable)
+  - List of commits
+
+**Example workflow**:
+```bash
+# Create feature branch from feature/v2
+git checkout feature/v2
+git pull origin feature/v2
+git checkout -b feature/v2-new-feature
+
+# Make changes, commit, and push
+git add .
+git commit -m "Add new feature"
+git push -u origin feature/v2-new-feature
+
+# Create PR targeting feature/v2
+gh pr create --base feature/v2 --title "Add new feature" --body "..."
+```
+
 ## Important Notes
 
 **Current development status**: This is a v2 alpha rewrite. Core infrastructure is complete with 100% test coverage (55 tests):

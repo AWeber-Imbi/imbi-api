@@ -28,11 +28,13 @@ classifiers = [
 dependencies = [
   "asynch",
   "cypherantic@git+https://github.com/dave-shawley/cypherantic.git#egg=main",
+  "email-validator",
   "fastapi",
   "jsonschema-models",
   "neo4j",
-  "pydantic>=2.12.5",
+  "pydantic",
   "pydantic-settings",
+  "python-slugify",
   "typer",
   "uvicorn",
   "yarl",
@@ -75,12 +77,6 @@ allow-direct-references = true
 
 [tool.mkdocs]
 config-file = "mkdocs.yml"
-
-[tool.mypy]
-files = ["src/imbi"]
-namespace_packages = true
-show_error_codes = true
-strict = true
 
 [tool.pyright]
 include = ["src", "tests"]

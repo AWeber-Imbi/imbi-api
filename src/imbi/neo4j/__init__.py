@@ -39,11 +39,6 @@ async def session() -> typing.AsyncGenerator[cypherantic.SessionType, None]:
         yield sess
 
 
-def cypher_property_params(value: dict[str, typing.Any]) -> str:
-    """Turn a dict into a Cypher-friendly string of properties for querying"""
-    return ', '.join(f'{key}: ${key}' for key in (value or {}).keys())
-
-
 async def create_node(model: ModelType) -> neo4j.graph.Node:
     """Create a node in the graph.
 
@@ -203,8 +198,11 @@ async def retrieve_relationship_edges(
 
     """
     async with session() as sess:
-        return await cypherantic.retrieve_relationship_edges(
-            sess, model, rel_name, direction, edge_cls
+        return typing.cast(
+            list[EdgeType],
+            await cypherantic.retrieve_relationship_edges(
+                sess, model, rel_name, direction, edge_cls
+            ),
         )
 
 
@@ -221,6 +219,60 @@ async def run(
         yield result
 
 
+def _cypher_property_params(value: dict[str, typing.Any]) -> str:
+    """Turn a dict into a Cypher-friendly string of properties for querying"""
+    return ', '.join(f'{key}: ${key}' for key in (value or {}).keys())
+
+
+# Public alias for backward compatibility
+cypher_property_params = _cypher_property_params
+
+
+def _build_fetch_query(
+    model: type[pydantic.BaseModel] | str,
+    parameters: dict[str, typing.Any] | None = None,
+    order_by: str | list[str] | None = None,
+) -> str:
+    """Build a query to fetch nodes from the graph by its unique key fields"""
+    name = model.__name__ if isinstance(model, type) else model
+    query = f'MATCH (node:{name}'
+    if parameters:
+        query += f' {{{_cypher_property_params(parameters)}}}'
+    query += ') RETURN node'
+    if order_by:
+        if isinstance(order_by, list):
+            order_by = ', '.join(f'node.{key}' for key in order_by)
+        elif isinstance(order_by, str):
+            order_by = f'node.{order_by}'
+        query += f' ORDER BY {order_by}'
+    return query
+
+
+async def fetch_node(
+    model: type[ModelType],
+    parameters: dict[str, typing.Any],
+) -> ModelType | None:
+    """Fetch a single node from the graph by its unique key fields"""
+    query = _build_fetch_query(model, parameters)
+    LOGGER.debug('Running Query: %s', query)
+    async with run(query, **parameters) as result:
+        record = await result.single()
+    return model.model_validate(record.data()['node']) if record else None
+
+
+async def fetch_nodes(
+    model: type[ModelType],
+    parameters: dict[str, typing.Any] | None = None,
+    order_by: str | list[str] | None = None,
+) -> typing.AsyncGenerator[ModelType, None]:
+    """Fetch nodes from the graph, optionally filtered by parameters"""
+    query = _build_fetch_query(model, parameters, order_by)
+    LOGGER.debug('Running Query: %s', query)
+    async with run(query, **parameters or {}) as result:
+        async for record in result:
+            yield model.model_validate(record.data()['node'])
+
+
 async def upsert(
     node: pydantic.BaseModel, constraint: dict[str, typing.Any]
 ) -> str:
@@ -235,7 +287,7 @@ async def upsert(
     parameters.update(constraint)
     parameters.update(properties)
 
-    where_props = cypher_property_params(constraint)
+    where_props = _cypher_property_params(constraint)
 
     query = (
         f'         MERGE (node:{":".join(labels)} {{{where_props}}})'
