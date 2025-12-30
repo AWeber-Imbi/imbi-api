@@ -39,11 +39,13 @@ class Blueprint(pydantic.BaseModel):
         """Generate slug from name if not provided and validate it."""
         if self.slug is None:
             self.slug = slugify.slugify(self.name)
+        else:
+            self.slug = self.slug.lower()
 
         # Validate slug format
         if not self.slug:
             raise ValueError('Slug cannot be empty')
-        if not all(c.isalnum() or c == '-' for c in self.slug):
+        if not all(c.islower() or c.isdigit() or c == '-' for c in self.slug):
             raise ValueError(
                 'Slug must contain only lowercase letters, '
                 'numbers, and hyphens'

@@ -27,7 +27,19 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     def test_create_blueprint_success(self) -> None:
         """Test successful blueprint creation."""
         with mock.patch('imbi.neo4j.create_node') as mock_create:
-            mock_create.return_value = mock.AsyncMock()
+            # Mock node that can be converted to dict
+            mock_node = {
+                'name': 'New Blueprint',
+                'slug': 'new-blueprint',
+                'type': 'Environment',
+                'description': None,
+                'enabled': True,
+                'priority': 0,
+                'filter': None,
+                'json_schema': '{"type": "object", "properties": {}}',
+                'version': 0,
+            }
+            mock_create.return_value = mock_node
 
             response = self.client.post(
                 '/blueprints/',

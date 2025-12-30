@@ -22,14 +22,14 @@ async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
     auto-generated from the name if not provided.
 
     Returns:
-        The created blueprint with generated slug
+        The created blueprint with round-trip values from the database
 
     Raises:
         409: Blueprint with same name and type already exists
     """
     try:
-        await imbi_neo4j.create_node(blueprint)
-        return blueprint
+        node = await imbi_neo4j.create_node(blueprint)
+        return models.Blueprint.model_validate(dict(node))
     except neo4j.exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
