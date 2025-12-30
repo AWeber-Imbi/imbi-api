@@ -4,10 +4,9 @@ import logging
 import typing
 
 import fastapi
-import neo4j
+from neo4j import exceptions
 
-from imbi import models
-from imbi import neo4j as imbi_neo4j
+from imbi import models, neo4j
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,8 +27,8 @@ async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
         409: Blueprint with same name and type already exists
     """
     try:
-        return await imbi_neo4j.create_node(blueprint)
-    except neo4j.exceptions.ConstraintError as e:
+        return await neo4j.create_node(blueprint)
+    except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=f'Blueprint with name {blueprint.name!r} and type '
@@ -54,7 +53,7 @@ async def list_blueprints(
         parameters['enabled'] = enabled
 
     blueprints = []
-    async for blueprint in imbi_neo4j.fetch_nodes(
+    async for blueprint in neo4j.fetch_nodes(
         models.Blueprint,
         parameters if parameters else None,
         order_by='name',
@@ -87,7 +86,7 @@ async def list_blueprints_by_type(
         parameters['enabled'] = enabled
 
     blueprints = []
-    async for blueprint in imbi_neo4j.fetch_nodes(
+    async for blueprint in neo4j.fetch_nodes(
         models.Blueprint, parameters, order_by='name'
     ):
         blueprints.append(blueprint)
@@ -116,7 +115,7 @@ async def get_blueprint(
     Raises:
         404: Blueprint not found
     """
-    blueprint = await imbi_neo4j.fetch_node(
+    blueprint = await neo4j.fetch_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if blueprint is None:
@@ -171,7 +170,7 @@ async def update_blueprint(
             f'blueprint data ({blueprint.type!r})',
         )
 
-    await imbi_neo4j.upsert(blueprint, {'slug': slug, 'type': blueprint_type})
+    await neo4j.upsert(blueprint, {'slug': slug, 'type': blueprint_type})
     return blueprint
 
 
@@ -194,7 +193,7 @@ async def delete_blueprint(
     Raises:
         404: Blueprint not found
     """
-    deleted = await imbi_neo4j.delete_node(
+    deleted = await neo4j.delete_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if not deleted:
