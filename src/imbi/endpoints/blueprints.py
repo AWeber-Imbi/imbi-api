@@ -66,21 +66,24 @@ async def list_blueprints(
 
 @blueprint_router.get('/{type}', response_model=list[models.Blueprint])
 async def list_blueprints_by_type(
-    type: typing.Literal[
-        'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+    blueprint_type: typing.Annotated[
+        typing.Literal[
+            'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+        ],
+        fastapi.Path(alias='type'),
     ],
     enabled: bool | None = None,
 ) -> list[models.Blueprint]:
     """List all blueprints of a specific type.
 
     Args:
-        type: The blueprint type to filter by
+        blueprint_type: The blueprint type to filter by
         enabled: Optional filter by enabled status
 
     Returns:
         List of blueprints matching the type (optionally filtered)
     """
-    parameters: dict[str, typing.Any] = {'type': type}
+    parameters: dict[str, typing.Any] = {'type': blueprint_type}
     if enabled is not None:
         parameters['enabled'] = enabled
 
@@ -94,15 +97,18 @@ async def list_blueprints_by_type(
 
 @blueprint_router.get('/{type}/{slug}', response_model=models.Blueprint)
 async def get_blueprint(
-    type: typing.Literal[
-        'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+    blueprint_type: typing.Annotated[
+        typing.Literal[
+            'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+        ],
+        fastapi.Path(alias='type'),
     ],
     slug: str,
 ) -> models.Blueprint:
     """Get a specific blueprint by type and slug.
 
     Args:
-        type: The blueprint type
+        blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
 
     Returns:
@@ -112,20 +118,24 @@ async def get_blueprint(
         404: Blueprint not found
     """
     blueprint = await imbi_neo4j.fetch_node(
-        models.Blueprint, {'slug': slug, 'type': type}
+        models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if blueprint is None:
         raise fastapi.HTTPException(
             status_code=404,
-            detail=f'Blueprint with slug {slug!r} and type {type!r} not found',
+            detail=f'Blueprint with slug {slug!r} and type '
+            f'{blueprint_type!r} not found',
         )
     return blueprint
 
 
 @blueprint_router.put('/{type}/{slug}', response_model=models.Blueprint)
 async def update_blueprint(
-    type: typing.Literal[
-        'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+    blueprint_type: typing.Annotated[
+        typing.Literal[
+            'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+        ],
+        fastapi.Path(alias='type'),
     ],
     slug: str,
     blueprint: models.Blueprint,
@@ -136,7 +146,7 @@ async def update_blueprint(
     it will be created.
 
     Args:
-        type: The blueprint type
+        blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
         blueprint: The blueprint data
 
@@ -155,38 +165,42 @@ async def update_blueprint(
         )
 
     # Validate that URL type matches blueprint type
-    if blueprint.type != type:
+    if blueprint.type != blueprint_type:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f'Type in URL ({type!r}) must match type in '
+            detail=f'Type in URL ({blueprint_type!r}) must match type in '
             f'blueprint data ({blueprint.type!r})',
         )
 
-    await imbi_neo4j.upsert(blueprint, {'slug': slug, 'type': type})
+    await imbi_neo4j.upsert(blueprint, {'slug': slug, 'type': blueprint_type})
     return blueprint
 
 
 @blueprint_router.delete('/{type}/{slug}', status_code=204)
 async def delete_blueprint(
-    type: typing.Literal[
-        'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+    blueprint_type: typing.Annotated[
+        typing.Literal[
+            'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
+        ],
+        fastapi.Path(alias='type'),
     ],
     slug: str,
 ) -> None:
     """Delete a blueprint by type and slug.
 
     Args:
-        type: The blueprint type
+        blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
 
     Raises:
         404: Blueprint not found
     """
     deleted = await imbi_neo4j.delete_node(
-        models.Blueprint, {'slug': slug, 'type': type}
+        models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if not deleted:
         raise fastapi.HTTPException(
             status_code=404,
-            detail=f'Blueprint with slug {slug!r} and type {type!r} not found',
+            detail=f'Blueprint with slug {slug!r} and type '
+            f'{blueprint_type!r} not found',
         )
