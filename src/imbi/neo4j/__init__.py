@@ -39,7 +39,7 @@ async def session() -> typing.AsyncGenerator[cypherantic.SessionType, None]:
         yield sess
 
 
-async def create_node(model: ModelType) -> neo4j.graph.Node:
+async def create_node(model: ModelType) -> ModelType:
     """Create a node in the graph.
 
     This method uses cypherantic to create a node with:
@@ -49,11 +49,12 @@ async def create_node(model: ModelType) -> neo4j.graph.Node:
     - Properties from the model's fields (excluding relationship fields)
 
     :param model: Pydantic model instance to create as a node
-    :returns: The created Neo4j node object
+    :returns: The created node as a Pydantic model with round-trip values
 
     """
     async with session() as sess:
-        return await cypherantic.create_node(sess, model)
+        node = await cypherantic.create_node(sess, model)
+        return type(model).model_validate(dict(node))
 
 
 @typing.overload

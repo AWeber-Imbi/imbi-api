@@ -28,8 +28,7 @@ async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
         409: Blueprint with same name and type already exists
     """
     try:
-        node = await imbi_neo4j.create_node(blueprint)
-        return models.Blueprint.model_validate(dict(node))
+        return await imbi_neo4j.create_node(blueprint)
     except neo4j.exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,

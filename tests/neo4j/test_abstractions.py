@@ -222,7 +222,7 @@ class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
             name: str
 
         test_node = TestNode(id='123', name='Test')
-        mock_neo4j_node = mock.MagicMock()
+        mock_neo4j_node = {'id': '123', 'name': 'Test'}
 
         with mock.patch(
             'cypherantic.create_node', return_value=mock_neo4j_node
@@ -233,7 +233,10 @@ class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
             mock_create.assert_called_once()
             call_args = mock_create.call_args
             self.assertEqual(call_args[0][1], test_node)
-            self.assertEqual(result, mock_neo4j_node)
+            # Verify result is the validated model with round-trip values
+            self.assertIsInstance(result, TestNode)
+            self.assertEqual(result.id, '123')
+            self.assertEqual(result.name, 'Test')
 
     async def test_create_relationship_with_props(self) -> None:
         """Test create_relationship with relationship properties."""
