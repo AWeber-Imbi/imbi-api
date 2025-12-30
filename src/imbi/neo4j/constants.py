@@ -8,6 +8,28 @@ _EMBEDDING_INDEX_CONFIG = """\
 """
 
 INDEXES: list[str] = [
+    # Blueprints
     'CREATE CONSTRAINT blueprint_pkey IF NOT EXISTS FOR (n:Blueprint) '
     'REQUIRE (n.name, n.type) IS UNIQUE;',
+    # Users
+    'CREATE CONSTRAINT user_username_unique IF NOT EXISTS FOR (n:User) '
+    'REQUIRE n.username IS UNIQUE;',
+    'CREATE CONSTRAINT user_email_unique IF NOT EXISTS FOR (n:User) '
+    'REQUIRE n.email IS UNIQUE;',
+    'CREATE INDEX user_active IF NOT EXISTS FOR (n:User) ON (n.is_active);',
+    # Groups
+    'CREATE CONSTRAINT group_slug_unique IF NOT EXISTS FOR (n:Group) '
+    'REQUIRE n.slug IS UNIQUE;',
+    # Roles
+    'CREATE CONSTRAINT role_slug_unique IF NOT EXISTS FOR (n:Role) '
+    'REQUIRE n.slug IS UNIQUE;',
+    'CREATE INDEX role_priority IF NOT EXISTS FOR (n:Role) ON (n.priority);',
+    # Permissions
+    'CREATE CONSTRAINT permission_name_unique IF NOT EXISTS '
+    'FOR (n:Permission) REQUIRE n.name IS UNIQUE;',
+    'CREATE INDEX permission_resource IF NOT EXISTS FOR (n:Permission) '
+    'ON (n.resource_type);',
+    # JWT Tokens
+    'CREATE CONSTRAINT token_jti_unique IF NOT EXISTS '
+    'FOR (n:TokenMetadata) REQUIRE n.jti IS UNIQUE;',
 ]

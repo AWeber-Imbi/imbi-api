@@ -26,6 +26,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+  "argon2-cffi",
   "asynch",
   "cypherantic@git+https://github.com/dave-shawley/cypherantic.git#egg=main",
   "email-validator",
@@ -34,6 +35,7 @@ dependencies = [
   "neo4j",
   "pydantic",
   "pydantic-settings",
+  "pyjwt",
   "python-slugify",
   "typer",
   "uvicorn",
@@ -122,6 +124,8 @@ select = [
 ignore = [
   "N818", # exception class names are not required to end in Error
   "RSE", # contradicts Python Style Guide
+  "S105", # false positive: hardcoded password (for literal strings like 'bearer', 'access', 'refresh')
+  "S106", # false positive: hardcoded password in function argument
   "TRY003", # message text in exception initializers is okay
   "TRY400", # logging.exception is not always preferable
   "UP040", # allow non-pep695-type-alias
