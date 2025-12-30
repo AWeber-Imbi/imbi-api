@@ -103,6 +103,88 @@ class Neo4jAbstrationsTestCase(unittest.IsolatedAsyncioTestCase):
         # Verify constraint was used in query
         self.assertIn('id: $id', query)
 
+    async def test_delete_node_found(self) -> None:
+        """Test deleting a node that exists."""
+        import pydantic
+
+        class TestNode(pydantic.BaseModel):
+            id: str
+            name: str
+
+        # Mock result where node was found and deleted
+        mock_single_result = {'deleted': 1}
+        self.mock_result.single.return_value = mock_single_result
+        self.mock_session.run.return_value = self.mock_result
+
+        result = await neo4j.delete_node(TestNode, {'id': '123'})
+
+        # Verify the result is True (node was deleted)
+        self.assertTrue(result)
+
+        # Verify session.run was called
+        self.mock_session.run.assert_called_once()
+        call_args = self.mock_session.run.call_args
+        query = call_args[0][0]  # First positional argument
+
+        # Verify query contains DELETE and WHERE
+        self.assertIn('DELETE', query)
+        self.assertIn('WHERE', query)
+        self.assertIn('testnode', query.lower())
+        self.assertIn('node.id = $id', query)
+
+    async def test_delete_node_not_found(self) -> None:
+        """Test deleting a node that doesn't exist."""
+        import pydantic
+
+        class TestNode(pydantic.BaseModel):
+            id: str
+            name: str
+
+        # Mock result where node was not found
+        mock_single_result = {'deleted': 0}
+        self.mock_result.single.return_value = mock_single_result
+        self.mock_session.run.return_value = self.mock_result
+
+        result = await neo4j.delete_node(TestNode, {'id': '999'})
+
+        # Verify the result is False (node was not found)
+        self.assertFalse(result)
+
+    async def test_delete_node_multiple_parameters(self) -> None:
+        """Test deleting a node with multiple match parameters."""
+        import pydantic
+
+        class TestNode(pydantic.BaseModel):
+            slug: str
+            type: str
+
+        # Mock result where node was found and deleted
+        mock_single_result = {'deleted': 1}
+        self.mock_result.single.return_value = mock_single_result
+        self.mock_session.run.return_value = self.mock_result
+
+        result = await neo4j.delete_node(
+            TestNode, {'slug': 'test-node', 'type': 'Project'}
+        )
+
+        # Verify the result is True
+        self.assertTrue(result)
+
+        # Verify session.run was called with correct parameters
+        self.mock_session.run.assert_called_once()
+        call_args = self.mock_session.run.call_args
+        query = call_args[0][0]  # First positional argument
+        params = call_args[1]  # Keyword arguments
+
+        # Verify both parameters are in the WHERE clause
+        self.assertIn('node.slug = $slug', query)
+        self.assertIn('node.type = $type', query)
+        self.assertIn('AND', query)
+
+        # Verify parameters were passed
+        self.assertEqual(params['slug'], 'test-node')
+        self.assertEqual(params['type'], 'Project')
+
 
 class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
     """Test cases for cypherantic wrapper functions."""
@@ -140,7 +222,7 @@ class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
             name: str
 
         test_node = TestNode(id='123', name='Test')
-        mock_neo4j_node = mock.MagicMock()
+        mock_neo4j_node = {'id': '123', 'name': 'Test'}
 
         with mock.patch(
             'cypherantic.create_node', return_value=mock_neo4j_node
@@ -151,7 +233,10 @@ class Neo4jCypheranticWrappersTestCase(unittest.IsolatedAsyncioTestCase):
             mock_create.assert_called_once()
             call_args = mock_create.call_args
             self.assertEqual(call_args[0][1], test_node)
-            self.assertEqual(result, mock_neo4j_node)
+            # Verify result is the validated model with round-trip values
+            self.assertIsInstance(result, TestNode)
+            self.assertEqual(result.id, '123')
+            self.assertEqual(result.name, 'Test')
 
     async def test_create_relationship_with_props(self) -> None:
         """Test create_relationship with relationship properties."""

@@ -2,6 +2,7 @@ import typing
 
 import cypherantic
 import pydantic
+import slugify
 from jsonschema_models.models import Schema
 
 __all__ = [
@@ -22,6 +23,7 @@ class Blueprint(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='ignore')
 
     name: str
+    slug: str | None = None
     type: typing.Literal[
         'Organization', 'Team', 'Environment', 'ProjectType', 'Project'
     ]
@@ -31,6 +33,24 @@ class Blueprint(pydantic.BaseModel):
     filter: dict[str, typing.Any] | None = None
     json_schema: Schema
     version: int = 0
+
+    @pydantic.model_validator(mode='after')
+    def generate_and_validate_slug(self) -> typing.Self:
+        """Generate slug from name if not provided and validate it."""
+        if self.slug is None:
+            self.slug = slugify.slugify(self.name)
+        else:
+            self.slug = self.slug.lower()
+
+        # Validate slug format
+        if not self.slug:
+            raise ValueError('Slug cannot be empty')
+        if not all(c.islower() or c.isdigit() or c == '-' for c in self.slug):
+            raise ValueError(
+                'Slug must contain only lowercase letters, '
+                'numbers, and hyphens'
+            )
+        return self
 
     @pydantic.field_validator('json_schema', mode='before')
     @classmethod

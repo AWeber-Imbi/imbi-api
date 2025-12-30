@@ -39,7 +39,7 @@ async def session() -> typing.AsyncGenerator[cypherantic.SessionType, None]:
         yield sess
 
 
-async def create_node(model: ModelType) -> neo4j.graph.Node:
+async def create_node(model: ModelType) -> ModelType:
     """Create a node in the graph.
 
     This method uses cypherantic to create a node with:
@@ -49,11 +49,12 @@ async def create_node(model: ModelType) -> neo4j.graph.Node:
     - Properties from the model's fields (excluding relationship fields)
 
     :param model: Pydantic model instance to create as a node
-    :returns: The created Neo4j node object
+    :returns: The created node as a Pydantic model with round-trip values
 
     """
     async with session() as sess:
-        return await cypherantic.create_node(sess, model)
+        node = await cypherantic.create_node(sess, model)
+        return type(model).model_validate(dict(node))
 
 
 @typing.overload
@@ -303,3 +304,51 @@ async def upsert(
         if record is None:
             raise ValueError('Upsert query returned no results')
         return str(record['nodeId'])
+
+
+async def delete_node(
+    model: type[pydantic.BaseModel],
+    parameters: dict[str, typing.Any],
+) -> bool:
+    """Delete a node from the graph by matching parameters.
+
+    This method deletes a node that matches the given parameters.
+    The node label is extracted from the model class name (lowercase).
+
+    :param model: Pydantic model class (label extracted from class name)
+    :param parameters: Dict of properties to match
+        (e.g., ``{'slug': 'my-slug', 'type': 'Project'}``)
+    :returns: True if node was deleted, False if not found
+
+    Example::
+
+        from imbi import models, neo4j
+
+        # Delete a blueprint by slug and type
+        deleted = await neo4j.delete_node(
+            models.Blueprint,
+            {'slug': 'my-blueprint', 'type': 'Project'}
+        )
+        if deleted:
+            print('Blueprint deleted successfully')
+        else:
+            print('Blueprint not found')
+
+    """
+    label = model.__name__.lower()
+    where_clauses = [f'node.{key} = ${key}' for key in parameters]
+    where_clause = ' AND '.join(where_clauses)
+
+    query = f"""
+     MATCH (node:{label})
+     WHERE {where_clause}
+    DELETE node
+    RETURN count(node) as deleted
+    """
+
+    LOGGER.debug('Delete query: %s', query)
+    LOGGER.debug('Delete parameters: %r', parameters)
+
+    async with run(query, **parameters) as result:
+        record = await result.single()
+        return record is not None and record['deleted'] > 0

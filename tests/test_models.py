@@ -38,6 +38,71 @@ class BlueprintModelTestCase(unittest.TestCase):
                 name='Test', description='test'
             )  # Missing type and json_schema
 
+    def test_blueprint_slug_auto_generation(self) -> None:
+        """Test that slug is auto-generated from name."""
+        schema = {'type': 'object', 'properties': {}}
+        blueprint = models.Blueprint(
+            name='My Test Blueprint',
+            type='Project',
+            json_schema=models.Schema.model_validate(schema),
+        )
+        self.assertEqual(blueprint.slug, 'my-test-blueprint')
+
+    def test_blueprint_slug_explicit(self) -> None:
+        """Test setting slug explicitly."""
+        schema = {'type': 'object', 'properties': {}}
+        blueprint = models.Blueprint(
+            name='Test Blueprint',
+            slug='custom-slug',
+            type='Project',
+            json_schema=models.Schema.model_validate(schema),
+        )
+        self.assertEqual(blueprint.slug, 'custom-slug')
+
+    def test_blueprint_slug_special_characters(self) -> None:
+        """Test slug generation with special characters."""
+        schema = {'type': 'object', 'properties': {}}
+        blueprint = models.Blueprint(
+            name='Test & Blueprint #1',
+            type='Project',
+            json_schema=models.Schema.model_validate(schema),
+        )
+        self.assertEqual(blueprint.slug, 'test-blueprint-1')
+
+    def test_blueprint_slug_unicode(self) -> None:
+        """Test slug generation with Unicode characters."""
+        schema = {'type': 'object', 'properties': {}}
+        blueprint = models.Blueprint(
+            name='Café Blueprint',
+            type='Project',
+            json_schema=models.Schema.model_validate(schema),
+        )
+        self.assertEqual(blueprint.slug, 'cafe-blueprint')
+
+    def test_blueprint_slug_invalid_characters(self) -> None:
+        """Test that invalid characters in explicit slug raise error."""
+        schema = {'type': 'object', 'properties': {}}
+        with self.assertRaises(pydantic.ValidationError) as ctx:
+            models.Blueprint(
+                name='Test',
+                slug='invalid slug!',
+                type='Project',
+                json_schema=models.Schema.model_validate(schema),
+            )
+        self.assertIn('Slug must contain only', str(ctx.exception))
+
+    def test_blueprint_slug_empty(self) -> None:
+        """Test that empty slug raises error."""
+        schema = {'type': 'object', 'properties': {}}
+        with self.assertRaises(pydantic.ValidationError) as ctx:
+            models.Blueprint(
+                name='Test',
+                slug='',
+                type='Project',
+                json_schema=models.Schema.model_validate(schema),
+            )
+        self.assertIn('Slug cannot be empty', str(ctx.exception))
+
 
 class NodeModelTestCase(unittest.TestCase):
     """Test cases for Node-based models."""
