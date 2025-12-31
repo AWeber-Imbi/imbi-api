@@ -14,6 +14,7 @@ __all__ = [
     'Group',
     'Node',
     'Organization',
+    'PasswordChangeRequest',
     'Permission',
     'Project',
     'ProjectType',
@@ -23,6 +24,8 @@ __all__ = [
     'Team',
     'TokenMetadata',
     'User',
+    'UserCreate',
+    'UserResponse',
 ]
 
 
@@ -232,3 +235,70 @@ class TokenMetadata(pydantic.BaseModel):
         User,
         cypherantic.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
     ]
+
+
+class UserCreate(pydantic.BaseModel):
+    """Request model for creating users."""
+
+    username: str
+    email: pydantic.EmailStr
+    display_name: str
+    password: str | None = None
+    is_active: bool = True
+    is_admin: bool = False
+    is_service_account: bool = False
+
+    @pydantic.field_validator('username')
+    @classmethod
+    def validate_username(cls, value: str) -> str:
+        """Validate username contains only alphanumeric, dash, underscore."""
+        if not value:
+            raise ValueError('Username cannot be empty')
+        if not all(c.isalnum() or c in '-_' for c in value):
+            raise ValueError(
+                'Username must contain only alphanumeric '
+                'characters, dashes, and underscores'
+            )
+        return value.lower()
+
+
+class UserResponse(pydantic.BaseModel):
+    """Response model for users (excludes password_hash)."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    username: str
+    email: pydantic.EmailStr
+    display_name: str
+    is_active: bool
+    is_admin: bool
+    is_service_account: bool
+    created_at: datetime.datetime
+    last_login: datetime.datetime | None
+    avatar_url: pydantic.HttpUrl | None
+
+    groups: list[Group] = []
+    roles: list[Role] = []
+
+
+class PasswordChangeRequest(pydantic.BaseModel):
+    """Request model for changing user passwords."""
+
+    current_password: str | None = None
+    new_password: str
+
+    @pydantic.field_validator('new_password')
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        """Validate password meets minimum security requirements."""
+        if len(value) < 12:
+            raise ValueError('Password must be at least 12 characters')
+        if not any(c.isupper() for c in value):
+            raise ValueError('Password must contain at least one uppercase')
+        if not any(c.islower() for c in value):
+            raise ValueError('Password must contain at least one lowercase')
+        if not any(c.isdigit() for c in value):
+            raise ValueError('Password must contain at least one digit')
+        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in value):
+            raise ValueError('Password must contain at least one special')
+        return value
