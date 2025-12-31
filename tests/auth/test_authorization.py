@@ -218,6 +218,83 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 401)
         self.assertIn('inactive', str(ctx.exception.detail).lower())
 
+    async def test_authenticate_jwt_invalid_token_type(self) -> None:
+        """Test authentication with wrong token type."""
+        # Create a refresh token instead of access token
+        token_settings = settings.Auth(
+            jwt_secret='test-secret-key-32-characters!',
+            jwt_algorithm='HS256',
+            access_token_expire_seconds=3600,
+        )
+        refresh_token, _jti = core.create_refresh_token(
+            'testuser', token_settings
+        )
+
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as ctx:
+            await permissions.authenticate_jwt(refresh_token, token_settings)
+
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertIn('token type', str(ctx.exception.detail).lower())
+
+    async def test_authenticate_jwt_missing_subject(self) -> None:
+        """Test authentication with token missing subject."""
+        # Mock decode to return claims without 'sub' field
+        claims_without_sub = {
+            'type': 'access',
+            'jti': 'test-jti',
+        }
+
+        mock_token_result = mock.AsyncMock()
+        mock_token_result.data.return_value = [{'revoked': False}]
+        mock_token_result.__aenter__.return_value = mock_token_result
+        mock_token_result.__aexit__.return_value = None
+
+        from fastapi import HTTPException
+
+        with (
+            mock.patch(
+                'imbi.auth.core.decode_token', return_value=claims_without_sub
+            ),
+            mock.patch('imbi.neo4j.run', return_value=mock_token_result),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            await permissions.authenticate_jwt(
+                'test-token', self.auth_settings
+            )
+
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertIn('subject', str(ctx.exception.detail).lower())
+
+    async def test_authenticate_jwt_user_not_found(self) -> None:
+        """Test authentication when user doesn't exist."""
+        token, _jti = core.create_access_token('testuser', self.auth_settings)
+
+        mock_token_result = mock.AsyncMock()
+        mock_token_result.data.return_value = [{'revoked': False}]
+        mock_token_result.__aenter__.return_value = mock_token_result
+        mock_token_result.__aexit__.return_value = None
+
+        mock_user_result = mock.AsyncMock()
+        mock_user_result.data.return_value = []  # User not found
+        mock_user_result.__aenter__.return_value = mock_user_result
+        mock_user_result.__aexit__.return_value = None
+
+        from fastapi import HTTPException
+
+        with (
+            mock.patch(
+                'imbi.neo4j.run',
+                side_effect=[mock_token_result, mock_user_result],
+            ),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            await permissions.authenticate_jwt(token, self.auth_settings)
+
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertIn('not found', str(ctx.exception.detail).lower())
+
 
 class ProtectedEndpointTestCase(unittest.TestCase):
     """Test protected endpoints require authentication and permissions."""
@@ -429,3 +506,106 @@ class ResourcePermissionTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(has_access)
+
+
+class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
+    """Test require_resource_access dependency function."""
+
+    async def asyncSetUp(self) -> None:
+        self.admin_user = models.User(
+            username='admin',
+            email='admin@example.com',
+            display_name='Admin User',
+            password_hash='hash',
+            is_active=True,
+            is_admin=True,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+
+        self.regular_user = models.User(
+            username='regular',
+            email='regular@example.com',
+            display_name='Regular User',
+            password_hash='hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+
+    async def test_require_resource_access_admin_bypass(self) -> None:
+        """Test admin users bypass resource access checks."""
+        admin_context = permissions.AuthContext(
+            user=self.admin_user,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        check_fn = permissions.require_resource_access('blueprint', 'read')
+        result = await check_fn('test-slug', admin_context)
+
+        self.assertEqual(result, admin_context)
+
+    async def test_require_resource_access_global_permission(self) -> None:
+        """Test user with global permission gets access."""
+        user_context = permissions.AuthContext(
+            user=self.regular_user,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions={'blueprint:read'},
+        )
+
+        check_fn = permissions.require_resource_access('blueprint', 'read')
+        result = await check_fn('test-slug', user_context)
+
+        self.assertEqual(result, user_context)
+
+    async def test_require_resource_access_resource_permission(self) -> None:
+        """Test user with resource-level permission gets access."""
+        user_context = permissions.AuthContext(
+            user=self.regular_user,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),  # No global permission
+        )
+
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = [{'actions': ['read', 'write']}]
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
+
+        check_fn = permissions.require_resource_access('blueprint', 'read')
+
+        with mock.patch('imbi.neo4j.run', return_value=mock_result):
+            result = await check_fn('test-slug', user_context)
+
+        self.assertEqual(result, user_context)
+
+    async def test_require_resource_access_denied(self) -> None:
+        """Test access denied when user has no permission."""
+        user_context = permissions.AuthContext(
+            user=self.regular_user,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = []
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
+
+        check_fn = permissions.require_resource_access('blueprint', 'write')
+
+        from fastapi import HTTPException
+
+        with (
+            mock.patch('imbi.neo4j.run', return_value=mock_result),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            await check_fn('test-slug', user_context)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn('Access denied', str(ctx.exception.detail))
