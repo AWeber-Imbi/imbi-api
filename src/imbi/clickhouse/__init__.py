@@ -145,7 +145,7 @@ async def query(
        List of dictionaries mapping column names to values
 
     Raises:
-       aj.errors.DatabaseError: If there's an error executing the query
+       DatabaseError: If there's an error executing the query
     """
     clickhouse = client.Clickhouse.get_instance()
     return await clickhouse.query(sql, parameters=parameters)

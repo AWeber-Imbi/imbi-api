@@ -119,7 +119,7 @@ class Clickhouse:
            List of dictionaries mapping column names to values
 
         Raises:
-           aj.errors.DatabaseError: If there's an error executing the query
+           DatabaseError: If there's an error executing the query
         """
         if not self._clickhouse:
             await self.initialize()
