@@ -97,9 +97,6 @@ async def login(
         user=user,
     )
     await neo4j.create_node(access_token_meta)
-    await neo4j.create_relationship(
-        access_token_meta, user, rel_type='ISSUED_TO'
-    )
 
     # Store token metadata for refresh token
     refresh_token_meta = models.TokenMetadata(
@@ -113,9 +110,6 @@ async def login(
         user=user,
     )
     await neo4j.create_node(refresh_token_meta)
-    await neo4j.create_relationship(
-        refresh_token_meta, user, rel_type='ISSUED_TO'
-    )
 
     # Update last login timestamp
     user.last_login = now
@@ -214,9 +208,6 @@ async def refresh_token(
         user=user,
     )
     await neo4j.create_node(access_token_meta)
-    await neo4j.create_relationship(
-        access_token_meta, user, rel_type='ISSUED_TO'
-    )
 
     LOGGER.info('Access token refreshed for user %s', user.username)
 

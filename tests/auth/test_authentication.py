@@ -127,7 +127,6 @@ class LoginEndpointTestCase(unittest.TestCase):
         with (
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
-            mock.patch('imbi.neo4j.create_relationship'),
             mock.patch('imbi.neo4j.upsert') as mock_upsert,
         ):
             mock_fetch.return_value = self.test_user
@@ -248,7 +247,6 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             mock.patch('imbi.settings.get_auth_settings') as mock_settings,
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
-            mock.patch('imbi.neo4j.create_relationship'),
         ):
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
