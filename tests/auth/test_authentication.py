@@ -118,6 +118,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -181,6 +182,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='Inactive User',
             password_hash=core.hash_password('password'),
             is_active=False,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -203,6 +205,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='OAuth User',
             password_hash=None,  # OAuth-only user
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -232,6 +235,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             email='test@example.com',
             display_name='Test User',
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )

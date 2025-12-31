@@ -7,6 +7,7 @@ import fastapi
 from neo4j import exceptions
 
 from imbi import models, neo4j
+from imbi.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,7 +15,13 @@ blueprint_router = fastapi.APIRouter(prefix='/blueprints', tags=['Blueprints'])
 
 
 @blueprint_router.post('/', response_model=models.Blueprint, status_code=201)
-async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
+async def create_blueprint(
+    blueprint: models.Blueprint,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:write')),
+    ],
+) -> models.Blueprint:
     """Create a new blueprint.
 
     Creates a blueprint node in the graph database. The slug will be
@@ -24,6 +31,8 @@ async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
         The created blueprint with round-trip values from the database
 
     Raises:
+        401: Not authenticated
+        403: Missing blueprint:write permission
         409: Blueprint with same name and type already exists
     """
     try:
@@ -38,15 +47,24 @@ async def create_blueprint(blueprint: models.Blueprint) -> models.Blueprint:
 
 @blueprint_router.get('/', response_model=list[models.Blueprint])
 async def list_blueprints(
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:read')),
+    ],
     enabled: bool | None = None,
 ) -> list[models.Blueprint]:
     """List all blueprints.
 
     Args:
         enabled: Optional filter by enabled status
+        auth: Authentication context (injected)
 
     Returns:
         List of all blueprints (optionally filtered)
+
+    Raises:
+        401: Not authenticated
+        403: Missing blueprint:read permission
     """
     parameters = {}
     if enabled is not None:
@@ -70,6 +88,10 @@ async def list_blueprints_by_type(
         ],
         fastapi.Path(alias='type'),
     ],
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:read')),
+    ],
     enabled: bool | None = None,
 ) -> list[models.Blueprint]:
     """List all blueprints of a specific type.
@@ -77,9 +99,14 @@ async def list_blueprints_by_type(
     Args:
         blueprint_type: The blueprint type to filter by
         enabled: Optional filter by enabled status
+        auth: Authentication context (injected)
 
     Returns:
         List of blueprints matching the type (optionally filtered)
+
+    Raises:
+        401: Not authenticated
+        403: Missing blueprint:read permission
     """
     parameters: dict[str, typing.Any] = {'type': blueprint_type}
     if enabled is not None:
@@ -102,17 +129,24 @@ async def get_blueprint(
         fastapi.Path(alias='type'),
     ],
     slug: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:read')),
+    ],
 ) -> models.Blueprint:
     """Get a specific blueprint by type and slug.
 
     Args:
         blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
+        auth: Authentication context (injected)
 
     Returns:
         The requested blueprint
 
     Raises:
+        401: Not authenticated
+        403: Missing blueprint:read permission
         404: Blueprint not found
     """
     blueprint = await neo4j.fetch_node(
@@ -137,6 +171,10 @@ async def update_blueprint(
     ],
     slug: str,
     blueprint: models.Blueprint,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:write')),
+    ],
 ) -> models.Blueprint:
     """Update or create a blueprint (upsert).
 
@@ -147,12 +185,15 @@ async def update_blueprint(
         blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
         blueprint: The blueprint data
+        auth: Authentication context (injected)
 
     Returns:
         The updated/created blueprint
 
     Raises:
         400: Slug in URL doesn't match slug in blueprint data
+        401: Not authenticated
+        403: Missing blueprint:write permission
     """
     # Validate that URL slug matches blueprint slug
     if blueprint.slug != slug:
@@ -183,14 +224,21 @@ async def delete_blueprint(
         fastapi.Path(alias='type'),
     ],
     slug: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('blueprint:delete')),
+    ],
 ) -> None:
     """Delete a blueprint by type and slug.
 
     Args:
         blueprint_type: The blueprint type
         slug: The blueprint slug (URL-safe identifier)
+        auth: Authentication context (injected)
 
     Raises:
+        401: Not authenticated
+        403: Missing blueprint:delete permission
         404: Blueprint not found
     """
     deleted = await neo4j.delete_node(

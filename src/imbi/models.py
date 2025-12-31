@@ -11,11 +11,13 @@ __all__ = [
     'BlueprintAssignment',
     'BlueprintEdge',
     'Environment',
+    'Group',
     'Node',
     'Organization',
     'Permission',
     'Project',
     'ProjectType',
+    'ResourcePermission',
     'Role',
     'Schema',
     'Team',
@@ -141,6 +143,7 @@ class User(pydantic.BaseModel):
     display_name: str
     password_hash: str | None = None
     is_active: bool = True
+    is_admin: bool = False
     is_service_account: bool = False
     created_at: datetime.datetime
     last_login: datetime.datetime | None = None
@@ -200,6 +203,17 @@ class Permission(pydantic.BaseModel):
     resource_type: str
     action: str
     description: str | None = None
+
+
+class ResourcePermission(pydantic.BaseModel):
+    """Resource-level permission for CAN_ACCESS relationships."""
+
+    cypherantic_config: typing.ClassVar[cypherantic.RelationshipConfig] = (
+        cypherantic.RelationshipConfig(rel_type='CAN_ACCESS')
+    )
+    actions: list[str] = []
+    granted_at: datetime.datetime
+    granted_by: str
 
 
 class TokenMetadata(pydantic.BaseModel):
