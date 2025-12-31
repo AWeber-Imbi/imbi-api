@@ -102,6 +102,8 @@ async def seed_permissions() -> int:
 
         # Use MERGE to avoid duplicates
         query = """
+        OPTIONAL MATCH (existing:Permission {name: $name})
+        WITH existing IS NULL AS is_new
         MERGE (p:Permission {name: $name})
         ON CREATE SET
             p.resource_type = $resource_type,
@@ -111,7 +113,7 @@ async def seed_permissions() -> int:
             p.resource_type = $resource_type,
             p.action = $action,
             p.description = $description
-        RETURN p, (p.name = $name AND NOT exists(p.created)) AS is_new
+        RETURN p, is_new
         """
 
         async with neo4j.run(
@@ -152,6 +154,8 @@ async def seed_default_roles() -> int:
 
         # Use MERGE to avoid duplicates
         role_query = """
+        OPTIONAL MATCH (existing:Role {slug: $slug})
+        WITH existing IS NULL AS is_new
         MERGE (r:Role {slug: $slug})
         ON CREATE SET
             r.name = $name,
@@ -163,7 +167,7 @@ async def seed_default_roles() -> int:
             r.description = $description,
             r.priority = $priority,
             r.is_system = $is_system
-        RETURN r, NOT exists(r.created) AS is_new
+        RETURN r, is_new
         """
 
         async with neo4j.run(
