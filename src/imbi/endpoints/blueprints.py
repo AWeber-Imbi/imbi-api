@@ -22,18 +22,18 @@ async def create_blueprint(
         fastapi.Depends(permissions.require_permission('blueprint:write')),
     ],
 ) -> models.Blueprint:
-    """Create a new blueprint.
-
-    Creates a blueprint node in the graph database. The slug will be
-    auto-generated from the name if not provided.
-
+    """
+    Create a new blueprint node in the graph database.
+    
+    If `blueprint.slug` is not provided, it will be generated from `blueprint.name`.
+    
     Returns:
-        The created blueprint with round-trip values from the database
-
+        models.Blueprint: The created blueprint with values returned from the database.
+    
     Raises:
-        401: Not authenticated
-        403: Missing blueprint:write permission
-        409: Blueprint with same name and type already exists
+        401: Not authenticated.
+        403: Missing `blueprint:write` permission.
+        409: Blueprint with the same name and type already exists.
     """
     try:
         return await neo4j.create_node(blueprint)
@@ -53,18 +53,14 @@ async def list_blueprints(
     ],
     enabled: bool | None = None,
 ) -> list[models.Blueprint]:
-    """List all blueprints.
-
-    Args:
-        enabled: Optional filter by enabled status
-        auth: Authentication context (injected)
-
+    """
+    Retrieve all blueprints, optionally filtered by enabled status.
+    
+    Parameters:
+        enabled (bool | None): If provided, only return blueprints whose `enabled` field matches this value.
+    
     Returns:
-        List of all blueprints (optionally filtered)
-
-    Raises:
-        401: Not authenticated
-        403: Missing blueprint:read permission
+        list[Blueprint]: List of Blueprint models matching the query.
     """
     parameters = {}
     if enabled is not None:
@@ -94,19 +90,15 @@ async def list_blueprints_by_type(
     ],
     enabled: bool | None = None,
 ) -> list[models.Blueprint]:
-    """List all blueprints of a specific type.
-
-    Args:
-        blueprint_type: The blueprint type to filter by
-        enabled: Optional filter by enabled status
-        auth: Authentication context (injected)
-
+    """
+    Retrieve all blueprints of the given type.
+    
+    Parameters:
+        blueprint_type (Literal['Organization', 'Team', 'Environment', 'ProjectType', 'Project']): Type of blueprint to return.
+        enabled (bool | None): If provided, only include blueprints whose enabled status matches this value.
+    
     Returns:
-        List of blueprints matching the type (optionally filtered)
-
-    Raises:
-        401: Not authenticated
-        403: Missing blueprint:read permission
+        list[models.Blueprint]: Blueprints of the specified type, ordered by name and filtered by `enabled` when given.
     """
     parameters: dict[str, typing.Any] = {'type': blueprint_type}
     if enabled is not None:
@@ -134,20 +126,17 @@ async def get_blueprint(
         fastapi.Depends(permissions.require_permission('blueprint:read')),
     ],
 ) -> models.Blueprint:
-    """Get a specific blueprint by type and slug.
-
-    Args:
-        blueprint_type: The blueprint type
-        slug: The blueprint slug (URL-safe identifier)
-        auth: Authentication context (injected)
-
+    """
+    Retrieve a blueprint identified by its type and slug.
+    
+    Parameters:
+        slug (str): The blueprint slug (URL-safe identifier).
+    
     Returns:
-        The requested blueprint
-
+        models.Blueprint: The requested blueprint.
+    
     Raises:
-        401: Not authenticated
-        403: Missing blueprint:read permission
-        404: Blueprint not found
+        404: If no blueprint exists with the given type and slug.
     """
     blueprint = await neo4j.fetch_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
@@ -176,24 +165,21 @@ async def update_blueprint(
         fastapi.Depends(permissions.require_permission('blueprint:write')),
     ],
 ) -> models.Blueprint:
-    """Update or create a blueprint (upsert).
-
-    If the blueprint exists, it will be updated. If it doesn't exist,
-    it will be created.
-
+    """
+    Update or create a blueprint (upsert).
+    
+    Validates that the URL `slug` and `type` match the provided `blueprint` payload before performing an upsert.
+    
     Args:
-        blueprint_type: The blueprint type
-        slug: The blueprint slug (URL-safe identifier)
-        blueprint: The blueprint data
-        auth: Authentication context (injected)
-
+        blueprint_type: Blueprint type from the URL path.
+        slug: Blueprint slug from the URL path.
+        blueprint: Blueprint payload to create or update.
+    
     Returns:
-        The updated/created blueprint
-
+        The created or updated Blueprint model.
+    
     Raises:
-        400: Slug in URL doesn't match slug in blueprint data
-        401: Not authenticated
-        403: Missing blueprint:write permission
+        400: If the URL `slug` does not match `blueprint.slug` or the URL `type` does not match `blueprint.type`.
     """
     # Validate that URL slug matches blueprint slug
     if blueprint.slug != slug:
@@ -229,17 +215,15 @@ async def delete_blueprint(
         fastapi.Depends(permissions.require_permission('blueprint:delete')),
     ],
 ) -> None:
-    """Delete a blueprint by type and slug.
-
-    Args:
-        blueprint_type: The blueprint type
-        slug: The blueprint slug (URL-safe identifier)
-        auth: Authentication context (injected)
-
+    """
+    Delete a blueprint identified by its type and slug.
+    
+    Parameters:
+    	blueprint_type (Literal['Organization', 'Team', 'Environment', 'ProjectType', 'Project']): The blueprint type.
+    	slug (str): The blueprint slug (URL-safe identifier).
+    
     Raises:
-        401: Not authenticated
-        403: Missing blueprint:delete permission
-        404: Blueprint not found
+    	404: If no blueprint with the given type and slug exists.
     """
     deleted = await neo4j.delete_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}

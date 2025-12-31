@@ -22,20 +22,17 @@ async def create_role(
         fastapi.Depends(permissions.require_permission('role:create')),
     ],
 ) -> models.Role:
-    """Create a new role.
-
-    Args:
-        role: The role to create
-        auth: Authentication context (injected)
-
+    """
+    Create a new role.
+    
+    Parameters:
+        role (models.Role): Role to create; its `slug` must be unique.
+    
     Returns:
-        The created role
-
+        models.Role: The created role.
+    
     Raises:
-        401: Not authenticated
-        403: Missing role:create permission
-        409: Role with same slug already exists
-
+        fastapi.HTTPException: HTTP 409 if a role with the same `slug` already exists.
     """
     try:
         return await neo4j.create_node(role)
@@ -53,18 +50,11 @@ async def list_roles(
         fastapi.Depends(permissions.require_permission('role:read')),
     ],
 ) -> list[models.Role]:
-    """List all roles.
-
-    Args:
-        auth: Authentication context (injected)
-
+    """
+    Retrieve all roles ordered by priority (highest first) and then by name.
+    
     Returns:
-        List of all roles ordered by priority (highest first)
-
-    Raises:
-        401: Not authenticated
-        403: Missing role:read permission
-
+        list[models.Role]: Roles ordered by priority (descending) then name.
     """
     roles = []
     async for role in neo4j.fetch_nodes(
@@ -82,20 +72,17 @@ async def get_role(
         fastapi.Depends(permissions.require_permission('role:read')),
     ],
 ) -> models.Role:
-    """Get a specific role by slug.
-
-    Args:
-        slug: The role slug
-        auth: Authentication context (injected)
-
+    """
+    Retrieve a role by its slug and load its permissions and parent role.
+    
+    Parameters:
+        slug (str): The role's slug identifier.
+    
     Returns:
-        The requested role with permissions and parent role loaded
-
+        models.Role: The role with `permissions` and `parent_role` relationships populated.
+    
     Raises:
-        401: Not authenticated
-        403: Missing role:read permission
-        404: Role not found
-
+        404: If no role with the given slug exists.
     """
     role = await neo4j.fetch_node(models.Role, {'slug': slug})
     if role is None:
@@ -121,21 +108,20 @@ async def update_role(
         fastapi.Depends(permissions.require_permission('role:update')),
     ],
 ) -> models.Role:
-    """Update or create a role (upsert).
-
-    Args:
-        slug: The role slug
-        role: The role data
-        auth: Authentication context (injected)
-
+    """
+    Update or create a role identified by slug.
+    
+    Parameters:
+        slug (str): The role slug from the URL.
+        role (models.Role): Role data to upsert; its `slug` must match the URL slug.
+    
     Returns:
-        The updated/created role
-
+        models.Role: The updated or newly created role.
+    
     Raises:
-        400: Slug mismatch or attempting to modify system role
-        401: Not authenticated
-        403: Missing role:update permission
-
+        fastapi.HTTPException: 400 if the URL slug and role.slug differ or if attempting to modify a system role.
+        fastapi.HTTPException: 401 if the request is unauthenticated.
+        fastapi.HTTPException: 403 if the caller lacks the `role:update` permission.
     """
     # Validate that URL slug matches role slug
     if role.slug != slug:
@@ -164,20 +150,17 @@ async def delete_role(
         fastapi.Depends(permissions.require_permission('role:delete')),
     ],
 ) -> None:
-    """Delete a role by slug.
-
+    """
+    Delete a role identified by its slug.
+    
     System roles cannot be deleted.
-
-    Args:
-        slug: The role slug
-        auth: Authentication context (injected)
-
+    
+    Parameters:
+        slug (str): The slug identifier of the role to delete.
+    
     Raises:
-        400: Trying to delete a system role
-        401: Not authenticated
-        403: Missing role:delete permission
-        404: Role not found
-
+        400: If attempting to delete a system role.
+        404: If no role with the given slug exists.
     """
     # Check if role exists and is not a system role
     role = await neo4j.fetch_node(models.Role, {'slug': slug})
@@ -207,18 +190,19 @@ async def grant_permission(
     ],
     permission_name: str = fastapi.Body(..., embed=True),
 ) -> None:
-    """Grant a permission to a role.
-
-    Args:
-        slug: The role slug
-        permission_name: The permission name to grant (e.g., 'blueprint:read')
-        auth: Authentication context (injected)
-
+    """
+    Grant the named permission to the role identified by `slug`.
+    
+    Creates a GRANTS relationship between the role and the permission in the database.
+    
+    Parameters:
+        slug (str): Role slug.
+        permission_name (str): Permission name to grant (e.g., 'blueprint:read').
+    
     Raises:
-        401: Not authenticated
-        403: Missing role:update permission
-        404: Role or permission not found
-
+        fastapi.HTTPException: 404 if the role or the permission does not exist.
+        fastapi.HTTPException: 401 if the request is not authenticated.
+        fastapi.HTTPException: 403 if the caller lacks the `role:update` permission.
     """
     # Check if role exists
     role = await neo4j.fetch_node(models.Role, {'slug': slug})
@@ -258,18 +242,15 @@ async def revoke_permission(
         fastapi.Depends(permissions.require_permission('role:update')),
     ],
 ) -> None:
-    """Revoke a permission from a role.
-
-    Args:
-        slug: The role slug
-        permission_name: The permission name to revoke
-        auth: Authentication context (injected)
-
+    """
+    Remove a granted permission from the specified role.
+    
+    Parameters:
+        slug (str): Role slug identifying the role to modify.
+        permission_name (str): Name of the permission to revoke.
+    
     Raises:
-        401: Not authenticated
-        403: Missing role:update permission
-        404: Role or permission not found
-
+        fastapi.HTTPException: 404 if the role does not exist or the permission is not granted to the role.
     """
     # Check if role exists
     role = await neo4j.fetch_node(models.Role, {'slug': slug})

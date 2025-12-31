@@ -13,7 +13,16 @@ class RoleEndpointsTestCase(unittest.TestCase):
     """Test cases for role CRUD endpoints."""
 
     def setUp(self) -> None:
-        """Set up test client and mocks."""
+        """
+        Prepare a FastAPI test app with an admin authentication context, override the current-user dependency, create a TestClient, and build a sample Role for use in tests.
+        
+        Sets the following attributes on self:
+        - test_app: the FastAPI application instance used for testing.
+        - admin_user: a User object with administrative privileges.
+        - auth_context: an AuthContext for the admin_user used by the overridden dependency.
+        - client: a TestClient bound to test_app for making HTTP requests.
+        - test_role: a Role instance used as a sample role in tests.
+        """
         from imbi.auth import permissions
 
         self.test_app = app.create_app()
@@ -38,6 +47,12 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         # Override the get_current_user dependency
         async def mock_get_current_user():
+            """
+            Provide the test instance's current authenticated user context for dependency injection.
+            
+            Returns:
+                The test instance's `auth_context` object used as the authenticated user in requests.
+            """
             return self.auth_context
 
         self.test_app.dependency_overrides[permissions.get_current_user] = (
@@ -105,9 +120,19 @@ class RoleEndpointsTestCase(unittest.TestCase):
             self.assertIn('already exists', response.json()['detail'])
 
     def test_list_roles(self) -> None:
-        """Test listing roles."""
+        """
+        Verify that GET /roles/ returns a list containing the test role and that the backend fetch was called with ordering by "priority DESC".
+        
+        Asserts the response status is 200, the returned list contains exactly one role matching the test role's name and slug, and that the patched fetch_nodes received an `order_by` argument including "priority DESC".
+        """
 
         async def role_generator():
+            """
+            Asynchronously yields the predefined test role instance for use in tests.
+            
+            Returns:
+                async generator: Yields the `self.test_role` object.
+            """
             yield self.test_role
 
         with mock.patch(
@@ -343,7 +368,9 @@ class RoleEndpointsTestCase(unittest.TestCase):
             self.assertIn('not found', response.json()['detail'])
 
     def test_revoke_permission_not_granted(self) -> None:
-        """Test revoking permission that wasn't granted."""
+        """
+        Verifies that attempting to revoke a permission not assigned to the role results in a 404 response containing "not granted".
+        """
         role = self.test_role
 
         mock_result = mock.AsyncMock()
