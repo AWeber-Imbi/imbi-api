@@ -36,7 +36,7 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         local_provider = data['providers'][0]
         self.assertEqual(local_provider['id'], 'local')
         self.assertEqual(local_provider['type'], 'password')
-        self.assertEqual(local_provider['name'], 'Username/Password')
+        self.assertEqual(local_provider['name'], 'Email/Password')
         self.assertTrue(local_provider['enabled'])
         self.assertEqual(local_provider['icon'], 'lock')
 

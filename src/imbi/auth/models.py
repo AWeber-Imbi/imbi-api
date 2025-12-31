@@ -6,9 +6,9 @@ import pydantic
 
 
 class LoginRequest(pydantic.BaseModel):
-    """Login request with username and password."""
+    """Login request with email and password."""
 
-    username: str
+    email: pydantic.EmailStr
     password: str
 
 

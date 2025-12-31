@@ -39,7 +39,7 @@ async def get_auth_providers() -> auth_models.AuthProvidersResponse:
             auth_models.AuthProvider(
                 id='local',
                 type='password',
-                name='Username/Password',
+                name='Email/Password',
                 enabled=True,
                 icon='lock',
             )
@@ -95,10 +95,10 @@ async def login(
     credentials: auth_models.LoginRequest,
     request: fastapi.Request,
 ) -> auth_models.TokenResponse:
-    """Login with username and password.
+    """Login with email and password.
 
     Args:
-        credentials: Username and password
+        credentials: Email and password
         request: FastAPI request object
 
     Returns:
@@ -109,14 +109,12 @@ async def login(
 
     """
     # Fetch user from database
-    user = await neo4j.fetch_node(
-        models.User, {'username': credentials.username}
-    )
+    user = await neo4j.fetch_node(models.User, {'email': credentials.email})
 
     if not user or not user.is_active:
         LOGGER.warning(
-            'Login failed for user %s: user not found or inactive',
-            credentials.username,
+            'Login failed for email %s: user not found or inactive',
+            credentials.email,
         )
         raise fastapi.HTTPException(
             status_code=401,
@@ -126,8 +124,8 @@ async def login(
     # Check if user has password authentication enabled
     if not user.password_hash:
         LOGGER.warning(
-            'Login failed for user %s: password authentication not enabled',
-            credentials.username,
+            'Login failed for email %s: password authentication not enabled',
+            credentials.email,
         )
         raise fastapi.HTTPException(
             status_code=401,
@@ -137,7 +135,7 @@ async def login(
     # Verify password
     if not core.verify_password(credentials.password, user.password_hash):
         LOGGER.warning(
-            'Login failed for user %s: invalid password', credentials.username
+            'Login failed for email %s: invalid password', credentials.email
         )
         raise fastapi.HTTPException(
             status_code=401,
