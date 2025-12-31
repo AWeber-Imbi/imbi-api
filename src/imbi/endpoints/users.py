@@ -43,6 +43,13 @@ async def create_user(
     if user_create.password:
         password_hash = core.hash_password(user_create.password)
 
+    # Prevent non-admins from creating admin users
+    if user_create.is_admin and not auth.user.is_admin:
+        raise fastapi.HTTPException(
+            status_code=403,
+            detail='Only admins can create admin users',
+        )
+
     # Create user model
     user = models.User(
         username=user_create.username,
