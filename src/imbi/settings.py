@@ -5,6 +5,18 @@ import pydantic
 import pydantic_settings
 
 
+class Clickhouse(pydantic_settings.BaseSettings):
+    model_config = pydantic_settings.SettingsConfigDict(
+        env_prefix='CLICKHOUSE_',
+        case_sensitive=False,
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
+    url: pydantic.HttpUrl = pydantic.HttpUrl('http://localhost:8123')
+
+
 class Neo4j(pydantic_settings.BaseSettings):
     model_config = pydantic_settings.SettingsConfigDict(
         env_prefix='NEO4J_',
