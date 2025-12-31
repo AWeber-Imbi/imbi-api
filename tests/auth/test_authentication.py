@@ -111,6 +111,15 @@ class LoginEndpointTestCase(unittest.TestCase):
     """Test login endpoint."""
 
     def setUp(self) -> None:
+        """
+        Set up a TestClient and a default active test User instance
+        used by tests.
+
+        Initializes self.client as a TestClient for the application
+        and self.test_user as an active, non-admin, non-service-account
+        User whose password_hash is populated with a hashed password
+        and whose created_at is the current time.
+        """
         self.client = testclient.TestClient(app.create_app())
         self.test_user = models.User(
             username='testuser',
@@ -118,6 +127,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -181,6 +191,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='Inactive User',
             password_hash=core.hash_password('password'),
             is_active=False,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -203,6 +214,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             display_name='OAuth User',
             password_hash=None,  # OAuth-only user
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
@@ -223,6 +235,15 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
     """Test token refresh endpoint."""
 
     def setUp(self) -> None:
+        """
+        Prepare test fixtures for authentication endpoint tests.
+
+        Creates a FastAPI test client and default authentication
+        settings, and constructs a default active, non-admin test user
+        assigned to `self.test_user`. The test user has a username,
+        email, display name, active status, service-account flag, admin
+        flag, and creation timestamp.
+        """
         self.client = testclient.TestClient(app.create_app())
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!'
@@ -232,6 +253,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             email='test@example.com',
             display_name='Test User',
             is_active=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
