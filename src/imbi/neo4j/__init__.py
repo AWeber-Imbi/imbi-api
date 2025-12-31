@@ -342,7 +342,7 @@ async def delete_node(
     query = f"""
      MATCH (node:{label})
      WHERE {where_clause}
-    DELETE node
+    DETACH DELETE node
     RETURN count(node) as deleted
     """
 

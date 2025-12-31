@@ -23,10 +23,3 @@ class TokenRefreshRequest(pydantic.BaseModel):
     """Request to refresh an access token."""
 
     refresh_token: str
-
-
-class PasswordChangeRequest(pydantic.BaseModel):
-    """Request to change user password."""
-
-    current_password: str
-    new_password: str
