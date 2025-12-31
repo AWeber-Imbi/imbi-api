@@ -28,6 +28,10 @@ def create_app() -> fastapi.FastAPI:
         version=version,
         redoc_url='/docs',
         docs_url=None,
+        license_info={
+            'name': 'BSD 3-Clause',
+            'url': 'https://github.com/AWeber-Imbi/imbi-api/blob/main/LICENSE',
+        },
     )
     for router in endpoints.routers:
         app.include_router(router)

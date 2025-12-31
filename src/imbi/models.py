@@ -1,3 +1,4 @@
+import datetime
 import typing
 
 import cypherantic
@@ -12,10 +13,14 @@ __all__ = [
     'Environment',
     'Node',
     'Organization',
+    'Permission',
     'Project',
     'ProjectType',
+    'Role',
     'Schema',
     'Team',
+    'TokenMetadata',
+    'User',
 ]
 
 
@@ -121,3 +126,95 @@ class Project(Node):
     links: dict[str, pydantic.HttpUrl]
     urls: dict[str, pydantic.HttpUrl]
     identifiers: dict[str, int | str]
+
+
+# Authentication and Authorization Models
+
+
+class User(pydantic.BaseModel):
+    """User account for authentication and authorization."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    username: str
+    email: pydantic.EmailStr
+    display_name: str
+    password_hash: str | None = None
+    is_active: bool = True
+    is_service_account: bool = False
+    created_at: datetime.datetime
+    last_login: datetime.datetime | None = None
+    avatar_url: pydantic.HttpUrl | None = None
+
+    groups: typing.Annotated[
+        list['Group'],
+        cypherantic.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
+    ] = []
+    roles: typing.Annotated[
+        list['Role'],
+        cypherantic.Relationship(rel_type='HAS_ROLE', direction='OUTGOING'),
+    ] = []
+
+
+class Group(Node):
+    """Group for organizing users and assigning roles."""
+
+    parent: typing.Annotated[
+        'Group | None',
+        cypherantic.Relationship(
+            rel_type='PARENT_GROUP', direction='OUTGOING'
+        ),
+    ] = None
+    roles: typing.Annotated[
+        list['Role'],
+        cypherantic.Relationship(
+            rel_type='ASSIGNED_ROLE', direction='OUTGOING'
+        ),
+    ] = []
+
+
+class Role(Node):
+    """Role for grouping permissions."""
+
+    priority: int = 0
+    is_system: bool = False
+
+    permissions: typing.Annotated[
+        list['Permission'],
+        cypherantic.Relationship(rel_type='GRANTS', direction='OUTGOING'),
+    ] = []
+    parent_role: typing.Annotated[
+        'Role | None',
+        cypherantic.Relationship(
+            rel_type='INHERITS_FROM', direction='OUTGOING'
+        ),
+    ] = None
+
+
+class Permission(pydantic.BaseModel):
+    """Permission for a specific resource action."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    name: str
+    resource_type: str
+    action: str
+    description: str | None = None
+
+
+class TokenMetadata(pydantic.BaseModel):
+    """Metadata for JWT tokens to enable revocation."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    jti: str
+    token_type: typing.Literal['access', 'refresh']
+    issued_at: datetime.datetime
+    expires_at: datetime.datetime
+    revoked: bool = False
+    revoked_at: datetime.datetime | None = None
+
+    user: typing.Annotated[
+        User,
+        cypherantic.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
+    ]

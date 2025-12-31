@@ -16,6 +16,6 @@ class StatusResponse(pydantic.BaseModel):
     status: typing.Literal['ok', 'initializing', 'error']
 
 
-@status_router.get('/status', response_model=StatusResponse, tags=['status'])
+@status_router.get('/status', response_model=StatusResponse, tags=['Status'])
 async def get_status() -> StatusResponse:
     return StatusResponse(status='ok')

@@ -10,7 +10,7 @@ from imbi import models, neo4j
 
 LOGGER = logging.getLogger(__name__)
 
-blueprint_router = fastapi.APIRouter(prefix='/blueprints', tags=['blueprints'])
+blueprint_router = fastapi.APIRouter(prefix='/blueprints', tags=['Blueprints'])
 
 
 @blueprint_router.post('/', response_model=models.Blueprint, status_code=201)
