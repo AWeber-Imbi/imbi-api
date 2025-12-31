@@ -339,7 +339,7 @@ async def change_password(
         )
 
     # Verify current password if user is changing their own password
-    if is_self and not auth.user.is_admin:
+    if is_self:
         if not password_change.current_password:
             raise fastapi.HTTPException(
                 status_code=400,
