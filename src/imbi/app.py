@@ -1,11 +1,13 @@
 import asyncio
 import contextlib
 import logging
+import os
 import typing
 
 import fastapi
 
 from imbi import clickhouse, endpoints, neo4j, version
+from imbi.auth import seed
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,6 +21,22 @@ async def fastapi_lifespan(
         clickhouse.initialize(),
         neo4j.initialize(),
     )
+
+    # Auto-seed authentication system if not already seeded
+    auto_seed = os.getenv('IMBI_AUTO_SEED_AUTH', 'true').lower() == 'true'
+    if auto_seed:
+        is_seeded = await seed.check_if_seeded()
+        if not is_seeded:
+            LOGGER.info('Auto-seeding authentication system...')
+            result = await seed.bootstrap_auth_system()
+            LOGGER.info(
+                'Auto-seed complete: %d permissions, %d roles created',
+                result['permissions'],
+                result['roles'],
+            )
+        else:
+            LOGGER.debug('Authentication system already seeded')
+
     LOGGER.debug('Startup complete')
     yield
     await asyncio.gather(
