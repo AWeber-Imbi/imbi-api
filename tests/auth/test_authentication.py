@@ -112,9 +112,13 @@ class LoginEndpointTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         """
-        Set up a TestClient and a default active test User instance used by tests.
-        
-        Initializes self.client as a TestClient for the application and self.test_user as an active, non-admin, non-service-account User whose password_hash is populated with a hashed password and whose created_at is the current time.
+        Set up a TestClient and a default active test User instance
+        used by tests.
+
+        Initializes self.client as a TestClient for the application
+        and self.test_user as an active, non-admin, non-service-account
+        User whose password_hash is populated with a hashed password
+        and whose created_at is the current time.
         """
         self.client = testclient.TestClient(app.create_app())
         self.test_user = models.User(
@@ -233,8 +237,12 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """
         Prepare test fixtures for authentication endpoint tests.
-        
-        Creates a FastAPI test client and default authentication settings, and constructs a default active, non-admin test user assigned to `self.test_user`. The test user has a username, email, display name, active status, service-account flag, admin flag, and creation timestamp.
+
+        Creates a FastAPI test client and default authentication
+        settings, and constructs a default active, non-admin test user
+        assigned to `self.test_user`. The test user has a username,
+        email, display name, active status, service-account flag, admin
+        flag, and creation timestamp.
         """
         self.client = testclient.TestClient(app.create_app())
         self.auth_settings = settings.Auth(

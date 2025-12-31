@@ -24,12 +24,14 @@ async def create_blueprint(
 ) -> models.Blueprint:
     """
     Create a new blueprint node in the graph database.
-    
-    If `blueprint.slug` is not provided, it will be generated from `blueprint.name`.
-    
+
+    If `blueprint.slug` is not provided, it will be generated from
+    `blueprint.name`.
+
     Returns:
-        models.Blueprint: The created blueprint with values returned from the database.
-    
+        models.Blueprint: The created blueprint with values returned
+            from the database.
+
     Raises:
         401: Not authenticated.
         403: Missing `blueprint:write` permission.
@@ -55,10 +57,11 @@ async def list_blueprints(
 ) -> list[models.Blueprint]:
     """
     Retrieve all blueprints, optionally filtered by enabled status.
-    
+
     Parameters:
-        enabled (bool | None): If provided, only return blueprints whose `enabled` field matches this value.
-    
+        enabled (bool | None): If provided, only return blueprints whose
+            `enabled` field matches this value.
+
     Returns:
         list[Blueprint]: List of Blueprint models matching the query.
     """
@@ -92,13 +95,16 @@ async def list_blueprints_by_type(
 ) -> list[models.Blueprint]:
     """
     Retrieve all blueprints of the given type.
-    
+
     Parameters:
-        blueprint_type (Literal['Organization', 'Team', 'Environment', 'ProjectType', 'Project']): Type of blueprint to return.
-        enabled (bool | None): If provided, only include blueprints whose enabled status matches this value.
-    
+        blueprint_type (Literal['Organization', 'Team', 'Environment',
+            'ProjectType', 'Project']): Type of blueprint to return.
+        enabled (bool | None): If provided, only include blueprints whose
+            enabled status matches this value.
+
     Returns:
-        list[models.Blueprint]: Blueprints of the specified type, ordered by name and filtered by `enabled` when given.
+        list[models.Blueprint]: Blueprints of the specified type,
+            ordered by name and filtered by `enabled` when given.
     """
     parameters: dict[str, typing.Any] = {'type': blueprint_type}
     if enabled is not None:
@@ -128,13 +134,13 @@ async def get_blueprint(
 ) -> models.Blueprint:
     """
     Retrieve a blueprint identified by its type and slug.
-    
+
     Parameters:
         slug (str): The blueprint slug (URL-safe identifier).
-    
+
     Returns:
         models.Blueprint: The requested blueprint.
-    
+
     Raises:
         404: If no blueprint exists with the given type and slug.
     """
@@ -167,19 +173,21 @@ async def update_blueprint(
 ) -> models.Blueprint:
     """
     Update or create a blueprint (upsert).
-    
-    Validates that the URL `slug` and `type` match the provided `blueprint` payload before performing an upsert.
-    
+
+    Validates that the URL `slug` and `type` match the provided
+    `blueprint` payload before performing an upsert.
+
     Args:
         blueprint_type: Blueprint type from the URL path.
         slug: Blueprint slug from the URL path.
         blueprint: Blueprint payload to create or update.
-    
+
     Returns:
         The created or updated Blueprint model.
-    
+
     Raises:
-        400: If the URL `slug` does not match `blueprint.slug` or the URL `type` does not match `blueprint.type`.
+        400: If the URL `slug` does not match `blueprint.slug` or the
+            URL `type` does not match `blueprint.type`.
     """
     # Validate that URL slug matches blueprint slug
     if blueprint.slug != slug:
@@ -217,13 +225,14 @@ async def delete_blueprint(
 ) -> None:
     """
     Delete a blueprint identified by its type and slug.
-    
+
     Parameters:
-    	blueprint_type (Literal['Organization', 'Team', 'Environment', 'ProjectType', 'Project']): The blueprint type.
-    	slug (str): The blueprint slug (URL-safe identifier).
-    
+        blueprint_type (Literal['Organization', 'Team', 'Environment',
+            'ProjectType', 'Project']): The blueprint type.
+        slug (str): The blueprint slug (URL-safe identifier).
+
     Raises:
-    	404: If no blueprint with the given type and slug exists.
+        404: If no blueprint with the given type and slug exists.
     """
     deleted = await neo4j.delete_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
