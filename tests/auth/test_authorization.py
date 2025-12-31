@@ -97,10 +97,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         mock_user_result.__aenter__.return_value = mock_user_result
         mock_user_result.__aexit__.return_value = None
 
-        mock_update_result = mock.AsyncMock()
-        mock_update_result.__aenter__.return_value = mock_update_result
-        mock_update_result.__aexit__.return_value = None
-
         mock_perm_result = mock.AsyncMock()
         mock_perm_result.data.return_value = [
             {'permissions': ['blueprint:read']}
@@ -113,7 +109,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
             side_effect=[
                 mock_token_result,
                 mock_user_result,
-                mock_update_result,
                 mock_perm_result,
             ],
         ):
@@ -366,6 +361,7 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                     'display_name': 'Test User',
                     'password_hash': test_user.password_hash,
                     'is_active': True,
+                    'is_admin': False,
                     'is_service_account': False,
                     'created_at': test_user.created_at,
                 }
@@ -373,10 +369,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         ]
         mock_user_result.__aenter__.return_value = mock_user_result
         mock_user_result.__aexit__.return_value = None
-
-        mock_update_result = mock.AsyncMock()
-        mock_update_result.__aenter__.return_value = mock_update_result
-        mock_update_result.__aexit__.return_value = None
 
         mock_perm_result = mock.AsyncMock()
         mock_perm_result.data.return_value = [
@@ -408,7 +400,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                 side_effect=[
                     mock_token_result,
                     mock_user_result,
-                    mock_update_result,
                     mock_perm_result,
                 ],
             ),
@@ -454,6 +445,7 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                     'display_name': 'Test User',
                     'password_hash': test_user.password_hash,
                     'is_active': True,
+                    'is_admin': False,
                     'is_service_account': False,
                     'created_at': test_user.created_at,
                 }
@@ -461,10 +453,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         ]
         mock_user_result.__aenter__.return_value = mock_user_result
         mock_user_result.__aexit__.return_value = None
-
-        mock_update_result = mock.AsyncMock()
-        mock_update_result.__aenter__.return_value = mock_update_result
-        mock_update_result.__aexit__.return_value = None
 
         # Mock permissions - user has NO permissions
         mock_perm_result = mock.AsyncMock()
@@ -479,7 +467,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                 side_effect=[
                     mock_token_result,
                     mock_user_result,
-                    mock_update_result,
                     mock_perm_result,
                 ],
             ),

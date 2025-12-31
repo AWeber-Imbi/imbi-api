@@ -1,6 +1,5 @@
 """Permission checking and authorization dependencies."""
 
-import datetime
 import logging
 import typing
 
@@ -139,15 +138,6 @@ async def authenticate_jwt(
         raise fastapi.HTTPException(
             status_code=401, detail='User account is inactive'
         )
-
-    # Update last login
-    now = datetime.datetime.now(datetime.UTC)
-    update_query = """
-    MATCH (u:User {username: $username})
-    SET u.last_login = $now
-    """
-    async with neo4j.run(update_query, username=username, now=now):
-        pass
 
     # Load permissions
     permissions = await load_user_permissions(username)
@@ -348,8 +338,10 @@ def require_resource_access(
             return auth
 
         # Check resource-level permission
+        # Convert snake_case to PascalCase for Neo4j labels
+        label = ''.join(word.capitalize() for word in resource_type.split('_'))
         has_access = await check_resource_permission(
-            auth.user.username, resource_type.capitalize(), slug, action
+            auth.user.username, label, slug, action
         )
         if has_access:
             return auth
