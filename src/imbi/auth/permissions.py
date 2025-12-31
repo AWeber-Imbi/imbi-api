@@ -28,17 +28,16 @@ class AuthContext(pydantic.BaseModel):
 
 
 async def load_user_permissions(username: str) -> set[str]:
-    """Load all permissions for a user by traversing roles and groups.
-
-    Traverses role hierarchy, group membership, and role inheritance to
-    collect all permissions granted to the user.
-
-    Args:
-        username: Username to load permissions for
-
+    """
+    Get permission names granted to a user.
+    
+    Collects permissions from the user's direct roles, group-assigned roles, and any inherited roles.
+    
+    Parameters:
+        username (str): Username whose permissions will be resolved.
+    
     Returns:
-        Set of permission names (e.g., 'blueprint:read', 'project:write')
-
+        set[str]: Set of permission names (for example, 'blueprint:read', 'project:write').
     """
     query = """
     MATCH (u:User {username: $username})
@@ -63,18 +62,18 @@ async def load_user_permissions(username: str) -> set[str]:
 async def authenticate_jwt(
     token: str, auth_settings: settings.Auth
 ) -> AuthContext:
-    """Authenticate a JWT token and load user context.
-
-    Args:
-        token: JWT token string
-        auth_settings: Auth settings for JWT configuration
-
+    """
+    Validate a JWT, load the corresponding user and their permissions, and return an AuthContext.
+    
+    Parameters:
+        token (str): JWT access token string.
+        auth_settings (settings.Auth): Configuration used to decode and validate the token.
+    
     Returns:
-        AuthContext with user and permissions
-
+        AuthContext: Authentication context containing the resolved user, the token's `jti` as `session_id`, `auth_method` set to `'jwt'`, and the user's permission set.
+    
     Raises:
-        fastapi.HTTPException: If authentication fails
-
+        fastapi.HTTPException: On token expiry, invalid token, invalid token type, revoked token, missing subject, user not found, or inactive user account.
     """
     try:
         # Decode and validate token
@@ -183,30 +182,31 @@ async def get_current_user(
 def require_permission(
     permission: str,
 ) -> typing.Callable[[AuthContext], typing.Awaitable[AuthContext]]:
-    """Create a FastAPI dependency that requires a specific permission.
-
-    Args:
-        permission: Permission name to require (e.g., 'blueprint:read')
-
+    """
+    Create a FastAPI dependency that enforces a specific permission.
+    
+    The returned dependency validates the current request's AuthContext: admin users bypass the check; otherwise the dependency ensures the required permission is present and returns the AuthContext when allowed.
+    
+    Parameters:
+        permission (str): Permission name to require (e.g., "blueprint:read").
+    
     Returns:
-        Dependency function that checks the permission
-
-    Example:
-        @router.get('/blueprints')
-        async def list_blueprints(
-            auth: Annotated[
-                AuthContext,
-                Depends(require_permission('blueprint:read'))
-            ]
-        ):
-            ...
-
+        Callable[[AuthContext], Awaitable[AuthContext]]: A dependency callable that returns the current AuthContext when the user has the required permission.
+    
+    Raises:
+        fastapi.HTTPException: Raised with status code 403 if the current user lacks the required permission.
     """
 
     async def check_permission(
         auth: typing.Annotated[AuthContext, fastapi.Depends(get_current_user)],
     ) -> AuthContext:
         # Admin users automatically have all permissions
+        """
+        Enforces that the current user possesses the required permission; admin users bypass checks.
+        
+        Returns:
+            AuthContext: The unchanged authentication context when the permission is granted.
+        """
         if auth.user.is_admin:
             return auth
 
@@ -228,17 +228,17 @@ def require_permission(
 async def check_resource_permission(
     username: str, resource_type: str, resource_slug: str, action: str
 ) -> bool:
-    """Check if a user has permission to access a specific resource.
-
-    Args:
-        username: Username to check
-        resource_type: Resource type (e.g., 'Blueprint', 'Project')
-        resource_slug: Resource slug identifier
-        action: Action to check (e.g., 'read', 'write', 'delete')
-
+    """
+    Determine whether the given user is allowed to perform the specified action on the named resource.
+    
+    Parameters:
+    	username (str): Username of the user to check.
+    	resource_type (str): Resource label to match (e.g., 'Blueprint', 'Project').
+    	resource_slug (str): Slug identifier of the target resource.
+    	action (str): Action to check (e.g., 'read', 'write', 'delete').
+    
     Returns:
-        True if user has permission, False otherwise
-
+    	bool: `True` if the user has the requested action for the resource, `False` otherwise.
     """
     query = """
     MATCH (u:User {username: $username})
@@ -273,30 +273,17 @@ async def check_resource_permission(
 def require_resource_access(
     resource_type: str, action: str
 ) -> typing.Callable[[str, AuthContext], typing.Awaitable[AuthContext]]:
-    """Create dependency that requires resource-level permission.
-
-    Checks both global permissions and resource-specific CAN_ACCESS
-    relationships.
-
-    Args:
-        resource_type: Resource type (e.g., 'blueprint', 'project')
-        action: Action to check (e.g., 'read', 'write', 'delete')
-
+    """
+    Create a FastAPI dependency that enforces access for a specific resource and action.
+    
+    The returned dependency validates that the current user has permission to perform the given action on the resource identified by its slug; on success it returns the provided AuthContext, otherwise it raises an HTTP 403 error.
+    
+    Parameters:
+        resource_type (str): Resource type name (e.g., 'blueprint', 'project') used to form global permission names and to match resource labels.
+        action (str): Action to check (e.g., 'read', 'write', 'delete').
+    
     Returns:
-        Dependency function that checks the permission
-
-    Example:
-        @router.get('/blueprints/{type}/{slug}')
-        async def get_blueprint(
-            type: str,
-            slug: str,
-            auth: Annotated[
-                AuthContext,
-                Depends(require_resource_access('blueprint', 'read'))
-            ]
-        ):
-            ...
-
+        Callable: A dependency callable that accepts a resource slug and an AuthContext and returns the AuthContext if access is granted, or raises HTTPException(403) if denied.
     """
 
     async def check_access(
@@ -304,6 +291,19 @@ def require_resource_access(
         auth: typing.Annotated[AuthContext, fastapi.Depends(get_current_user)],
     ) -> AuthContext:
         # Admin users automatically have all permissions
+        """
+        Enforces that the current user has access to the specified resource and returns the unchanged AuthContext on success.
+        
+        Parameters:
+            slug (str): The resource identifier (slug) to check access for.
+            auth (AuthContext): The authentication context for the current request.
+        
+        Returns:
+            AuthContext: The provided auth context when access is granted.
+        
+        Raises:
+            fastapi.HTTPException: With status 403 if the user is not authorized to access the resource.
+        """
         if auth.user.is_admin:
             return auth
 

@@ -13,7 +13,18 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     """Test cases for blueprint CRUD endpoints."""
 
     def setUp(self) -> None:
-        """Set up test client and mocks."""
+        """
+        Prepare the test fixture by creating a FastAPI app, an authenticated admin context, a TestClient, and a sample Blueprint model.
+        
+        Sets the following attributes on self:
+        - test_app: FastAPI application instance used by tests.
+        - admin_user: admin User model used for authentication.
+        - auth_context: AuthContext returned by the overridden dependency.
+        - client: TestClient bound to the test_app.
+        - test_blueprint: Blueprint model instance used in endpoint tests.
+        
+        Overrides the get_current_user dependency to return the admin auth context so tests run with elevated permissions.
+        """
         from imbi.auth import permissions
 
         self.test_app = app.create_app()
@@ -38,6 +49,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         # Override the get_current_user dependency
         async def mock_get_current_user():
+            """
+            Provide the preconfigured authentication context for tests.
+            
+            Returns:
+                The test's authentication context object used to simulate an authenticated user.
+            """
             return self.auth_context
 
         self.test_app.dependency_overrides[permissions.get_current_user] = (
@@ -127,6 +144,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test listing blueprints when none exist."""
 
         async def empty_generator():
+            """
+            Async generator that yields no items.
+            
+            Returns:
+                Async iterator: An asynchronous iterator that yields no values.
+            """
             return
             yield  # Make this a generator
 
@@ -145,6 +168,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test listing blueprints returns data."""
 
         async def blueprint_generator():
+            """
+            Yield the test blueprint model instance used by the test case.
+            
+            Returns:
+                An asynchronous generator that yields the single blueprint model `self.test_blueprint`.
+            """
             yield self.test_blueprint
 
         with (
@@ -164,6 +193,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test listing blueprints with enabled filter."""
 
         async def blueprint_generator():
+            """
+            Yield the test blueprint model instance used by the test case.
+            
+            Returns:
+                An asynchronous generator that yields the single blueprint model `self.test_blueprint`.
+            """
             yield self.test_blueprint
 
         with (
@@ -183,6 +218,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test listing blueprints filtered by type."""
 
         async def blueprint_generator():
+            """
+            Yield the test blueprint model instance used by the test case.
+            
+            Returns:
+                An asynchronous generator that yields the single blueprint model `self.test_blueprint`.
+            """
             yield self.test_blueprint
 
         with (
@@ -205,6 +246,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test listing blueprints by type with enabled filter."""
 
         async def blueprint_generator():
+            """
+            Yield the test blueprint model instance used by the test case.
+            
+            Returns:
+                An asynchronous generator that yields the single blueprint model `self.test_blueprint`.
+            """
             yield self.test_blueprint
 
         with (
@@ -323,7 +370,11 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
             self.assertIn('not found', response.json()['detail'])
 
     def test_blueprint_requires_authentication(self) -> None:
-        """Test that blueprint endpoints require authentication."""
+        """
+        Verify that blueprint endpoints reject unauthenticated requests.
+        
+        Sends unauthenticated GET and POST requests to the blueprints endpoints and asserts each responds with HTTP 401. Restores the test's authentication dependency override after the checks to avoid affecting other tests.
+        """
         from imbi.auth import permissions
 
         # Clear dependency overrides to test actual authentication
@@ -347,6 +398,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         # Restore the override for other tests
         async def mock_get_current_user():
+            """
+            Provide the preconfigured authentication context for tests.
+            
+            Returns:
+                The test's authentication context object used to simulate an authenticated user.
+            """
             return self.auth_context
 
         self.test_app.dependency_overrides[permissions.get_current_user] = (

@@ -44,6 +44,11 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
     """Test JWT authentication."""
 
     async def asyncSetUp(self) -> None:
+        """
+        Set up test authentication settings and a sample active non-admin user.
+        
+        Creates self.auth_settings with a short-lived JWT configuration for tests and self.test_user as a populated User instance (including a hashed password and creation timestamp) to be reused by test cases.
+        """
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!',
             jwt_algorithm='HS256',
@@ -219,7 +224,11 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn('inactive', str(ctx.exception.detail).lower())
 
     async def test_authenticate_jwt_invalid_token_type(self) -> None:
-        """Test authentication with wrong token type."""
+        """
+        Verifies that authenticating with a refresh token (instead of an access token) is rejected.
+        
+        Asserts that calling authenticate_jwt with a refresh token raises an HTTPException with status code 401 and a detail message mentioning 'token type'.
+        """
         # Create a refresh token instead of access token
         token_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!',
@@ -300,6 +309,11 @@ class ProtectedEndpointTestCase(unittest.TestCase):
     """Test protected endpoints require authentication and permissions."""
 
     def setUp(self) -> None:
+        """
+        Prepare a TestClient instance and default JWT authentication settings for the test case.
+        
+        Sets self.client to a TestClient created from the application and sets self.auth_settings with a test JWT secret, algorithm, and access token expiry (3600 seconds).
+        """
         self.client = testclient.TestClient(app.create_app())
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!',
@@ -363,6 +377,12 @@ class ProtectedEndpointTestCase(unittest.TestCase):
 
         # Mock fetch_nodes for blueprint listing
         async def mock_fetch_nodes(*args, **kwargs):
+            """
+            Yield a single Blueprint instance with preset test values.
+            
+            Yields:
+                models.Blueprint: A blueprint with name "Test Blueprint", type "Organization", and json_schema {"type": "object"}.
+            """
             yield models.Blueprint(
                 name='Test Blueprint',
                 type='Organization',
@@ -512,6 +532,15 @@ class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
     """Test require_resource_access dependency function."""
 
     async def asyncSetUp(self) -> None:
+        """
+        Create test user fixtures.
+        
+        Creates two User instances on self for use in tests:
+        - self.admin_user: an active admin user.
+        - self.regular_user: an active non-admin regular user.
+        
+        Both users have a placeholder password hash, no service account flag, and a created_at timestamp set to the current UTC time.
+        """
         self.admin_user = models.User(
             username='admin',
             email='admin@example.com',
