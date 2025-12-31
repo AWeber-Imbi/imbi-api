@@ -211,6 +211,13 @@ async def update_user(
             detail=f'User with username {username!r} not found',
         )
 
+    # Prevent non-admins from modifying admin users
+    if existing_user.is_admin and not auth.user.is_admin:
+        raise fastapi.HTTPException(
+            status_code=403,
+            detail='Only admins can modify admin users',
+        )
+
     # Prevent non-admins from setting is_admin
     if user_update.is_admin and not auth.user.is_admin:
         raise fastapi.HTTPException(
