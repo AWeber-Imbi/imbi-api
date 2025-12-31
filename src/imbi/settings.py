@@ -115,6 +115,34 @@ class Auth(pydantic_settings.BaseSettings):
     # API Key Configuration
     api_key_max_lifetime_days: int = 365
 
+    # OAuth Provider Configurations
+    oauth_google_enabled: bool = False
+    oauth_google_client_id: str | None = None
+    oauth_google_client_secret: str | None = None
+    oauth_google_allowed_domains: list[str] = []
+
+    oauth_github_enabled: bool = False
+    oauth_github_client_id: str | None = None
+    oauth_github_client_secret: str | None = None
+
+    oauth_oidc_enabled: bool = False
+    oauth_oidc_client_id: str | None = None
+    oauth_oidc_client_secret: str | None = None
+    oauth_oidc_issuer_url: str | None = None
+    oauth_oidc_name: str = 'OIDC'  # Display name for generic OIDC
+
+    # OAuth Behavior
+    oauth_auto_link_by_email: bool = (
+        False  # Auto-link OAuth to existing user by email
+    )
+    oauth_auto_create_users: bool = True  # Create user if doesn't exist
+    oauth_callback_base_url: str = (
+        'http://localhost:8000'  # Base URL for callbacks
+    )
+
+    # Local password authentication
+    local_auth_enabled: bool = True
+
 
 # Module-level singleton for Auth settings to ensure stable JWT secret
 _auth_settings: Auth | None = None

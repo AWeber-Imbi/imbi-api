@@ -2,17 +2,92 @@
 
 import datetime
 import logging
+import secrets
+import typing
 
 import fastapi
 import jwt
 
 from imbi import models, neo4j, settings
-from imbi.auth import core
+from imbi.auth import core, oauth
 from imbi.auth import models as auth_models
 
 LOGGER = logging.getLogger(__name__)
 
 auth_router = fastapi.APIRouter(prefix='/auth', tags=['Authentication'])
+
+
+@auth_router.get(
+    '/providers', response_model=auth_models.AuthProvidersResponse
+)
+async def get_auth_providers() -> auth_models.AuthProvidersResponse:
+    """Get available authentication providers configuration.
+
+    Returns a list of enabled authentication providers to allow the UI
+    to dynamically configure the login interface.
+
+    Returns:
+        AuthProvidersResponse: List of providers with configuration
+
+    """
+    auth_settings = settings.get_auth_settings()
+    providers = []
+
+    # Local password authentication
+    if auth_settings.local_auth_enabled:
+        providers.append(
+            auth_models.AuthProvider(
+                id='local',
+                type='password',
+                name='Username/Password',
+                enabled=True,
+                icon='lock',
+            )
+        )
+
+    # Google OAuth
+    if auth_settings.oauth_google_enabled:
+        providers.append(
+            auth_models.AuthProvider(
+                id='google',
+                type='oauth',
+                name='Google',
+                enabled=True,
+                auth_url='/auth/oauth/google',
+                icon='google',
+            )
+        )
+
+    # GitHub OAuth
+    if auth_settings.oauth_github_enabled:
+        providers.append(
+            auth_models.AuthProvider(
+                id='github',
+                type='oauth',
+                name='GitHub',
+                enabled=True,
+                auth_url='/auth/oauth/github',
+                icon='github',
+            )
+        )
+
+    # Generic OIDC
+    if auth_settings.oauth_oidc_enabled:
+        providers.append(
+            auth_models.AuthProvider(
+                id='oidc',
+                type='oauth',
+                name=auth_settings.oauth_oidc_name,
+                enabled=True,
+                auth_url='/auth/oauth/oidc',
+                icon='key',
+            )
+        )
+
+    return auth_models.AuthProvidersResponse(
+        providers=providers,
+        default_redirect='/dashboard',
+    )
 
 
 @auth_router.post('/login', response_model=auth_models.TokenResponse)
@@ -235,3 +310,331 @@ async def logout(
     # TODO: Implement token revocation in Phase 2 with AuthContext
     # For now, this is a no-op. Clients should discard their tokens.
     LOGGER.info('Logout endpoint called (token revocation in Phase 2)')
+
+
+@auth_router.get('/oauth/{provider}')
+async def oauth_login(
+    provider: str,
+    request: fastapi.Request,
+    redirect_uri: str = fastapi.Query(default='/dashboard'),
+) -> fastapi.responses.RedirectResponse:
+    """Initiate OAuth login flow.
+
+    Args:
+        provider: OAuth provider ('google', 'github', 'oidc')
+        request: FastAPI request object
+        redirect_uri: Where to redirect after successful auth
+
+    Returns:
+        Redirect to OAuth provider's authorization page
+
+    Raises:
+        HTTPException: 400 if provider not enabled or invalid
+
+    """
+    auth_settings = settings.get_auth_settings()
+
+    # Validate provider is enabled
+    if provider not in ['google', 'github', 'oidc']:
+        raise fastapi.HTTPException(
+            status_code=400, detail=f'Invalid provider: {provider}'
+        )
+
+    if provider == 'google' and not auth_settings.oauth_google_enabled:
+        raise fastapi.HTTPException(
+            status_code=400, detail='Google OAuth not enabled'
+        )
+    elif provider == 'github' and not auth_settings.oauth_github_enabled:
+        raise fastapi.HTTPException(
+            status_code=400, detail='GitHub OAuth not enabled'
+        )
+    elif provider == 'oidc' and not auth_settings.oauth_oidc_enabled:
+        raise fastapi.HTTPException(
+            status_code=400, detail='OIDC OAuth not enabled'
+        )
+
+    # Generate OAuth state for CSRF protection
+    state_token, _ = oauth.generate_oauth_state(
+        provider, redirect_uri, auth_settings
+    )
+
+    # Build callback URL
+    base_url = auth_settings.oauth_callback_base_url
+    callback_url = f'{base_url}/auth/oauth/{provider}/callback'
+
+    # Build authorization URL based on provider
+    if provider == 'google':
+        auth_url = (
+            'https://accounts.google.com/o/oauth2/v2/auth'
+            f'?client_id={auth_settings.oauth_google_client_id}'
+            f'&redirect_uri={callback_url}'
+            f'&response_type=code'
+            f'&scope=openid email profile'
+            f'&state={state_token}'
+        )
+    elif provider == 'github':
+        auth_url = (
+            'https://github.com/login/oauth/authorize'
+            f'?client_id={auth_settings.oauth_github_client_id}'
+            f'&redirect_uri={callback_url}'
+            f'&scope=read:user user:email'
+            f'&state={state_token}'
+        )
+    elif provider == 'oidc':
+        issuer = (auth_settings.oauth_oidc_issuer_url or '').rstrip('/')
+        auth_url = (
+            f'{issuer}/protocol/openid-connect/auth'
+            f'?client_id={auth_settings.oauth_oidc_client_id}'
+            f'&redirect_uri={callback_url}'
+            f'&response_type=code'
+            f'&scope=openid email profile'
+            f'&state={state_token}'
+        )
+
+    LOGGER.info('OAuth login initiated for provider %s', provider)
+    return fastapi.responses.RedirectResponse(url=auth_url)
+
+
+@auth_router.get('/oauth/{provider}/callback')
+async def oauth_callback(
+    provider: str,
+    code: str | None = fastapi.Query(default=None),
+    state: str | None = fastapi.Query(default=None),
+    error: str | None = fastapi.Query(default=None),
+    error_description: str | None = fastapi.Query(default=None),
+) -> fastapi.responses.RedirectResponse:
+    """Handle OAuth provider callback.
+
+    After user authorizes on OAuth provider, they're redirected here with
+    an authorization code. We exchange it for tokens and create/login user.
+
+    Args:
+        provider: OAuth provider
+        code: Authorization code from provider
+        state: State parameter for CSRF protection
+        error: Error code if auth failed
+        error_description: Human-readable error description
+
+    Returns:
+        Redirect to frontend with token or error
+
+    """
+    auth_settings = settings.get_auth_settings()
+
+    # Handle OAuth errors
+    if error:
+        LOGGER.warning(
+            'OAuth callback error: %s - %s', error, error_description
+        )
+        return fastapi.responses.RedirectResponse(
+            url=f'/auth/callback?error={error}'
+        )
+
+    try:
+        # Validate required parameters
+        if not code or not state:
+            raise ValueError('Missing required parameters: code and state')
+
+        # Verify state parameter
+        state_data = oauth.verify_oauth_state(state, auth_settings)
+
+        if state_data.provider != provider:
+            raise ValueError('Provider mismatch')
+
+        # Exchange code for tokens
+        base_url = auth_settings.oauth_callback_base_url
+        callback_url = f'{base_url}/auth/oauth/{provider}/callback'
+        token_response = await oauth.exchange_oauth_code(
+            provider, code, callback_url, auth_settings
+        )
+
+        # Fetch user profile
+        profile = await oauth.fetch_oauth_profile(
+            provider, token_response['access_token'], auth_settings
+        )
+
+        # Find or create OAuth identity
+        oauth_identity = await find_or_create_oauth_identity(
+            provider, profile, token_response, auth_settings
+        )
+
+        # Get associated user
+        await neo4j.refresh_relationship(oauth_identity, 'user')
+        user = oauth_identity.user
+
+        # Create JWT tokens (reusing existing token creation logic)
+        access_token, access_jti = core.create_access_token(
+            user.username, auth_settings
+        )
+        _, refresh_jti = core.create_refresh_token(
+            user.username, auth_settings
+        )
+
+        # Store token metadata
+        now = datetime.datetime.now(datetime.UTC)
+        access_token_meta = models.TokenMetadata(
+            jti=access_jti,
+            token_type='access',
+            issued_at=now,
+            expires_at=now
+            + datetime.timedelta(
+                seconds=auth_settings.access_token_expire_seconds
+            ),
+            user=user,
+        )
+        await neo4j.create_node(access_token_meta)
+
+        refresh_token_meta = models.TokenMetadata(
+            jti=refresh_jti,
+            token_type='refresh',
+            issued_at=now,
+            expires_at=now
+            + datetime.timedelta(
+                seconds=auth_settings.refresh_token_expire_seconds
+            ),
+            user=user,
+        )
+        await neo4j.create_node(refresh_token_meta)
+
+        # Update user last_login
+        user.last_login = now
+        await neo4j.upsert(user, {'username': user.username})
+
+        # Update OAuth identity last_used
+        oauth_identity.last_used = now
+        await neo4j.upsert(
+            oauth_identity,
+            {'provider': provider, 'provider_user_id': profile['id']},
+        )
+
+        LOGGER.info(
+            'OAuth login successful for user %s via %s',
+            user.username,
+            provider,
+        )
+
+        # Redirect to frontend with token
+        return fastapi.responses.RedirectResponse(
+            url=f'{state_data.redirect_uri}?access_token={access_token}'
+        )
+
+    except Exception as e:
+        LOGGER.exception('OAuth callback failed: %s', e)
+        return fastapi.responses.RedirectResponse(
+            url='/auth/callback?error=authentication_failed'
+        )
+
+
+async def find_or_create_oauth_identity(
+    provider: str,
+    profile: dict[str, typing.Any],
+    token_response: dict[str, typing.Any],
+    auth_settings: settings.Auth,
+) -> models.OAuthIdentity:
+    """Find existing or create new OAuth identity and user.
+
+    Logic:
+    1. Check if OAuth identity exists (by provider + provider_user_id)
+    2. If exists, return it (with updated tokens)
+    3. If not exists:
+       a. Check if auto-link by email is enabled and user exists
+       b. Otherwise create new user
+       c. Create OAuth identity linked to user
+
+    Args:
+        provider: OAuth provider identifier
+        profile: Normalized user profile from OAuth provider
+        token_response: Token response from OAuth provider
+        auth_settings: Auth settings instance
+
+    Returns:
+        OAuthIdentity with linked user
+
+    Raises:
+        ValueError: If user auto-creation disabled and no user found
+
+    """
+    # Try to find existing OAuth identity
+    identity = await neo4j.fetch_node(
+        models.OAuthIdentity,
+        {'provider': provider, 'provider_user_id': profile['id']},
+    )
+
+    if identity:
+        # Update tokens
+        identity.access_token = token_response['access_token']
+        identity.refresh_token = token_response.get('refresh_token')
+        identity.token_expires_at = datetime.datetime.now(
+            datetime.UTC
+        ) + datetime.timedelta(seconds=token_response.get('expires_in', 3600))
+        await neo4j.upsert(
+            identity, {'provider': provider, 'provider_user_id': profile['id']}
+        )
+
+        return identity
+
+    # OAuth identity doesn't exist - need to create it
+
+    # Check if we should auto-link to existing user by email
+    user = None
+    if auth_settings.oauth_auto_link_by_email:
+        user = await neo4j.fetch_node(models.User, {'email': profile['email']})
+
+    # Create new user if doesn't exist
+    if not user:
+        if not auth_settings.oauth_auto_create_users:
+            raise ValueError('User auto-creation disabled')
+
+        # Generate username from email
+        username = profile['email'].split('@')[0].lower()
+
+        # Ensure username is unique
+        existing = await neo4j.fetch_node(models.User, {'username': username})
+        if existing:
+            username = f'{username}_{secrets.token_hex(4)}'
+
+        user = models.User(
+            username=username,
+            email=profile['email'],
+            display_name=profile['name'],
+            password_hash=None,  # OAuth-only user
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+            avatar_url=profile.get('avatar_url'),
+        )
+
+        await neo4j.create_node(user)
+        LOGGER.info(
+            'Created new user %s via OAuth %s', user.username, provider
+        )
+
+    # Create OAuth identity
+    now = datetime.datetime.now(datetime.UTC)
+    identity = models.OAuthIdentity(
+        provider=typing.cast(
+            typing.Literal['google', 'github', 'oidc'], provider
+        ),
+        provider_user_id=profile['id'],
+        email=profile['email'],
+        display_name=profile['name'],
+        avatar_url=profile.get('avatar_url'),
+        access_token=token_response['access_token'],
+        refresh_token=token_response.get('refresh_token'),
+        token_expires_at=now
+        + datetime.timedelta(seconds=token_response.get('expires_in', 3600)),
+        linked_at=now,
+        last_used=now,
+        raw_profile=profile,
+        user=user,
+    )
+
+    await neo4j.create_node(identity)
+    await neo4j.create_relationship(identity, user, rel_type='OAUTH_IDENTITY')
+
+    LOGGER.info(
+        'Created OAuth identity for user %s via %s', user.username, provider
+    )
+
+    return identity
