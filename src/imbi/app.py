@@ -22,13 +22,22 @@ async def fastapi_lifespan(
         neo4j.initialize(),
         return_exceptions=True,
     )
-    # Check for initialization failures
+
+    # Check if ClickHouse init returned False (failure without exception)
+    if init_results[0] is False:
+        LOGGER.error('ClickHouse initialization failed')
+        # Clean up Neo4j if it succeeded
+        if not isinstance(init_results[1], Exception):
+            await neo4j.aclose()
+        raise RuntimeError('ClickHouse initialization failed')
+
+    # Check for initialization failures (exceptions)
     for i, result in enumerate(init_results):
         if isinstance(result, Exception):
             service_name = ['ClickHouse', 'Neo4j'][i]
             LOGGER.error('%s initialization failed: %s', service_name, result)
             # Clean up successfully initialized services
-            if i == 1 and not isinstance(init_results[0], Exception):
+            if i == 1 and init_results[0] is True:
                 await clickhouse.aclose()
             elif i == 0 and not isinstance(init_results[1], Exception):
                 await neo4j.aclose()
