@@ -27,15 +27,16 @@ classifiers = [
 ]
 dependencies = [
   "argon2-cffi>=25.1.0",
-  "asynch",
+  "clickhouse-connect",
   "cypherantic@git+https://github.com/dave-shawley/cypherantic.git#egg=main",
   "email-validator",
   "fastapi",
   "jsonschema-models",
   "neo4j",
+  "orjson",
   "pydantic",
   "pydantic-settings",
-  "pyjwt>=2.10.1",  # CVE-2025-45768 disputed, monitor for 2.11.0+ when available
+  "pyjwt>=2.10.1", # CVE-2025-45768 disputed, monitor for 2.11.0+ when available
   "python-slugify",
   "typer",
   "uvicorn",
@@ -47,6 +48,9 @@ otel = [
   "opentelemetry-distro",
   "opentelemetry-instrumentation-asyncio",
   "opentelemetry-instrumentation-fastapi",
+]
+sentry = [
+  "sentry-sdk"
 ]
 
 [project.scripts]
