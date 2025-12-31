@@ -76,7 +76,7 @@ async def login(
         LOGGER.info('Rehashed password for user %s', user.username)
 
     # Create tokens
-    auth_settings = settings.Auth()
+    auth_settings = settings.get_auth_settings()
     access_token, access_jti = core.create_access_token(
         user.username, auth_settings
     )
@@ -148,7 +148,7 @@ async def refresh_token(
         HTTPException: 401 if refresh token is invalid or revoked
 
     """
-    auth_settings = settings.Auth()
+    auth_settings = settings.get_auth_settings()
 
     # Decode and validate refresh token
     try:

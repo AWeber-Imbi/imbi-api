@@ -29,7 +29,7 @@ def create_app() -> fastapi.FastAPI:
         redoc_url='/docs',
         docs_url=None,
         license_info={
-            'name': 'BSD 3-Claude',
+            'name': 'BSD 3-Clause',
             'url': 'https://github.com/AWeber-Imbi/imbi-api/blob/main/LICENSE',
         },
     )

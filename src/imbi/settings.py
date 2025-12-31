@@ -102,3 +102,23 @@ class Auth(pydantic_settings.BaseSettings):
 
     # API Key Configuration
     api_key_max_lifetime_days: int = 365
+
+
+# Module-level singleton for Auth settings to ensure stable JWT secret
+_auth_settings: Auth | None = None
+
+
+def get_auth_settings() -> Auth:
+    """Get the singleton Auth settings instance.
+
+    This ensures the JWT secret remains stable across requests when
+    auto-generated (i.e., when IMBI_AUTH_JWT_SECRET is not set in env).
+
+    Returns:
+        The singleton Auth settings instance.
+
+    """
+    global _auth_settings
+    if _auth_settings is None:
+        _auth_settings = Auth()
+    return _auth_settings

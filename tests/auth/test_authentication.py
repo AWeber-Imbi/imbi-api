@@ -245,7 +245,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with (
-            mock.patch('imbi.settings.Auth') as mock_settings,
+            mock.patch('imbi.settings.get_auth_settings') as mock_settings,
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
             mock.patch('imbi.neo4j.create_relationship'),
@@ -279,7 +279,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             self.test_user.username, expired_settings
         )
 
-        with mock.patch('imbi.settings.Auth') as mock_settings:
+        with mock.patch('imbi.settings.get_auth_settings') as mock_settings:
             # Mock settings to use our test JWT secret
             mock_settings.return_value = expired_settings
 
@@ -307,7 +307,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             self.test_user.username, self.auth_settings
         )
 
-        with mock.patch('imbi.settings.Auth') as mock_settings:
+        with mock.patch('imbi.settings.get_auth_settings') as mock_settings:
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
 
@@ -337,7 +337,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with (
-            mock.patch('imbi.settings.Auth') as mock_settings,
+            mock.patch('imbi.settings.get_auth_settings') as mock_settings,
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
         ):
             # Mock settings to use our test JWT secret

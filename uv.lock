@@ -609,7 +609,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argon2-cffi" },
+    { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "asynch" },
     { name = "cypherantic", git = "https://github.com/dave-shawley/cypherantic.git" },
     { name = "email-validator" },
@@ -621,7 +621,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyjwt" },
+    { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "python-slugify" },
     { name = "typer" },
     { name = "uvicorn" },
