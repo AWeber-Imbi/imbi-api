@@ -191,6 +191,45 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
 
         self.assertEqual(normalized['name'], 'user')
 
+    def test_normalize_google_profile_missing_email(self) -> None:
+        """Test Google profile normalization fails without email."""
+        raw_profile = {
+            'id': '12345',
+            'name': 'Test User',
+            'picture': 'https://example.com/avatar.jpg',
+        }
+
+        with self.assertRaises(ValueError) as context:
+            oauth.normalize_oauth_profile('google', raw_profile)
+
+        self.assertIn('email', str(context.exception).lower())
+
+    def test_normalize_github_profile_missing_email(self) -> None:
+        """Test GitHub profile normalization fails without email."""
+        raw_profile = {
+            'id': 67890,
+            'login': 'testuser',
+            'email': None,  # User has private email
+            'name': 'Test User',
+        }
+
+        with self.assertRaises(ValueError) as context:
+            oauth.normalize_oauth_profile('github', raw_profile)
+
+        self.assertIn('email', str(context.exception).lower())
+
+    def test_normalize_oidc_profile_missing_email(self) -> None:
+        """Test OIDC profile normalization fails without email."""
+        raw_profile = {
+            'sub': 'oidc-user-123',
+            'name': 'Test User',
+        }
+
+        with self.assertRaises(ValueError) as context:
+            oauth.normalize_oauth_profile('oidc', raw_profile)
+
+        self.assertIn('email', str(context.exception).lower())
+
     def test_normalize_unsupported_provider(self) -> None:
         """Test normalizing profile for unsupported provider."""
         with self.assertRaises(ValueError) as context:

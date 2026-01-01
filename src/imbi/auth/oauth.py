@@ -232,27 +232,46 @@ def normalize_oauth_profile(
 
     """
     if provider == 'google':
+        email = raw_profile.get('email')
+        if not email:
+            raise ValueError('Google profile missing required email field')
         return {
             'id': raw_profile['id'],
-            'email': raw_profile['email'],
+            'email': email,
             'name': raw_profile['name'],
             'avatar_url': raw_profile.get('picture'),
         }
     elif provider == 'github':
+        # GitHub users can set email to private, so it may be None
+        email = raw_profile.get('email')
+        if not email:
+            raise ValueError(
+                'GitHub profile missing email address. '
+                'User must grant email access or make email public.'
+            )
         return {
             'id': str(raw_profile['id']),
-            'email': raw_profile['email'],
+            'email': email,
             'name': raw_profile['name'] or raw_profile['login'],
             'avatar_url': raw_profile.get('avatar_url'),
         }
     elif provider == 'oidc':
         # Generic OIDC profile (OpenID Connect standard claims)
+        email = raw_profile.get('email')
+        if not email:
+            raise ValueError('OIDC profile missing required email claim')
+
+        # Generate name from available fields
+        name = (
+            raw_profile.get('name')
+            or raw_profile.get('preferred_username')
+            or email.split('@')[0]
+        )
+
         return {
             'id': raw_profile.get('sub') or raw_profile.get('id'),
-            'email': raw_profile['email'],
-            'name': raw_profile.get('name')
-            or raw_profile.get('preferred_username')
-            or raw_profile['email'].split('@')[0],
+            'email': email,
+            'name': name,
             'avatar_url': raw_profile.get('picture'),
         }
     else:
