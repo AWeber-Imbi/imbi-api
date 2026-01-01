@@ -7,6 +7,7 @@ import typing
 from urllib import parse as urlparse
 
 import fastapi
+import httpx
 import jwt
 import pydantic
 import pyotp
@@ -700,8 +701,14 @@ async def oauth_callback(
         )
         return fastapi.responses.RedirectResponse(url=redirect_url)
 
-    except Exception:
-        LOGGER.exception('OAuth callback failed')
+    except (
+        ValueError,
+        KeyError,
+        jwt.InvalidTokenError,
+        httpx.HTTPError,
+        fastapi.HTTPException,
+    ) as err:
+        LOGGER.exception('OAuth callback failed: %s', err)
         return fastapi.responses.RedirectResponse(
             url='/auth/callback?error=authentication_failed'
         )
