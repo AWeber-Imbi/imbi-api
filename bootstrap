@@ -67,8 +67,18 @@ OTEL_EXPORTER_OTLP_TRACES_INSECURE=true
 OTEL_RESOURCE_ATTRIBUTES=service.name=imbi-api,service.environment=development
 OTEL_SERVICE_NAME=imbi-api
 TEST_HOST=${TEST_HOST}
+IMBI_EMAIL_ENABLED=true
+IMBI_EMAIL_SMTP_HOST=127.0.0.1
+IMBI_EMAIL_SMTP_PORT=$(get_exposed_port mailpit 1025)
+IMBI_EMAIL_SMTP_USE_TLS=false
+IMBI_EMAIL_FROM_EMAIL=noreply@imbi.example
+IMBI_EMAIL_FROM_NAME=Imbi Development
+MAILPIT_SMTP_PORT=$(get_exposed_port mailpit 1025)
+MAILPIT_WEB_PORT=$(get_exposed_port mailpit 8025)
 EOF
 echo ' done.'
+
+echo "Mailpit web UI: http://${TEST_HOST}:$(get_exposed_port mailpit 8025)"
 
 if test "${CI}" = 'true'; then
 	echo '::endgroup::'
