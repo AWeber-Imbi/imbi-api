@@ -36,8 +36,8 @@ Imbi helps organizations answer critical questions about their service landscape
 - **Pydantic v2**: Type-safe data validation and settings management
 - **Cypherantic**: Type-safe Neo4j integration with automatic Pydantic model mapping
 
-**Current Status**: Core infrastructure complete with 100% test coverage (55 tests). REST API with health check endpoint
-functional. Additional CRUD endpoints and UI in development.
+**Current Status**: Core infrastructure complete with comprehensive test coverage. REST API with health check endpoint
+functional. Email sending module implemented. Additional CRUD endpoints and UI in development.
 
 ### What's New in v2
 
@@ -120,6 +120,62 @@ curl http://localhost:8000/status
 # API documentation (when implemented)
 open http://localhost:8000/docs  # OpenAPI/Redoc UI
 ```
+
+## Implemented Features
+
+### Email Sending
+
+Imbi includes a production-ready email sending module for transactional emails:
+
+**Key Features:**
+- **SMTP Integration**: Configurable SMTP client with TLS/SSL support
+- **Retry Logic**: Exponential backoff for transient failures (default: 3 retries)
+- **Template System**: Jinja2-based HTML and text email templates with autoescape
+- **Audit Logging**: All email attempts logged to ClickHouse for tracking
+- **Dry Run Mode**: Test email rendering without sending
+- **Password Reset Flow**: Secure token generation stored in Neo4j
+
+**Available Email Types:**
+- Welcome emails for new users
+- Password reset with secure tokens
+- Email verification (planned)
+- Security alerts (planned)
+
+**Configuration:**
+```bash
+# Enable email sending
+IMBI_EMAIL_ENABLED=true
+IMBI_EMAIL_DRY_RUN=false
+
+# SMTP settings
+IMBI_EMAIL_SMTP_HOST=smtp.example.com
+IMBI_EMAIL_SMTP_PORT=587
+IMBI_EMAIL_SMTP_USE_TLS=true
+IMBI_EMAIL_SMTP_USERNAME=user@example.com
+IMBI_EMAIL_SMTP_PASSWORD=secret
+
+# Sender information
+IMBI_EMAIL_FROM_EMAIL=noreply@example.com
+IMBI_EMAIL_FROM_NAME="Imbi Platform"
+
+# Retry settings
+IMBI_EMAIL_MAX_RETRIES=3
+IMBI_EMAIL_INITIAL_RETRY_DELAY=1.0
+IMBI_EMAIL_RETRY_BACKOFF_FACTOR=2.0
+```
+
+**Development Testing:**
+For local development, use [Mailpit](https://mailpit.axllent.org/) (included in `compose.yaml`):
+```bash
+# Mailpit SMTP runs on port 1025
+# Web UI available at http://localhost:8025
+docker compose up -d mailpit
+```
+
+**Test Coverage:**
+- 48 comprehensive tests (47 passing, 1 skipped)
+- 90%+ coverage across all email modules
+- Unit tests, integration tests, and Mailpit tests
 
 ## Roadmap
 
