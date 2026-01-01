@@ -73,8 +73,8 @@ class EmailClient:
                     self._settings.smtp_host,
                     self._settings.smtp_port,
                 )
-            except Exception as err:
-                LOGGER.error('Failed to initialize email client: %s', err)
+            except Exception:
+                LOGGER.exception('Failed to initialize email client')
                 raise
 
             self._initialized = True
@@ -134,11 +134,10 @@ class EmailClient:
                 is_final_attempt = attempt >= self._settings.max_retries
 
                 if is_final_attempt:
-                    LOGGER.error(
-                        'Failed to send email to %s after %d attempts: %s',
+                    LOGGER.exception(
+                        'Failed to send email to %s after %d attempts',
                         message.to_email,
                         attempt + 1,
-                        err,
                     )
                 else:
                     LOGGER.warning(
