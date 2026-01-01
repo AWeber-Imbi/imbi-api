@@ -199,10 +199,159 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
         self.assertIn('unsupported', str(context.exception).lower())
 
 
-class OAuthProviderConfigTestCase(unittest.TestCase):
+class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
+    """Test cases for OIDC discovery."""
+
+    def setUp(self) -> None:
+        """Clear OIDC discovery cache before each test."""
+        oauth._oidc_discovery_cache.clear()
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_success(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test successful OIDC discovery."""
+        # Mock discovery response
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'issuer': 'https://auth.example.com',
+            'token_endpoint': 'https://auth.example.com/oauth/token',
+            'userinfo_endpoint': 'https://auth.example.com/userinfo',
+            'authorization_endpoint': 'https://auth.example.com/authorize',
+        }
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery
+        discovery = await oauth._discover_oidc_endpoints(
+            'https://auth.example.com'
+        )
+
+        # Verify result
+        self.assertEqual(
+            discovery['token_endpoint'], 'https://auth.example.com/oauth/token'
+        )
+        self.assertEqual(
+            discovery['userinfo_endpoint'],
+            'https://auth.example.com/userinfo',
+        )
+
+        # Verify cache was populated
+        self.assertIn('https://auth.example.com', oauth._oidc_discovery_cache)
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_cached(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery uses cache on second call."""
+        # Populate cache manually
+        cached_data = {
+            'token_endpoint': 'https://cached.example.com/token',
+            'userinfo_endpoint': 'https://cached.example.com/userinfo',
+        }
+        oauth._oidc_discovery_cache['https://cached.example.com'] = cached_data
+
+        # Perform discovery - should use cache
+        discovery = await oauth._discover_oidc_endpoints(
+            'https://cached.example.com'
+        )
+
+        # Verify cached data was returned
+        self.assertEqual(discovery, cached_data)
+
+        # Verify no HTTP call was made
+        mock_client_class.assert_not_called()
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_http_error(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery with HTTP error."""
+        # Mock error response
+        mock_response = mock.Mock()
+        mock_response.status_code = 404
+        mock_response.text = 'Not Found'
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery - should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            await oauth._discover_oidc_endpoints('https://bad.example.com')
+
+        self.assertIn('discovery failed', str(context.exception).lower())
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_missing_token_endpoint(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery missing required token_endpoint."""
+        # Mock response missing token_endpoint
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'issuer': 'https://auth.example.com',
+            'userinfo_endpoint': 'https://auth.example.com/userinfo',
+        }
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery - should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            await oauth._discover_oidc_endpoints('https://bad.example.com')
+
+        self.assertIn('token_endpoint', str(context.exception).lower())
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_missing_userinfo_endpoint(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery missing required userinfo_endpoint."""
+        # Mock response missing userinfo_endpoint
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'issuer': 'https://auth.example.com',
+            'token_endpoint': 'https://auth.example.com/oauth/token',
+        }
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery - should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            await oauth._discover_oidc_endpoints('https://bad.example.com')
+
+        self.assertIn('userinfo_endpoint', str(context.exception).lower())
+
+
+class OAuthProviderConfigTestCase(unittest.IsolatedAsyncioTestCase):
     """Test cases for OAuth provider configuration."""
 
-    def test_get_provider_config_google(self) -> None:
+    def setUp(self) -> None:
+        """Clear OIDC discovery cache before each test."""
+        oauth._oidc_discovery_cache.clear()
+
+    async def test_get_provider_config_google(self) -> None:
         """Test getting Google OAuth config."""
         auth_settings = settings.Auth(
             oauth_google_enabled=True,
@@ -210,7 +359,7 @@ class OAuthProviderConfigTestCase(unittest.TestCase):
             oauth_google_client_secret='test-client-secret',
         )
 
-        token_url, client_id, client_secret = oauth._get_provider_config(
+        token_url, client_id, client_secret = await oauth._get_provider_config(
             'google', auth_settings
         )
 
@@ -218,7 +367,7 @@ class OAuthProviderConfigTestCase(unittest.TestCase):
         self.assertEqual(client_id, 'test-client-id')
         self.assertEqual(client_secret, 'test-client-secret')
 
-    def test_get_provider_config_github(self) -> None:
+    async def test_get_provider_config_github(self) -> None:
         """Test getting GitHub OAuth config."""
         auth_settings = settings.Auth(
             oauth_github_enabled=True,
@@ -226,7 +375,7 @@ class OAuthProviderConfigTestCase(unittest.TestCase):
             oauth_github_client_secret='github-client-secret',
         )
 
-        token_url, client_id, client_secret = oauth._get_provider_config(
+        token_url, client_id, client_secret = await oauth._get_provider_config(
             'github', auth_settings
         )
 
@@ -236,8 +385,11 @@ class OAuthProviderConfigTestCase(unittest.TestCase):
         self.assertEqual(client_id, 'github-client-id')
         self.assertEqual(client_secret, 'github-client-secret')
 
-    def test_get_provider_config_oidc(self) -> None:
-        """Test getting OIDC OAuth config."""
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_get_provider_config_oidc(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test getting OIDC OAuth config via discovery."""
         auth_settings = settings.Auth(
             oauth_oidc_enabled=True,
             oauth_oidc_client_id='oidc-client-id',
@@ -245,32 +397,121 @@ class OAuthProviderConfigTestCase(unittest.TestCase):
             oauth_oidc_issuer_url='https://auth.example.com',
         )
 
-        token_url, client_id, client_secret = oauth._get_provider_config(
+        # Mock discovery response
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'issuer': 'https://auth.example.com',
+            'token_endpoint': 'https://auth.example.com/oauth/token',
+            'userinfo_endpoint': 'https://auth.example.com/userinfo',
+            'authorization_endpoint': 'https://auth.example.com/authorize',
+        }
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        token_url, client_id, client_secret = await oauth._get_provider_config(
             'oidc', auth_settings
         )
 
-        self.assertEqual(
-            token_url,
-            'https://auth.example.com/protocol/openid-connect/token',
-        )
+        self.assertEqual(token_url, 'https://auth.example.com/oauth/token')
         self.assertEqual(client_id, 'oidc-client-id')
         self.assertEqual(client_secret, 'oidc-client-secret')
 
-    def test_get_provider_config_disabled(self) -> None:
+        # Verify discovery was called
+        mock_client.get.assert_called_once()
+        call_args = mock_client.get.call_args
+        self.assertEqual(
+            call_args[0][0],
+            'https://auth.example.com/.well-known/openid-configuration',
+        )
+
+    async def test_get_provider_config_disabled(self) -> None:
         """Test getting config for disabled provider."""
         auth_settings = settings.Auth(oauth_google_enabled=False)
 
         with self.assertRaises(ValueError) as context:
-            oauth._get_provider_config('google', auth_settings)
+            await oauth._get_provider_config('google', auth_settings)
 
         self.assertIn('not enabled', str(context.exception).lower())
 
-    def test_get_provider_config_unsupported(self) -> None:
+    async def test_get_provider_config_unsupported(self) -> None:
         """Test getting config for unsupported provider."""
         auth_settings = settings.Auth()
 
         with self.assertRaises(ValueError) as context:
-            oauth._get_provider_config('unsupported', auth_settings)
+            await oauth._get_provider_config('unsupported', auth_settings)
+
+        self.assertIn('unsupported', str(context.exception).lower())
+
+
+class OAuthUserinfoUrlTestCase(unittest.IsolatedAsyncioTestCase):
+    """Test cases for getting userinfo URLs."""
+
+    def setUp(self) -> None:
+        """Clear OIDC discovery cache before each test."""
+        oauth._oidc_discovery_cache.clear()
+
+    async def test_get_userinfo_url_google(self) -> None:
+        """Test getting Google userinfo URL."""
+        auth_settings = settings.Auth(oauth_google_enabled=True)
+        url = await oauth._get_userinfo_url('google', auth_settings)
+        self.assertEqual(url, 'https://www.googleapis.com/oauth2/v2/userinfo')
+
+    async def test_get_userinfo_url_github(self) -> None:
+        """Test getting GitHub userinfo URL."""
+        auth_settings = settings.Auth(oauth_github_enabled=True)
+        url = await oauth._get_userinfo_url('github', auth_settings)
+        self.assertEqual(url, 'https://api.github.com/user')
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_get_userinfo_url_oidc(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test getting OIDC userinfo URL via discovery."""
+        auth_settings = settings.Auth(
+            oauth_oidc_enabled=True,
+            oauth_oidc_issuer_url='https://auth.example.com',
+        )
+
+        # Mock discovery response
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'issuer': 'https://auth.example.com',
+            'token_endpoint': 'https://auth.example.com/oauth/token',
+            'userinfo_endpoint': 'https://auth.example.com/userinfo',
+        }
+
+        # Mock client
+        mock_client = mock.AsyncMock()
+        mock_client.get = mock.AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = mock.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        url = await oauth._get_userinfo_url('oidc', auth_settings)
+        self.assertEqual(url, 'https://auth.example.com/userinfo')
+
+    async def test_get_userinfo_url_oidc_missing_issuer(self) -> None:
+        """Test getting OIDC userinfo URL without issuer configured."""
+        auth_settings = settings.Auth(oauth_oidc_enabled=True)
+
+        with self.assertRaises(ValueError) as context:
+            await oauth._get_userinfo_url('oidc', auth_settings)
+
+        self.assertIn('issuer', str(context.exception).lower())
+
+    async def test_get_userinfo_url_unsupported(self) -> None:
+        """Test getting userinfo URL for unsupported provider."""
+        auth_settings = settings.Auth()
+
+        with self.assertRaises(ValueError) as context:
+            await oauth._get_userinfo_url('unsupported', auth_settings)
 
         self.assertIn('unsupported', str(context.exception).lower())
 

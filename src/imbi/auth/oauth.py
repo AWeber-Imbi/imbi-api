@@ -10,6 +10,54 @@ import jwt
 from imbi import settings
 from imbi.auth import models
 
+# Cache for OIDC discovery documents (issuer_url -> discovery_data)
+_oidc_discovery_cache: dict[str, dict[str, typing.Any]] = {}
+
+
+async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
+    """Discover OIDC endpoints via .well-known/openid-configuration.
+
+    Args:
+        issuer_url: OIDC issuer URL
+
+    Returns:
+        Discovery document with token_endpoint, userinfo_endpoint, etc.
+
+    Raises:
+        ValueError: If discovery fails
+
+    """
+    # Check cache first
+    if issuer_url in _oidc_discovery_cache:
+        return _oidc_discovery_cache[issuer_url]
+
+    # Fetch discovery document
+    issuer = issuer_url.rstrip('/')
+    discovery_url = f'{issuer}/.well-known/openid-configuration'
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(discovery_url)
+    except httpx.HTTPError as e:
+        raise ValueError(f'OIDC discovery request failed: {e}') from e
+
+    if response.status_code != 200:
+        raise ValueError(
+            f'OIDC discovery failed: {response.status_code} {response.text}'
+        )
+
+    discovery_data = typing.cast(dict[str, typing.Any], response.json())
+
+    # Validate required fields
+    if 'token_endpoint' not in discovery_data:
+        raise ValueError('OIDC discovery missing token_endpoint')
+    if 'userinfo_endpoint' not in discovery_data:
+        raise ValueError('OIDC discovery missing userinfo_endpoint')
+
+    # Cache the result
+    _oidc_discovery_cache[issuer_url] = discovery_data
+    return discovery_data
+
 
 def generate_oauth_state(
     provider: str, redirect_uri: str, auth_settings: settings.Auth
@@ -100,12 +148,12 @@ async def exchange_oauth_code(
 
     """
     # Get provider configuration
-    token_url, client_id, client_secret = _get_provider_config(
+    token_url, client_id, client_secret = await _get_provider_config(
         provider, auth_settings
     )
 
     # Exchange code for token
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             token_url,
             data={
@@ -147,10 +195,10 @@ async def fetch_oauth_profile(
 
     """
     # Get userinfo URL
-    userinfo_url = _get_userinfo_url(provider, auth_settings)
+    userinfo_url = await _get_userinfo_url(provider, auth_settings)
 
     # Fetch userinfo
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             userinfo_url,
             headers={'Authorization': f'Bearer {access_token}'},
@@ -211,7 +259,7 @@ def normalize_oauth_profile(
         raise ValueError(f'Unsupported OAuth provider: {provider}')
 
 
-def _get_provider_config(
+async def _get_provider_config(
     provider: str, auth_settings: settings.Auth
 ) -> tuple[str, str, str]:
     """Get OAuth provider configuration.
@@ -249,10 +297,12 @@ def _get_provider_config(
         if not auth_settings.oauth_oidc_issuer_url:
             raise ValueError('OIDC issuer URL not configured')
 
-        # Construct token URL from issuer (standard OIDC discovery)
-        issuer = auth_settings.oauth_oidc_issuer_url.rstrip('/')
+        # Use OIDC discovery to get endpoints
+        discovery = await _discover_oidc_endpoints(
+            auth_settings.oauth_oidc_issuer_url
+        )
         return (
-            f'{issuer}/protocol/openid-connect/token',
+            discovery['token_endpoint'],
             auth_settings.oauth_oidc_client_id or '',
             auth_settings.oauth_oidc_client_secret or '',
         )
@@ -260,7 +310,9 @@ def _get_provider_config(
         raise ValueError(f'Unsupported OAuth provider: {provider}')
 
 
-def _get_userinfo_url(provider: str, auth_settings: settings.Auth) -> str:
+async def _get_userinfo_url(
+    provider: str, auth_settings: settings.Auth
+) -> str:
     """Get userinfo URL for OAuth provider.
 
     Args:
@@ -281,7 +333,10 @@ def _get_userinfo_url(provider: str, auth_settings: settings.Auth) -> str:
     elif provider == 'oidc':
         if not auth_settings.oauth_oidc_issuer_url:
             raise ValueError('OIDC issuer URL not configured')
-        issuer = auth_settings.oauth_oidc_issuer_url.rstrip('/')
-        return f'{issuer}/protocol/openid-connect/userinfo'
+        # Use OIDC discovery to get userinfo endpoint
+        discovery = await _discover_oidc_endpoints(
+            auth_settings.oauth_oidc_issuer_url
+        )
+        return str(discovery['userinfo_endpoint'])
     else:
         raise ValueError(f'Unsupported OAuth provider: {provider}')
