@@ -280,3 +280,51 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
                 # Verify email was still sent
                 self.assertEqual(audit.status, 'dry_run')
                 self.assertEqual(audit.to_email, 'test@example.com')
+
+    async def test_password_reset_url_with_existing_params(self) -> None:
+        """Test password reset URL handles existing query parameters."""
+        from imbi import email
+
+        with mock.patch('imbi.email.client.settings.Email') as mock_settings:
+            email_settings = mock_settings.return_value
+            email_settings.enabled = True
+            email_settings.dry_run = True
+
+            with mock.patch('imbi.clickhouse.insert'):
+                with mock.patch('imbi.neo4j.create_node') as mock_create:
+                    mock_create.return_value = None
+
+                    # Mock template manager to capture reset URL
+                    with mock.patch(
+                        'imbi.email.templates.TemplateManager.render_email'
+                    ) as mock_render:
+                        # Mock message with required attributes
+                        mock_message = mock.MagicMock()
+                        mock_message.to_email = 'test@example.com'
+                        mock_message.template_name = 'password_reset'
+                        mock_message.subject = 'Password Reset'
+                        mock_render.return_value = mock_message
+
+                        # Test with URL that already has query params
+                        base_url = (
+                            'https://imbi.example.com/reset'
+                            '?mode=secure&lang=en'
+                        )
+                        _token, _audit = await email.send_password_reset(
+                            username='testuser',
+                            email='test@example.com',
+                            display_name='Test User',
+                            reset_url_base=base_url,
+                        )
+
+                        # Verify template was called
+                        mock_render.assert_called_once()
+                        call_args = mock_render.call_args[0]
+                        context = call_args[1]
+
+                        # Verify reset URL contains token and preserves
+                        # existing params
+                        reset_url = context['reset_url']
+                        self.assertIn('token=', reset_url)
+                        self.assertIn('mode=secure', reset_url)
+                        self.assertIn('lang=en', reset_url)
