@@ -204,8 +204,7 @@ class TemplateManager:
 
         return text.strip()
 
-    @staticmethod
-    def _strip_html(html: str) -> str:
+    def _strip_html(self, html: str) -> str:
         """Strip HTML tags from string (custom Jinja2 filter).
 
         Args:
@@ -215,31 +214,4 @@ class TemplateManager:
             String with HTML tags removed
 
         """
-        # Remove script and style elements
-        text = re.sub(
-            r'<(script|style)[^>]*>.*?</\1>',
-            '',
-            html,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Replace <br> with newlines
-        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
-
-        # Replace block-level closing tags with double newlines
-        text = re.sub(
-            r'</(p|div|h[1-6]|li)>',
-            '\n\n',
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        # Remove all other tags
-        text = re.sub(r'<[^>]+>', '', text)
-
-        # Decode HTML entities
-        import html as html_mod
-
-        text = html_mod.unescape(text)
-
-        return text.strip()
+        return self._html_to_text(html)

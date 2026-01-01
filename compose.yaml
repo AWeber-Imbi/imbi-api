@@ -30,7 +30,7 @@ services:
       test: [ "CMD-SHELL", "wget -qO-  http://localhost:7474" ]
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.21.5
     ports:
       - "8025"  # Web UI
       - "1025"  # SMTP

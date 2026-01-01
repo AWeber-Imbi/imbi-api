@@ -219,3 +219,64 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
                 # Verify email was marked as dry-run
                 self.assertEqual(audit.status, 'dry_run')
                 self.assertEqual(audit.error_message, 'Dry run mode')
+
+    async def test_send_password_reset_email(self) -> None:
+        """Test sending password reset email."""
+        from imbi import email
+
+        with mock.patch('imbi.email.client.settings.Email') as mock_settings:
+            email_settings = mock_settings.return_value
+            email_settings.enabled = True
+            email_settings.dry_run = True
+
+            with mock.patch('imbi.clickhouse.insert'):
+                with mock.patch('imbi.neo4j.create_node') as mock_create:
+                    mock_create.return_value = None
+
+                    token, audit = await email.send_password_reset(
+                        username='testuser',
+                        email='test@example.com',
+                        display_name='Test User',
+                        reset_url_base='https://imbi.example.com/reset',
+                    )
+
+                    # Verify token was created
+                    self.assertEqual(token.username, 'testuser')
+                    self.assertEqual(token.email, 'test@example.com')
+                    self.assertIsNotNone(token.token)
+                    self.assertIsNotNone(token.expires_at)
+
+                    # Verify Neo4j create_node was called
+                    mock_create.assert_called_once()
+
+                    # Verify audit record
+                    self.assertEqual(audit.to_email, 'test@example.com')
+                    self.assertEqual(audit.template_name, 'password_reset')
+                    self.assertEqual(audit.status, 'dry_run')
+
+    async def test_clickhouse_audit_error_handling(self) -> None:
+        """Test that ClickHouse errors don't fail email sends."""
+        from imbi import clickhouse, email
+
+        with mock.patch('imbi.email.client.settings.Email') as mock_settings:
+            email_settings = mock_settings.return_value
+            email_settings.enabled = True
+            email_settings.dry_run = True
+
+            # Mock ClickHouse to raise an error
+            with mock.patch('imbi.clickhouse.insert') as mock_insert:
+                mock_insert.side_effect = clickhouse.client.DatabaseError(
+                    'Connection failed'
+                )
+
+                # Email send should still succeed despite audit failure
+                audit = await email.send_welcome_email(
+                    username='testuser',
+                    email='test@example.com',
+                    display_name='Test User',
+                    login_url='https://imbi.example.com/login',
+                )
+
+                # Verify email was still sent
+                self.assertEqual(audit.status, 'dry_run')
+                self.assertEqual(audit.to_email, 'test@example.com')

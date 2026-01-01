@@ -3,7 +3,7 @@
 {% block separator %}================================================================================{% endblock %}
 
 {% block body %}
-<!-- Content goes here -->
+{# Content goes here #}
 {% endblock %}
 
 {% block footer %}

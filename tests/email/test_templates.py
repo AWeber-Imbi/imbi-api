@@ -14,6 +14,10 @@ class TemplateManagerTestCase(unittest.TestCase):
         templates.TemplateManager._instance = None
         self.manager = templates.TemplateManager.get_instance()
 
+    def tearDown(self) -> None:
+        """Clean up test fixtures."""
+        templates.TemplateManager._instance = None
+
     def test_singleton_pattern(self) -> None:
         """Test TemplateManager uses singleton pattern."""
         instance1 = templates.TemplateManager.get_instance()
@@ -101,7 +105,11 @@ class TemplateManagerTestCase(unittest.TestCase):
 
     def test_html_to_text_conversion(self) -> None:
         """Test HTML to plain text conversion."""
-        html = '<h1>Title</h1><p>Paragraph with <strong>bold</strong>.</p><br><p>Another paragraph.</p>'  # noqa: E501
+        html = (
+            '<h1>Title</h1>'
+            '<p>Paragraph with <strong>bold</strong>.</p>'
+            '<br><p>Another paragraph.</p>'
+        )
 
         text = self.manager._html_to_text(html)
 

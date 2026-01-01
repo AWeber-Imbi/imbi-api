@@ -54,7 +54,9 @@ async def aclose() -> None:
     """
     LOGGER.info('Closing email module')
 
-    # Reset singletons
+    # Close and reset singletons
+    if client.EmailClient._instance is not None:
+        await client.EmailClient._instance.aclose()
     client.EmailClient._instance = None
     templates.TemplateManager._instance = None
 
