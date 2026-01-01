@@ -55,10 +55,16 @@ docker compose exec clickhouse clickhouse client -q "CREATE DATABASE imbi"
 
 printf 'Generating .env...'
 cat >.env <<EOF
+TEST_HOST=${TEST_HOST}
+CLICKHOUSE_URL=http://default:password@${TEST_HOST}:$(get_exposed_port clickhouse 8123)/imbi
 FILE_CACHE_ENABLED=no
-TEST_HOST=127.0.0.1
-CLICKHOUSE_URL=http://default:password@127.0.0.1:$(get_exposed_port clickhouse 8123)/imbi
-NEO4J_URL=bolt://neo4j:neo4j@127.0.0.1:$(get_exposed_port neo4j 7687)
+IMBI_EMAIL_ENABLED=true
+IMBI_EMAIL_SMTP_HOST=${TEST_HOST}
+IMBI_EMAIL_SMTP_PORT=$(get_exposed_port mailpit 1025)
+IMBI_EMAIL_SMTP_USE_TLS=false
+IMBI_EMAIL_FROM_EMAIL=noreply@imbi.example
+IMBI_EMAIL_FROM_NAME=Imbi Development
+NEO4J_URL=bolt://neo4j:neo4j@${TEST_HOST}:$(get_exposed_port neo4j 7687)
 OTEL_LOGS_EXPORTER=none
 OTEL_METRICS_EXPORTER=none
 OTEL_TRACES_EXPORTER=otlp
@@ -66,19 +72,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=${TEST_HOST}:$(get_exposed_port jaeger 4317)
 OTEL_EXPORTER_OTLP_TRACES_INSECURE=true
 OTEL_RESOURCE_ATTRIBUTES=service.name=imbi-api,service.environment=development
 OTEL_SERVICE_NAME=imbi-api
-TEST_HOST=${TEST_HOST}
-IMBI_EMAIL_ENABLED=true
-IMBI_EMAIL_SMTP_HOST=127.0.0.1
-IMBI_EMAIL_SMTP_PORT=$(get_exposed_port mailpit 1025)
-IMBI_EMAIL_SMTP_USE_TLS=false
-IMBI_EMAIL_FROM_EMAIL=noreply@imbi.example
-IMBI_EMAIL_FROM_NAME=Imbi Development
 MAILPIT_SMTP_PORT=$(get_exposed_port mailpit 1025)
 MAILPIT_WEB_PORT=$(get_exposed_port mailpit 8025)
 EOF
 echo ' done.'
-
-echo "Mailpit web UI: http://${TEST_HOST}:$(get_exposed_port mailpit 8025)"
 
 if test "${CI}" = 'true'; then
 	echo '::endgroup::'
