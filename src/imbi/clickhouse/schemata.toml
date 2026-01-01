@@ -6,3 +6,73 @@ CREATE TABLE IF NOT EXISTS foo (
 Engine = ReplicatedReplacingMergeTree;
 """
 enabled = false
+
+# Phase 5: API Key Usage Tracking
+[api_key_usage]
+query = """
+CREATE TABLE IF NOT EXISTS api_key_usage (
+    timestamp DateTime64(3),
+    key_id String,
+    user_id String,
+    endpoint String,
+    method String,
+    status_code UInt16,
+    response_time_ms UInt32,
+    ip_address String,
+    user_agent String
+) ENGINE = MergeTree()
+ORDER BY (timestamp, key_id)
+PARTITION BY toYYYYMM(timestamp)
+TTL timestamp + INTERVAL 90 DAY;
+"""
+enabled = true
+
+# Phase 5: Rate Limiting Events
+[rate_limit_events]
+query = """
+CREATE TABLE IF NOT EXISTS rate_limit_events (
+    window_start DateTime,
+    identifier String,
+    endpoint String,
+    request_count UInt32,
+    blocked_count UInt32
+) ENGINE = MergeTree()
+ORDER BY (window_start, identifier, endpoint)
+PARTITION BY toYYYYMM(window_start)
+TTL window_start + INTERVAL 7 DAY;
+"""
+enabled = true
+
+# Phase 5: Session Activity Tracking
+[session_activity]
+query = """
+CREATE TABLE IF NOT EXISTS session_activity (
+    timestamp DateTime64(3),
+    session_id String,
+    user_id String,
+    activity_type Enum('login' = 1, 'logout' = 2, 'token_refresh' = 3, 'api_call' = 4),
+    ip_address String,
+    user_agent String,
+    metadata String
+) ENGINE = MergeTree()
+ORDER BY (timestamp, session_id)
+PARTITION BY toYYYYMM(timestamp)
+TTL timestamp + INTERVAL 30 DAY;
+"""
+enabled = true
+
+# Phase 5: MFA Events
+[mfa_events]
+query = """
+CREATE TABLE IF NOT EXISTS mfa_events (
+    timestamp DateTime64(3),
+    user_id String,
+    event_type Enum('enabled' = 1, 'disabled' = 2, 'verified' = 3, 'failed' = 4, 'backup_used' = 5),
+    ip_address String,
+    success Bool
+) ENGINE = MergeTree()
+ORDER BY (timestamp, user_id)
+PARTITION BY toYYYYMM(timestamp)
+TTL timestamp + INTERVAL 90 DAY;
+"""
+enabled = true

@@ -7,6 +7,7 @@ import slugify
 from jsonschema_models.models import Schema
 
 __all__ = [
+    'APIKey',
     'Blueprint',
     'BlueprintAssignment',
     'BlueprintEdge',
@@ -22,6 +23,8 @@ __all__ = [
     'ResourcePermission',
     'Role',
     'Schema',
+    'Session',
+    'TOTPSecret',
     'Team',
     'TokenMetadata',
     'User',
@@ -174,7 +177,8 @@ class OAuthIdentity(pydantic.BaseModel):
     display_name: str
     avatar_url: pydantic.HttpUrl | None = None
 
-    # OAuth tokens (TODO: Encrypt in Phase 5)
+    # OAuth tokens (Phase 5: NOW ENCRYPTED)
+    # These fields store base64-encoded encrypted tokens
     access_token: str | None = None
     refresh_token: str | None = None
     token_expires_at: datetime.datetime | None = None
@@ -191,6 +195,39 @@ class OAuthIdentity(pydantic.BaseModel):
             rel_type='OAUTH_IDENTITY', direction='OUTGOING'
         ),
     ]
+
+    def set_encrypted_tokens(
+        self,
+        access: str | None,
+        refresh: str | None,
+        encryptor: typing.Any,  # TokenEncryption from imbi.auth.encryption
+    ) -> None:
+        """Set OAuth tokens with encryption (Phase 5).
+
+        Args:
+            access: Plaintext access token from OAuth provider
+            refresh: Plaintext refresh token from OAuth provider
+            encryptor: TokenEncryption instance for encrypting tokens
+        """
+        self.access_token = encryptor.encrypt(access)
+        self.refresh_token = encryptor.encrypt(refresh)
+
+    def get_decrypted_tokens(
+        self,
+        encryptor: typing.Any,  # TokenEncryption from imbi.auth.encryption
+    ) -> tuple[str | None, str | None]:
+        """Get decrypted OAuth tokens (Phase 5).
+
+        Args:
+            encryptor: TokenEncryption instance for decrypting tokens
+
+        Returns:
+            Tuple of (access_token, refresh_token) in plaintext
+        """
+        return (
+            encryptor.decrypt(self.access_token),
+            encryptor.decrypt(self.refresh_token),
+        )
 
 
 class Group(Node):
@@ -265,6 +302,68 @@ class TokenMetadata(pydantic.BaseModel):
     user: typing.Annotated[
         User,
         cypherantic.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
+    ]
+
+
+class TOTPSecret(pydantic.BaseModel):
+    """TOTP secret for MFA/2FA (Phase 5)."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    secret: str  # Base32-encoded TOTP secret
+    enabled: bool = False
+    backup_codes: list[str] = []  # Hashed backup codes (Argon2)
+    created_at: datetime.datetime
+    last_used: datetime.datetime | None = None
+
+    user: typing.Annotated[
+        User,
+        cypherantic.Relationship(rel_type='MFA_FOR', direction='OUTGOING'),
+    ]
+
+
+class Session(pydantic.BaseModel):
+    """User session for tracking concurrent sessions (Phase 5)."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    session_id: str  # Unique session identifier (UUID)
+    ip_address: str | None = None
+    user_agent: str | None = None
+    created_at: datetime.datetime
+    last_activity: datetime.datetime
+    expires_at: datetime.datetime
+
+    user: typing.Annotated[
+        User,
+        cypherantic.Relationship(rel_type='SESSION_FOR', direction='OUTGOING'),
+    ]
+
+
+class APIKey(pydantic.BaseModel):
+    """API key for programmatic access (Phase 5)."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    key_id: str  # Public key identifier (format: 'ik_...')
+    key_hash: str  # Hashed secret (Argon2)
+    name: str  # Human-readable name
+    description: str | None = None
+
+    # Permissions
+    scopes: list[str] = []  # e.g., ['project:read', 'blueprint:read']
+
+    # Lifecycle
+    created_at: datetime.datetime
+    expires_at: datetime.datetime | None = None
+    last_used: datetime.datetime | None = None
+    last_rotated: datetime.datetime | None = None
+    revoked: bool = False
+    revoked_at: datetime.datetime | None = None
+
+    user: typing.Annotated[
+        User,
+        cypherantic.Relationship(rel_type='OWNED_BY', direction='OUTGOING'),
     ]
 
 
