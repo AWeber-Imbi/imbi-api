@@ -249,3 +249,21 @@ class OAuthFlowTestCase(unittest.TestCase):
         # Should redirect to error page
         location = response.headers['location']
         self.assertIn('error=access_denied', location)
+
+    def test_oauth_callback_missing_code(self) -> None:
+        """Test OAuth callback with missing code parameter."""
+        url = '/auth/oauth/google/callback?state=test-state'
+        response = self.client.get(url, follow_redirects=False)
+        # Should redirect to error page
+        self.assertEqual(response.status_code, 307)
+        location = response.headers['location']
+        self.assertIn('error=authentication_failed', location)
+
+    def test_oauth_callback_missing_state(self) -> None:
+        """Test OAuth callback with missing state parameter."""
+        url = '/auth/oauth/google/callback?code=test-code'
+        response = self.client.get(url, follow_redirects=False)
+        # Should redirect to error page
+        self.assertEqual(response.status_code, 307)
+        location = response.headers['location']
+        self.assertIn('error=authentication_failed', location)

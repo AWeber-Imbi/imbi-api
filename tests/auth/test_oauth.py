@@ -2,6 +2,7 @@ import time
 import unittest
 from unittest import mock
 
+import httpx
 import jwt
 
 from imbi import settings
@@ -309,6 +310,74 @@ class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Verify no HTTP call was made
         mock_client_class.assert_not_called()
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_cache_expired(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery refreshes expired cache."""
+        # Populate cache with old timestamp (expired)
+        cached_data = {
+            'token_endpoint': 'https://expired.example.com/token',
+            'userinfo_endpoint': 'https://expired.example.com/userinfo',
+        }
+        # Set timestamp to 25 hours ago (TTL is 24 hours)
+        expired_timestamp = time.time() - (25 * 3600)
+        oauth._oidc_discovery_cache['https://expired.example.com'] = (
+            cached_data,
+            expired_timestamp,
+        )
+
+        # Mock fresh discovery response
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        fresh_data = {
+            'token_endpoint': 'https://expired.example.com/token-new',
+            'userinfo_endpoint': 'https://expired.example.com/userinfo-new',
+        }
+        mock_response.json.return_value = fresh_data
+
+        mock_client = mock.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery - should re-fetch due to expired cache
+        discovery = await oauth._discover_oidc_endpoints(
+            'https://expired.example.com'
+        )
+
+        # Verify fresh data was returned (not cached)
+        self.assertEqual(discovery, fresh_data)
+
+        # Verify HTTP call was made
+        mock_client_class.assert_called_once()
+        mock_client.get.assert_called_once_with(
+            'https://expired.example.com/.well-known/openid-configuration'
+        )
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_discover_oidc_endpoints_network_error(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test OIDC discovery with network error."""
+        # Mock client that raises HTTPError
+        mock_client = mock.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.get.side_effect = httpx.HTTPError('Connection failed')
+        mock_client_class.return_value = mock_client
+
+        # Perform discovery - should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            await oauth._discover_oidc_endpoints(
+                'https://network-error.example.com'
+            )
+
+        self.assertIn(
+            'discovery request failed', str(context.exception).lower()
+        )
 
     @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
     async def test_discover_oidc_endpoints_http_error(
@@ -655,3 +724,120 @@ class OAuthProfileFetchTestCase(unittest.IsolatedAsyncioTestCase):
 
     # NOTE: Error handling test removed - will be covered by integration tests
     # The httpx AsyncClient mock is complex to set up for failure scenarios
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_exchange_oauth_code_failure(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test token exchange with error response."""
+        # Mock failed token exchange response
+        mock_response = mock.Mock()
+        mock_response.status_code = 400
+        mock_response.text = 'invalid_grant'
+
+        mock_client = mock.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        # Mock _get_provider_config
+        with mock.patch.object(
+            oauth,
+            '_get_provider_config',
+            return_value=(
+                'https://token-url.com',
+                'client-id',
+                'secret',
+            ),
+        ):
+            # Attempt exchange - should raise ValueError
+            with self.assertRaises(ValueError) as context:
+                await oauth.exchange_oauth_code(
+                    'google',
+                    'bad-code',
+                    'http://localhost/callback',
+                    self.auth_settings,
+                )
+
+            self.assertIn(
+                'token exchange failed', str(context.exception).lower()
+            )
+
+    @mock.patch('imbi.auth.oauth.httpx.AsyncClient')
+    async def test_fetch_oauth_profile_failure(
+        self, mock_client_class: mock.Mock
+    ) -> None:
+        """Test profile fetch with error response."""
+        # Mock failed profile fetch response
+        mock_response = mock.Mock()
+        mock_response.status_code = 401
+        mock_response.text = 'Unauthorized'
+
+        mock_client = mock.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        # Mock _get_userinfo_url
+        with mock.patch.object(
+            oauth, '_get_userinfo_url', return_value='https://userinfo-url.com'
+        ):
+            # Attempt fetch - should raise ValueError
+            with self.assertRaises(ValueError) as context:
+                await oauth.fetch_oauth_profile(
+                    'google', 'bad-token', self.auth_settings
+                )
+
+            self.assertIn(
+                'profile fetch failed', str(context.exception).lower()
+            )
+
+    def test_normalize_oidc_profile_missing_identity(self) -> None:
+        """Test OIDC profile normalization fails without identity field."""
+        raw_profile = {
+            'email': 'user@example.com',
+            'name': 'Test User',
+        }
+
+        with self.assertRaises(ValueError) as context:
+            oauth.normalize_oauth_profile('oidc', raw_profile)
+
+        self.assertIn(
+            'missing required identity field', str(context.exception).lower()
+        )
+
+    async def test_get_provider_config_github_disabled(self) -> None:
+        """Test _get_provider_config fails when GitHub OAuth is disabled."""
+        self.auth_settings.oauth_github_enabled = False
+
+        with self.assertRaises(ValueError) as context:
+            await oauth._get_provider_config('github', self.auth_settings)
+
+        self.assertIn(
+            'github oauth is not enabled', str(context.exception).lower()
+        )
+
+    async def test_get_provider_config_oidc_disabled(self) -> None:
+        """Test _get_provider_config fails when OIDC OAuth is disabled."""
+        self.auth_settings.oauth_oidc_enabled = False
+
+        with self.assertRaises(ValueError) as context:
+            await oauth._get_provider_config('oidc', self.auth_settings)
+
+        self.assertIn(
+            'oidc oauth is not enabled', str(context.exception).lower()
+        )
+
+    async def test_get_provider_config_oidc_missing_issuer(self) -> None:
+        """Test _get_provider_config fails when OIDC issuer not set."""
+        self.auth_settings.oauth_oidc_enabled = True
+        self.auth_settings.oauth_oidc_issuer_url = None
+
+        with self.assertRaises(ValueError) as context:
+            await oauth._get_provider_config('oidc', self.auth_settings)
+
+        self.assertIn(
+            'issuer url not configured', str(context.exception).lower()
+        )
