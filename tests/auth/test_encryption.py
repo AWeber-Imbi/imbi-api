@@ -156,3 +156,57 @@ class TokenEncryptionTestCase(unittest.TestCase):
         decrypted = encryptor.decrypt(ciphertext)
 
         self.assertEqual(plaintext, decrypted)
+
+    def test_encrypt_failure(self) -> None:
+        """Test encrypt raises exception on encryption failure."""
+        encryptor = encryption.TokenEncryption(self.test_key)
+
+        # Mock Fernet.encrypt to raise an exception
+        with (
+            mock.patch.object(
+                encryptor._fernet,
+                'encrypt',
+                side_effect=Exception('Mock error'),
+            ),
+            self.assertRaises(Exception) as cm,
+        ):
+            encryptor.encrypt('test')
+
+        self.assertEqual(str(cm.exception), 'Mock error')
+
+    def test_decrypt_corrupted_base64(self) -> None:
+        """Test decrypt with corrupted base64 (not valid Fernet token)."""
+        import base64
+
+        encryptor = encryption.TokenEncryption(self.test_key)
+
+        # Create invalid base64 that's not a valid Fernet token
+        # This will fail both new format and legacy format attempts
+        corrupted = base64.urlsafe_b64encode(
+            b'not-a-valid-fernet-token'
+        ).decode('ascii')
+
+        result = encryptor.decrypt(corrupted)
+        self.assertIsNone(result)
+
+    def test_decrypt_invalid_base64_padding(self) -> None:
+        """Test decrypt with invalid base64 (triggers binascii.Error)."""
+        encryptor = encryption.TokenEncryption(self.test_key)
+
+        # Invalid base64 - triggers binascii.Error during urlsafe_b64decode
+        # This will fail the first Fernet decrypt, then fail base64 decode
+        invalid_b64 = 'not!valid@base64#string$'
+
+        result = encryptor.decrypt(invalid_b64)
+        self.assertIsNone(result)
+
+    def test_decrypt_non_ascii_ciphertext(self) -> None:
+        """Test decrypt with non-ASCII (triggers UnicodeEncodeError)."""
+        encryptor = encryption.TokenEncryption(self.test_key)
+
+        # Non-ASCII characters will fail ciphertext.encode('ascii')
+        # This triggers the outer exception handler (lines 149-154)
+        non_ascii = 'invalid-token-with-unicode-\u2603-snowman'
+
+        result = encryptor.decrypt(non_ascii)
+        self.assertIsNone(result)
