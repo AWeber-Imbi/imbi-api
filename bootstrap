@@ -57,7 +57,7 @@ printf 'Generating .env...'
 cat >.env <<EOF
 FILE_CACHE_ENABLED=no
 TEST_HOST=127.0.0.1
-CLICKHOUSE_URL=http://default:password@127.0.0.1:$(get_exposed_port clickhouse 9000)/imbi
+CLICKHOUSE_URL=http://default:password@127.0.0.1:$(get_exposed_port clickhouse 8123)/imbi
 NEO4J_URL=bolt://neo4j:neo4j@127.0.0.1:$(get_exposed_port neo4j 7687)
 OTEL_LOGS_EXPORTER=none
 OTEL_METRICS_EXPORTER=none
