@@ -899,7 +899,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "authlib", specifier = ">=1.6.6" },
     { name = "clickhouse-connect" },
-    { name = "cryptography", specifier = ">=42.0.0" },
+    { name = "cryptography", specifier = ">=42.0.4" },
     { name = "cypherantic", git = "https://github.com/dave-shawley/cypherantic.git" },
     { name = "email-validator" },
     { name = "fastapi" },

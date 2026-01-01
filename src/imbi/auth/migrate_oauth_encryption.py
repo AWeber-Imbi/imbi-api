@@ -46,27 +46,35 @@ async def migrate_oauth_tokens() -> dict[str, int]:
         migrated = 0
         skipped = 0
 
+        def is_already_encrypted(token: str | None) -> bool:
+            """Check if token is already encrypted by attempting decryption."""
+            if not token:
+                return False
+            try:
+                result = encryptor.decrypt(token)
+                return result is not None
+            except (ValueError, TypeError):
+                # Token is not properly encrypted
+                return False
+
         for record in records:
             identity_data = record['identity']
 
-            # Heuristic: Fernet-encrypted tokens are base64-encoded with
-            # padding (end with ==). Plaintext provider tokens typically
-            # don't have this pattern.
             needs_migration = False
 
             access_token = identity_data.get('access_token')
             refresh_token = identity_data.get('refresh_token')
 
             # Check if access_token needs encryption
-            if access_token and not access_token.endswith('=='):
-                # Likely plaintext - encrypt it
+            if access_token and not is_already_encrypted(access_token):
+                # Plaintext token - encrypt it
                 encrypted_access = encryptor.encrypt(access_token)
                 identity_data['access_token'] = encrypted_access
                 needs_migration = True
 
             # Check if refresh_token needs encryption
-            if refresh_token and not refresh_token.endswith('=='):
-                # Likely plaintext - encrypt it
+            if refresh_token and not is_already_encrypted(refresh_token):
+                # Plaintext token - encrypt it
                 encrypted_refresh = encryptor.encrypt(refresh_token)
                 identity_data['refresh_token'] = encrypted_refresh
                 needs_migration = True

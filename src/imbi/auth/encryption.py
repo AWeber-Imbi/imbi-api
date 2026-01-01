@@ -93,10 +93,13 @@ class TokenEncryption:
             return None
 
         try:
-            encrypted_bytes = self._fernet.encrypt(plaintext.encode('utf-8'))
-            return base64.urlsafe_b64encode(encrypted_bytes).decode('ascii')
+            encrypted_bytes: bytes = self._fernet.encrypt(
+                plaintext.encode('utf-8')
+            )
+            # Fernet already returns base64-encoded bytes, just decode to str
+            return encrypted_bytes.decode('ascii')
         except Exception as err:
-            LOGGER.error('Encryption failed: %s', err)
+            LOGGER.exception('Encryption failed: %s', err)
             raise
 
     def decrypt(self, ciphertext: str | None) -> str | None:
@@ -111,23 +114,31 @@ class TokenEncryption:
 
         Note:
             Returns None instead of raising exception on decryption failure
-            to handle corrupted/invalid ciphertext gracefully
+            to handle corrupted/invalid ciphertext gracefully.
+            Handles both new format (Fernet base64) and legacy format
+            (double base64 encoding) for backward compatibility.
         """
         if ciphertext is None:
             return None
 
         try:
-            encrypted_bytes = base64.urlsafe_b64decode(
-                ciphertext.encode('ascii')
-            )
+            # Try new format first (Fernet base64 only)
+            encrypted_bytes = ciphertext.encode('ascii')
             plaintext_bytes: bytes = self._fernet.decrypt(encrypted_bytes)
-            plaintext: str = plaintext_bytes.decode('utf-8')
-            return plaintext
+            return plaintext_bytes.decode('utf-8')
         except fernet.InvalidToken:
-            LOGGER.warning(
-                'Failed to decrypt token - invalid or corrupted ciphertext'
-            )
-            return None
+            # Try legacy format (double base64 encoding)
+            try:
+                encrypted_bytes = base64.urlsafe_b64decode(
+                    ciphertext.encode('ascii')
+                )
+                plaintext_bytes = self._fernet.decrypt(encrypted_bytes)
+                return plaintext_bytes.decode('utf-8')
+            except fernet.InvalidToken:
+                LOGGER.warning(
+                    'Failed to decrypt token - invalid or corrupted ciphertext'
+                )
+                return None
         except Exception as err:
-            LOGGER.error('Decryption failed: %s', err)
+            LOGGER.exception('Decryption failed: %s', err)
             raise
