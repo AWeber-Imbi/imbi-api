@@ -89,7 +89,12 @@ class EmailClient:
         self,
         message: models.EmailMessage,
     ) -> models.EmailAudit:
-        """Send an email via SMTP.
+        """Send an email via SMTP with retry logic.
+
+        Implements exponential backoff for transient failures:
+        - Initial delay: configured initial_retry_delay (default: 1.0s)
+        - Backoff multiplier: configured retry_backoff_factor (default: 2.0)
+        - Max retries: configured max_retries (default: 3)
 
         Args:
             message: EmailMessage to send
@@ -109,18 +114,51 @@ class EmailClient:
             )
             return self._create_audit(message, 'dry_run', 'Dry run mode')
 
-        try:
-            await self._send_smtp(message)
-            return self._create_audit(message, 'sent', None)
+        # Retry logic with exponential backoff
+        last_error = None
+        delay = self._settings.initial_retry_delay
 
-        except (smtplib.SMTPException, OSError, TimeoutError) as err:
-            LOGGER.error(
-                'Failed to send email to %s: %s',
-                message.to_email,
-                err,
-            )
-            error_msg = f'SMTP error: {err}'
-            return self._create_audit(message, 'failed', error_msg)
+        for attempt in range(self._settings.max_retries + 1):
+            try:
+                await self._send_smtp(message)
+                if attempt > 0:
+                    LOGGER.info(
+                        'Email sent to %s after %d retries',
+                        message.to_email,
+                        attempt,
+                    )
+                return self._create_audit(message, 'sent', None)
+
+            except (smtplib.SMTPException, OSError, TimeoutError) as err:
+                last_error = err
+                is_final_attempt = attempt >= self._settings.max_retries
+
+                if is_final_attempt:
+                    LOGGER.error(
+                        'Failed to send email to %s after %d attempts: %s',
+                        message.to_email,
+                        attempt + 1,
+                        err,
+                    )
+                else:
+                    LOGGER.warning(
+                        'Email send attempt %d/%d failed for %s: %s. '
+                        'Retrying in %.2fs...',
+                        attempt + 1,
+                        self._settings.max_retries + 1,
+                        message.to_email,
+                        err,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= self._settings.retry_backoff_factor
+
+        # All retries exhausted
+        error_msg = (
+            f'SMTP error after {self._settings.max_retries + 1} attempts: '
+            f'{last_error}'
+        )
+        return self._create_audit(message, 'failed', error_msg)
 
     async def _send_smtp(self, message: models.EmailMessage) -> None:
         """Send email via SMTP (runs in executor to avoid blocking).

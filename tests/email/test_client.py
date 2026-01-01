@@ -1,6 +1,7 @@
 """Tests for email.client module."""
 
 import datetime
+import smtplib
 import unittest
 from unittest import mock
 
@@ -36,6 +37,9 @@ class EmailClientTestCase(unittest.IsolatedAsyncioTestCase):
         self.mock_settings.from_email = 'noreply@imbi.local'
         self.mock_settings.from_name = 'Imbi Test'
         self.mock_settings.reply_to = None
+        self.mock_settings.max_retries = 3
+        self.mock_settings.initial_retry_delay = 1.0
+        self.mock_settings.retry_backoff_factor = 2.0
 
         # Mock SMTP
         self.mock_smtp = mock.MagicMock()
@@ -171,7 +175,8 @@ class EmailClientTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(audit.status, 'failed')
         self.assertIn('SMTP error', audit.error_message)
-        self.mock_smtp.send_message.assert_called_once()
+        # Should retry 3 times (max_retries=3) plus initial attempt = 4 total
+        self.assertEqual(self.mock_smtp.send_message.call_count, 4)
 
     async def test_send_email_with_tls(self) -> None:
         """Test email sending with TLS."""
@@ -281,3 +286,138 @@ class EmailClientTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(audit.status, 'sent')
         self.assertIsNone(audit.error_message)
         self.assertIsInstance(audit.sent_at, datetime.datetime)
+
+    async def test_retry_success_on_second_attempt(self) -> None:
+        """Test retry succeeds on second attempt."""
+        self.mock_settings.max_retries = 3
+        self.mock_settings.initial_retry_delay = 0.01
+        self.mock_settings.retry_backoff_factor = 2.0
+
+        email_client = client.EmailClient.get_instance()
+        await email_client.initialize()
+
+        message = models.EmailMessage(
+            to_email='user@example.com',
+            subject='Test',
+            html_body='<p>Test</p>',
+            text_body='Test',
+            template_name='test',
+            context={},
+        )
+
+        # Fail first attempt, succeed second
+        self.mock_smtp.send_message.side_effect = [
+            smtplib.SMTPException('Transient error'),
+            None,
+        ]
+
+        audit = await email_client.send_email(message)
+
+        self.assertEqual(audit.status, 'sent')
+        self.assertIsNone(audit.error_message)
+        self.assertEqual(self.mock_smtp.send_message.call_count, 2)
+
+    async def test_retry_exhausted_all_attempts(self) -> None:
+        """Test all retry attempts exhausted."""
+        self.mock_settings.max_retries = 2
+        self.mock_settings.initial_retry_delay = 0.01
+
+        email_client = client.EmailClient.get_instance()
+        await email_client.initialize()
+
+        message = models.EmailMessage(
+            to_email='user@example.com',
+            subject='Test',
+            html_body='<p>Test</p>',
+            text_body='Test',
+            template_name='test',
+            context={},
+        )
+
+        # Fail all attempts
+        self.mock_smtp.send_message.side_effect = smtplib.SMTPException(
+            'Persistent error'
+        )
+
+        audit = await email_client.send_email(message)
+
+        self.assertEqual(audit.status, 'failed')
+        self.assertIn('after 3 attempts', audit.error_message)
+        self.assertIn('Persistent error', audit.error_message)
+        self.assertEqual(self.mock_smtp.send_message.call_count, 3)
+
+    async def test_retry_exponential_backoff(self) -> None:
+        """Test exponential backoff delays."""
+        self.mock_settings.max_retries = 3
+        self.mock_settings.initial_retry_delay = 0.1
+        self.mock_settings.retry_backoff_factor = 2.0
+
+        email_client = client.EmailClient.get_instance()
+        await email_client.initialize()
+
+        message = models.EmailMessage(
+            to_email='user@example.com',
+            subject='Test',
+            html_body='<p>Test</p>',
+            text_body='Test',
+            template_name='test',
+            context={},
+        )
+
+        # Track sleep calls to verify exponential backoff
+        sleep_times = []
+
+        async def mock_sleep(delay: float) -> None:
+            sleep_times.append(delay)
+
+        with mock.patch('asyncio.sleep', side_effect=mock_sleep):
+            # Fail first 2 attempts, succeed third
+            self.mock_smtp.send_message.side_effect = [
+                smtplib.SMTPException('Error 1'),
+                smtplib.SMTPException('Error 2'),
+                None,
+            ]
+
+            audit = await email_client.send_email(message)
+
+            self.assertEqual(audit.status, 'sent')
+            self.assertEqual(len(sleep_times), 2)
+            # Verify exponential backoff: 0.1, 0.2
+            self.assertAlmostEqual(sleep_times[0], 0.1, places=2)
+            self.assertAlmostEqual(sleep_times[1], 0.2, places=2)
+
+    async def test_retry_different_error_types(self) -> None:
+        """Test retry handles different error types."""
+        self.mock_settings.max_retries = 2
+        self.mock_settings.initial_retry_delay = 0.01
+
+        email_client = client.EmailClient.get_instance()
+        await email_client.initialize()
+
+        message = models.EmailMessage(
+            to_email='user@example.com',
+            subject='Test',
+            html_body='<p>Test</p>',
+            text_body='Test',
+            template_name='test',
+            context={},
+        )
+
+        # Test OSError retry
+        self.mock_smtp.send_message.side_effect = [
+            OSError('Connection refused'),
+            None,
+        ]
+
+        audit = await email_client.send_email(message)
+        self.assertEqual(audit.status, 'sent')
+
+        # Reset and test TimeoutError retry
+        self.mock_smtp.send_message.reset_mock()
+        self.mock_smtp.send_message.side_effect = [
+            TimeoutError('Timeout'),
+            None,
+        ]
+
+        audit = await email_client.send_email(message)
+        self.assertEqual(audit.status, 'sent')
