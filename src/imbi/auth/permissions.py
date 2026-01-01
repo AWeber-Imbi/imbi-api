@@ -1,5 +1,6 @@
 """Permission checking and authorization dependencies."""
 
+import datetime
 import logging
 import typing
 
@@ -150,11 +151,120 @@ async def authenticate_jwt(
     )
 
 
+async def authenticate_api_key(
+    key: str, auth_settings: settings.Auth
+) -> AuthContext:
+    """
+    Validate an API key, load the corresponding user and their
+    permissions, and return an AuthContext (Phase 5).
+
+    API keys have the format: ik_<key_id>_<secret>
+
+    Parameters:
+        key (str): Full API key string.
+        auth_settings (settings.Auth): Configuration for validation.
+
+    Returns:
+        AuthContext: Authentication context with user, key_id as
+            session_id, auth_method set to 'api_key', and filtered
+            permissions based on key scopes.
+
+    Raises:
+        fastapi.HTTPException: On invalid format, revoked key, expired
+            key, invalid secret, or inactive user.
+    """
+    # Parse API key format: ik_<id>_<secret>
+    parts = key.split('_', 2)
+    if len(parts) != 3 or parts[0] != 'ik':
+        raise fastapi.HTTPException(
+            status_code=401, detail='Invalid API key format'
+        )
+
+    key_id = f'ik_{parts[1]}'
+    key_secret = parts[2]
+
+    # Fetch API key from Neo4j
+    query = """
+    MATCH (k:APIKey {key_id: $key_id})
+    OPTIONAL MATCH (k)-[:OWNED_BY]->(u:User)
+    RETURN k, u
+    """
+    async with neo4j.run(query, key_id=key_id) as result:
+        records = await result.data()
+
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=401, detail='Invalid or revoked API key'
+        )
+
+    api_key_data = records[0]['k']
+    user_data = records[0]['u']
+
+    if not user_data:
+        raise fastapi.HTTPException(
+            status_code=401, detail='API key user not found'
+        )
+
+    # Check if key is revoked
+    if api_key_data.get('revoked', False):
+        raise fastapi.HTTPException(
+            status_code=401, detail='Invalid or revoked API key'
+        )
+
+    # Check if key is expired
+    expires_at = api_key_data.get('expires_at')
+    if expires_at and expires_at < datetime.datetime.now(datetime.UTC):
+        raise fastapi.HTTPException(status_code=401, detail='API key expired')
+
+    # Verify key secret (hashed)
+    if not core.verify_password(key_secret, api_key_data['key_hash']):
+        raise fastapi.HTTPException(
+            status_code=401, detail='Invalid or revoked API key'
+        )
+
+    # Create user model
+    user = models.User(**user_data)
+
+    # Check if user is active
+    if not user.is_active:
+        raise fastapi.HTTPException(
+            status_code=401, detail='User account is inactive'
+        )
+
+    # Update last_used timestamp
+    update_query = """
+    MATCH (k:APIKey {key_id: $key_id})
+    SET k.last_used = datetime()
+    """
+    async with neo4j.run(update_query, key_id=key_id) as result:
+        await result.consume()
+
+    # Load user permissions
+    all_permissions = await load_user_permissions(user.username)
+
+    # Filter by API key scopes (empty scopes = all permissions)
+    scopes = api_key_data.get('scopes', [])
+    if scopes:
+        filtered_permissions = all_permissions.intersection(set(scopes))
+    else:
+        filtered_permissions = all_permissions
+
+    return AuthContext(
+        user=user,
+        session_id=key_id,
+        auth_method='api_key',
+        permissions=filtered_permissions,
+    )
+
+
 async def get_current_user(
     credentials: security.HTTPAuthorizationCredentials
     | None = fastapi.Depends(oauth2_scheme),  # noqa: B008
 ) -> AuthContext:
-    """FastAPI dependency to get the current authenticated user.
+    """FastAPI dependency to get the current authenticated user (Phase 5).
+
+    Supports both JWT and API key authentication. API keys are detected
+    by the 'ik_' prefix.
 
     Args:
         credentials: HTTP Bearer credentials from Authorization header
@@ -174,7 +284,13 @@ async def get_current_user(
         )
 
     auth_settings = settings.get_auth_settings()
-    return await authenticate_jwt(credentials.credentials, auth_settings)
+    token = credentials.credentials
+
+    # Detect API key format (ik_<id>_<secret>)
+    if token.startswith('ik_'):
+        return await authenticate_api_key(token, auth_settings)
+    else:
+        return await authenticate_jwt(token, auth_settings)
 
 
 def require_permission(

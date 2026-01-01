@@ -8,10 +8,13 @@ from urllib import parse as urlparse
 
 import fastapi
 import jwt
+import pyotp
 
 from imbi import models, neo4j, settings
-from imbi.auth import core, oauth
+from imbi.auth import core, oauth, permissions
 from imbi.auth import models as auth_models
+from imbi.auth.encryption import TokenEncryption
+from imbi.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -92,19 +95,27 @@ async def get_auth_providers() -> auth_models.AuthProvidersResponse:
 
 
 @auth_router.post('/login', response_model=auth_models.TokenResponse)
+@rate_limit.limiter.limit('5/minute')  # type: ignore[untyped-decorator]
 async def login(
+    request: fastapi.Request,
     credentials: auth_models.LoginRequest,
+    mfa_code: str | None = fastapi.Body(default=None, embed=True),
 ) -> auth_models.TokenResponse:
-    """Login with email and password.
+    """Login with email and password (Phase 5: with optional MFA).
+
+    Phase 5 adds MFA support. If the user has MFA enabled, they must
+    provide a valid TOTP code or backup code via the mfa_code parameter.
 
     Args:
         credentials: Email and password
+        mfa_code: Optional MFA code (6-digit TOTP or backup code)
 
     Returns:
         JWT tokens (access and refresh)
 
     Raises:
-        HTTPException: 401 if credentials are invalid
+        HTTPException: 401 if credentials are invalid or MFA code required
+            Returns X-MFA-Required: true header if MFA is required
 
     """
     # Fetch user from database
@@ -146,6 +157,79 @@ async def login(
         user.password_hash = core.hash_password(credentials.password)
         await neo4j.upsert(user, {'username': user.username})
         LOGGER.info('Rehashed password for user %s', user.username)
+
+    # Phase 5: Check if MFA is enabled
+    totp_query = """
+    MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+    RETURN t
+    """
+    async with neo4j.run(totp_query, username=user.username) as result:
+        totp_records = await result.data()
+
+    if totp_records:
+        totp_data = totp_records[0]['t']
+
+        if totp_data.get('enabled', False):
+            # MFA is enabled - code is required
+            if not mfa_code:
+                raise fastapi.HTTPException(
+                    status_code=401,
+                    detail='MFA code required',
+                    headers={'X-MFA-Required': 'true'},
+                )
+
+            auth_settings = settings.get_auth_settings()
+            totp = pyotp.TOTP(
+                totp_data['secret'],
+                interval=auth_settings.mfa_totp_period,
+                digits=auth_settings.mfa_totp_digits,
+            )
+
+            # Try TOTP verification first (with clock skew tolerance)
+            if totp.verify(mfa_code, valid_window=1):
+                # Update last used timestamp
+                update_query = """
+                MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+                SET t.last_used = datetime()
+                """
+                async with neo4j.run(
+                    update_query, username=user.username
+                ) as result:
+                    await result.consume()
+
+                LOGGER.info('MFA verified via TOTP for user %s', user.username)
+            else:
+                # Try backup codes
+                backup_codes = totp_data.get('backup_codes', [])
+                valid_backup = False
+
+                for i, hashed_code in enumerate(backup_codes):
+                    if core.verify_password(mfa_code, hashed_code):
+                        # Remove used backup code
+                        backup_codes.pop(i)
+                        update_query = """
+                        MATCH (u:User {username: $username})
+                              <-[:MFA_FOR]-(t:TOTPSecret)
+                        SET t.backup_codes = $backup_codes
+                        """
+                        async with neo4j.run(
+                            update_query,
+                            username=user.username,
+                            backup_codes=backup_codes,
+                        ) as result:
+                            await result.consume()
+
+                        valid_backup = True
+                        LOGGER.info(
+                            'MFA verified via backup code for user %s',
+                            user.username,
+                        )
+                        break
+
+                if not valid_backup:
+                    raise fastapi.HTTPException(
+                        status_code=401, detail='Invalid MFA code'
+                    )
 
     # Create tokens
     auth_settings = settings.get_auth_settings()
@@ -197,18 +281,23 @@ async def login(
 
 
 @auth_router.post('/token/refresh', response_model=auth_models.TokenResponse)
+@rate_limit.limiter.limit('10/minute')  # type: ignore[untyped-decorator]
 async def refresh_token(
-    refresh_request: auth_models.TokenRefreshRequest,
     request: fastapi.Request,
+    refresh_request: auth_models.TokenRefreshRequest,
 ) -> auth_models.TokenResponse:
-    """Refresh access token using refresh token.
+    """Refresh access token and rotate refresh token (Phase 5).
+
+    Phase 5 implements token rotation: the old refresh token is revoked
+    and a new refresh token is issued alongside the new access token.
+    This prevents refresh token reuse attacks.
 
     Args:
         refresh_request: Refresh token
         request: FastAPI request object
 
     Returns:
-        New JWT access token (and same refresh token)
+        New JWT access token and NEW refresh token (rotated)
 
     Raises:
         HTTPException: 401 if refresh token is invalid or revoked
@@ -243,13 +332,19 @@ async def refresh_token(
     token_meta = await neo4j.fetch_node(
         models.TokenMetadata, {'jti': payload['jti']}
     )
-    if token_meta and token_meta.revoked:
+    if not token_meta or token_meta.revoked:
         LOGGER.warning(
-            'Token refresh failed: token revoked (jti=%s)', payload['jti']
+            'Token refresh failed: token revoked or not found (jti=%s)',
+            payload['jti'],
         )
         raise fastapi.HTTPException(
             status_code=401, detail='Refresh token has been revoked'
         )
+
+    # Phase 5: Revoke old refresh token (token rotation)
+    token_meta.revoked = True
+    token_meta.revoked_at = datetime.datetime.now(datetime.UTC)
+    await neo4j.upsert(token_meta, {'jti': payload['jti']})
 
     # Fetch user
     user = await neo4j.fetch_node(models.User, {'username': payload['sub']})
@@ -267,6 +362,11 @@ async def refresh_token(
         user.username, auth_settings
     )
 
+    # Phase 5: Create NEW refresh token (token rotation)
+    new_refresh_token, new_refresh_jti = core.create_refresh_token(
+        user.username, auth_settings
+    )
+
     # Store new access token metadata
     now = datetime.datetime.now(datetime.UTC)
     access_token_meta = models.TokenMetadata(
@@ -281,36 +381,106 @@ async def refresh_token(
     )
     await neo4j.create_node(access_token_meta)
 
-    LOGGER.info('Access token refreshed for user %s', user.username)
+    # Phase 5: Store new refresh token metadata
+    new_refresh_token_meta = models.TokenMetadata(
+        jti=new_refresh_jti,
+        token_type='refresh',
+        issued_at=now,
+        expires_at=now
+        + datetime.timedelta(
+            seconds=auth_settings.refresh_token_expire_seconds
+        ),
+        user=user,
+    )
+    await neo4j.create_node(new_refresh_token_meta)
+
+    LOGGER.info(
+        'Token refreshed for user %s (rotated refresh token)', user.username
+    )
 
     return auth_models.TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_request.refresh_token,  # Reuse refresh token
+        refresh_token=new_refresh_token,  # Phase 5: Return NEW token
         expires_in=auth_settings.access_token_expire_seconds,
     )
 
 
 @auth_router.post('/logout', status_code=204)
 async def logout(
-    request: fastapi.Request,
+    auth: typing.Annotated[
+        permissions.AuthContext, fastapi.Depends(permissions.get_current_user)
+    ],
+    revoke_all_sessions: bool = fastapi.Query(default=False),
 ) -> None:
-    """Logout and revoke current token.
-
-    Note: In Phase 1, this is a placeholder. Full logout functionality
-    requires the AuthContext dependency from Phase 2 (authorization).
-    For now, clients can discard their tokens.
+    """Logout and revoke current token and session (Phase 5).
 
     Args:
-        request: FastAPI request object
+        auth: Current authenticated user context
+        revoke_all_sessions: If True, revoke all user tokens and delete all
+            sessions. If False, revoke only current token and associated
+            refresh token.
 
     """
-    # TODO: Implement token revocation in Phase 2 with AuthContext
-    # For now, this is a no-op. Clients should discard their tokens.
-    LOGGER.info('Logout endpoint called (token revocation in Phase 2)')
+    # Revoke current access token
+    query = """
+    MATCH (t:TokenMetadata {jti: $jti})
+    SET t.revoked = true, t.revoked_at = datetime()
+    """
+    async with neo4j.run(query, jti=auth.session_id) as result:
+        await result.consume()
+
+    if revoke_all_sessions:
+        # Revoke all user tokens
+        query = """
+        MATCH (u:User {username: $username})<-[:ISSUED_TO]-(t:TokenMetadata)
+        WHERE t.revoked = false
+        SET t.revoked = true, t.revoked_at = datetime()
+        """
+        async with neo4j.run(query, username=auth.user.username) as result:
+            await result.consume()
+
+        # Delete all sessions
+        query = """
+        MATCH (u:User {username: $username})<-[:SESSION_FOR]-(s:Session)
+        DETACH DELETE s
+        """
+        async with neo4j.run(query, username=auth.user.username) as result:
+            await result.consume()
+    else:
+        # Revoke only associated refresh token (issued within 5 seconds)
+        query = """
+        MATCH (t:TokenMetadata {jti: $jti})
+        RETURN t.issued_at as issued_at
+        """
+        async with neo4j.run(query, jti=auth.session_id) as result:
+            records = await result.data()
+
+        if records:
+            issued_at = records[0]['issued_at']
+            query = """
+            MATCH (u:User {username: $username})
+                  <-[:ISSUED_TO]-(t:TokenMetadata)
+            WHERE t.token_type = 'refresh'
+              AND t.revoked = false
+              AND abs(duration.inSeconds(t.issued_at, $issued_at).seconds) < 5
+            SET t.revoked = true, t.revoked_at = datetime()
+            """
+            async with neo4j.run(
+                query, username=auth.user.username, issued_at=issued_at
+            ) as result:
+                await result.consume()
+
+    LOGGER.info(
+        'User %s logged out (revoke_all=%s)',
+        auth.user.username,
+        revoke_all_sessions,
+    )
 
 
 @auth_router.get('/oauth/{provider}')
+@rate_limit.limiter.limit('3/minute')  # type: ignore[untyped-decorator]
 async def oauth_login(
+    request: fastapi.Request,
     provider: str,
     redirect_uri: str = fastapi.Query(default='/dashboard'),
 ) -> fastapi.responses.RedirectResponse:
@@ -585,9 +755,13 @@ async def find_or_create_oauth_identity(
     )
 
     if identity:
-        # Update tokens
-        identity.access_token = token_response['access_token']
-        identity.refresh_token = token_response.get('refresh_token')
+        # Phase 5: Encrypt and update tokens
+        encryptor = TokenEncryption.get_instance()
+        identity.set_encrypted_tokens(
+            token_response['access_token'],
+            token_response.get('refresh_token'),
+            encryptor,
+        )
         identity.token_expires_at = datetime.datetime.now(
             datetime.UTC
         ) + datetime.timedelta(seconds=token_response.get('expires_in', 3600))
@@ -634,7 +808,7 @@ async def find_or_create_oauth_identity(
             'Created new user %s via OAuth %s', user.username, provider
         )
 
-    # Create OAuth identity
+    # Create OAuth identity (Phase 5: with encrypted tokens)
     now = datetime.datetime.now(datetime.UTC)
     identity = models.OAuthIdentity(
         provider=typing.cast(
@@ -644,14 +818,22 @@ async def find_or_create_oauth_identity(
         email=profile['email'],
         display_name=profile['name'],
         avatar_url=profile.get('avatar_url'),
-        access_token=token_response['access_token'],
-        refresh_token=token_response.get('refresh_token'),
+        access_token=None,  # Set encrypted tokens below
+        refresh_token=None,  # Set encrypted tokens below
         token_expires_at=now
         + datetime.timedelta(seconds=token_response.get('expires_in', 3600)),
         linked_at=now,
         last_used=now,
         raw_profile=profile,
         user=user,
+    )
+
+    # Phase 5: Encrypt tokens before storing
+    encryptor = TokenEncryption.get_instance()
+    identity.set_encrypted_tokens(
+        token_response['access_token'],
+        token_response.get('refresh_token'),
+        encryptor,
     )
 
     await neo4j.create_node(identity)
