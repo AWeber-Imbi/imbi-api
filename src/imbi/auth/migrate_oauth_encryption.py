@@ -47,7 +47,16 @@ async def migrate_oauth_tokens() -> dict[str, int]:
         skipped = 0
 
         def is_already_encrypted(token: str | None) -> bool:
-            """Check if token is already encrypted by attempting decryption."""
+            """Check if token is already encrypted by attempting decryption.
+
+            Returns:
+                True if token successfully decrypts (already encrypted)
+                False if token is plaintext or corrupted
+
+            Note: Corrupted encrypted tokens (decrypt returns None) are treated
+            as plaintext and will be re-encrypted. This is safe as the original
+            corrupted value is unusable anyway.
+            """
             if not token:
                 return False
             try:

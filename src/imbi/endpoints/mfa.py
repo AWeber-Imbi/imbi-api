@@ -165,7 +165,7 @@ async def setup_mfa(
         user=auth.user,
     )
     await neo4j.create_node(totp_secret)
-    await neo4j.create_relationship(totp_secret, auth.user, rel_type='MFA_FOR')
+    # Relationship created automatically by create_node via model annotation
 
     LOGGER.info('MFA setup initiated for user %s', auth.user.username)
 

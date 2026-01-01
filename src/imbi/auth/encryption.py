@@ -9,6 +9,7 @@ environment variable) and auto-generated if not provided.
 """
 
 import base64
+import binascii
 import logging
 import typing
 
@@ -134,11 +135,20 @@ class TokenEncryption:
                 )
                 plaintext_bytes = self._fernet.decrypt(encrypted_bytes)
                 return plaintext_bytes.decode('utf-8')
-            except fernet.InvalidToken:
+            except (
+                fernet.InvalidToken,
+                binascii.Error,
+                ValueError,
+                UnicodeDecodeError,
+            ):
+                # All decryption attempts failed - invalid or corrupted
                 LOGGER.warning(
                     'Failed to decrypt token - invalid or corrupted ciphertext'
                 )
                 return None
-        except Exception as err:
-            LOGGER.exception('Decryption failed: %s', err)
-            raise
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            # Handle decryption errors (base64 decode, unicode errors)
+            LOGGER.warning(
+                'Failed to decrypt token - invalid or corrupted ciphertext'
+            )
+            return None
