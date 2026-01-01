@@ -36,8 +36,9 @@ Imbi helps organizations answer critical questions about their service landscape
 - **Pydantic v2**: Type-safe data validation and settings management
 - **Cypherantic**: Type-safe Neo4j integration with automatic Pydantic model mapping
 
-**Current Status**: Core infrastructure complete with comprehensive test coverage. REST API with health check endpoint
-functional. Email sending module implemented. Additional CRUD endpoints and UI in development.
+**Current Status**: Core infrastructure and authentication system complete with 315 tests (~30% coverage being expanded).
+REST API with health check, authentication, user/group/role management, blueprint CRUD endpoints, and email sending functional.
+Additional CRUD endpoints and UI in development.
 
 ### What's New in v2
 
@@ -46,7 +47,9 @@ functional. Email sending module implemented. Additional CRUD endpoints and UI i
 - **Modern API**: FastAPI provides automatic OpenAPI docs, async performance, and better type safety
 - **Simplified Architecture**: Dropping OpenSearch dependency in favor of Neo4j's native capabilities
 - **AI-Ready**: Foundation for conversational AI, MCP server integration, and natural language queries
-- **Better Testing**: 100% code coverage with comprehensive test suite
+- **Full Authentication**: OAuth2/OIDC (Google, GitHub, Keycloak) and local password authentication with JWT tokens
+- **Fine-Grained Authorization**: Permission-based access control with resource-level permissions and role management
+- **Analytics Ready**: ClickHouse integration for operations logs and time-series metrics
 
 For developers, see [CLAUDE.md](CLAUDE.md) for development guide and architecture details.
 
@@ -55,11 +58,11 @@ For developers, see [CLAUDE.md](CLAUDE.md) for development guide and architectur
 ### Development Environment
 
 ```bash
-# Bootstrap development environment
+# Bootstrap development environment (installs deps, starts Docker services)
 ./bootstrap
 
 # Run development server with auto-reload
-imbi run-server --dev
+uv run imbi run-server --dev
 
 # Access the API
 curl http://localhost:8000/status
@@ -69,10 +72,10 @@ curl http://localhost:8000/status
 
 ```bash
 # Run all tests with coverage
-pytest tests/ -v --cov=src/imbi --cov-report=term-missing
+uv run pytest
 
 # Run pre-commit checks
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 ## Core Concepts
@@ -117,10 +120,14 @@ Once the server is running, explore the API:
 # Health check
 curl http://localhost:8000/status
 
-# API documentation (when implemented)
-open http://localhost:8000/docs  # OpenAPI/Redoc UI
+# Get authentication providers
+curl http://localhost:8000/auth/providers
+
+# API documentation
+open http://localhost:8000/docs  # OpenAPI/ReDoc UI
 ```
 
+<<<<<<< HEAD
 ## Implemented Features
 
 ### Email Sending
@@ -176,6 +183,27 @@ docker compose up -d mailpit
 - 48 comprehensive tests (47 passing, 1 skipped)
 - 90%+ coverage across all email modules
 - Unit tests, integration tests, and Mailpit tests
+=======
+**Available Endpoints**:
+- `GET /status` - Health check
+- `GET /auth/providers` - List available authentication providers
+- `POST /auth/login` - Authenticate with email/password
+- `POST /auth/token/refresh` - Refresh access token
+- `POST /auth/logout` - Logout (revoke tokens)
+- `GET /auth/oauth/{provider}` - OAuth login redirect
+- `GET /auth/oauth/{provider}/callback` - OAuth callback handler
+- `GET /blueprints` - List blueprints (requires authentication)
+- `POST /blueprints` - Create blueprint (requires `blueprint:write` permission)
+- `GET /blueprints/{slug}` - Get blueprint by slug
+- `PUT /blueprints/{slug}` - Update blueprint (requires `blueprint:write` permission)
+- `DELETE /blueprints/{slug}` - Delete blueprint (requires `blueprint:delete` permission)
+- `GET /users` - List users (requires `user:read` permission)
+- `POST /users` - Create user (requires `user:write` permission)
+- `GET /groups` - List groups (requires `group:read` permission)
+- `POST /groups` - Create group (requires `group:write` permission)
+- `GET /roles` - List roles (requires `role:read` permission)
+- `POST /roles` - Create role (requires `role:write` permission)
+>>>>>>> ef3cf08 (Update documentation to reflect current implementation status)
 
 ## Roadmap
 
@@ -215,9 +243,10 @@ docker compose up -d mailpit
     - In addition, Neo4j supports vector based searching that we can implement in relationships to models to make it
       easy for AI to search the entire graph
 
-2. **Move to ClickHouse for event / operations log**
+2. **Move to ClickHouse for event / operations log** ✅
     - If we're moving off of Postgres for the operations log, it makes sense to think about using the right tool for the
       job with regard to how we should store it moving forward
+    - ClickHouse client integrated with async support, schema management, and insert/query operations
 
 3. **Ecosystem of services**
     - Instead of merging different types of functionality into one monolithic API, we move to speciality APIs, all
@@ -243,11 +272,13 @@ docker compose up -d mailpit
 
 ### Other Improvements
 
-- **Removal of multiple auth models**: OAuth2 for base user auth, JWT for inter-service / frontend to backend requests
-    - Simplify authentication options - may want to consider local users/groups
+- **Removal of multiple auth models**: OAuth2 for base user auth, JWT for inter-service / frontend to backend requests ✅
+    - OAuth2/OIDC (Google, GitHub, Keycloak) and local password authentication implemented
+    - JWT access tokens (15 min) and refresh tokens (7 days)
 
-- **For token based auth move to `Authentication: Bearer`**
+- **For token based auth move to `Authorization: Bearer`** ✅
     - Follow a standard default header that LLMs will assume is the header to use for token based auth
+    - All authenticated endpoints use `Authorization: Bearer <token>` header
 
 - **Events impacting project score**
     - Rolling 90 day window of PagerDuty issues
@@ -262,6 +293,8 @@ docker compose up -d mailpit
 - **[Investigate gRPC](https://medium.com/@arturocuicas/fastapi-and-grpc-19c9b329b211)** for inter-service communication
 
 - **[Instrument with OTEL](https://opentelemetry.io/docs/languages/python/instrumentation/)** for observability
+    - Jaeger service configured in Docker Compose for trace collection
+    - OpenTelemetry configuration generated by bootstrap script
 
 - **Explore moving SBOM component information** to an internal instance
   of [Dependency Track](https://docs.dependencytrack.org)
