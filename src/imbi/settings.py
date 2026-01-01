@@ -182,6 +182,64 @@ class Auth(pydantic_settings.BaseSettings):
         return self
 
 
+class Email(pydantic_settings.BaseSettings):
+    """Email sending configuration."""
+
+    model_config = pydantic_settings.SettingsConfigDict(
+        env_prefix='IMBI_EMAIL_',
+        case_sensitive=False,
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
+    # Feature flags
+    enabled: bool = True
+    dry_run: bool = False
+
+    # SMTP Configuration
+    smtp_host: str = 'localhost'
+    smtp_port: int = 587
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_timeout: int = 30
+
+    # Sender Configuration
+    from_email: pydantic.EmailStr = 'noreply@imbi.example.com'
+    from_name: str = 'Imbi'
+    reply_to: pydantic.EmailStr | None = None
+
+    # Retry Configuration
+    max_retries: int = 3
+    initial_retry_delay: float = 1.0
+    max_retry_delay: float = 60.0
+    retry_backoff_factor: float = 2.0
+
+    @pydantic.model_validator(mode='after')
+    def configure_mailpit_defaults(self) -> 'Email':
+        """Auto-configure for Mailpit in development.
+
+        If running in development mode and SMTP is localhost:587 (defaults),
+        check for MAILPIT_SMTP_PORT environment variable and use it if present.
+        This allows automatic integration with Mailpit from bootstrap script.
+
+        """
+        import os
+
+        if os.getenv('IMBI_ENVIRONMENT', 'development') == 'development':
+            if self.smtp_host == 'localhost' and self.smtp_port == 587:
+                # Check if Mailpit service is available
+                mailpit_port = os.getenv('MAILPIT_SMTP_PORT')
+                if mailpit_port:
+                    self.smtp_port = int(mailpit_port)
+                    # Only override TLS if not explicitly set
+                    if not os.getenv('IMBI_EMAIL_SMTP_USE_TLS'):
+                        self.smtp_use_tls = False
+        return self
+
+
 # Module-level singleton for Auth settings to ensure stable JWT secret
 _auth_settings: Auth | None = None
 

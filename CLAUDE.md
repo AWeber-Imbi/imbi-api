@@ -92,7 +92,8 @@ uv run pytest -v
 ```
 
 **Coverage configuration** (`pyproject.toml`):
-- Minimum coverage: 90% (enforced via `tool.coverage.report.fail_under`)
+- Minimum coverage target: 90% (configured via `tool.coverage.report.fail_under`)
+- Current coverage: ~30% (expanded functionality requires additional test coverage)
 - Automatic coverage collection via `pytest --cov` (configured in `tool.pytest.ini_options.addopts`)
 - XML output: `build/coverage.xml` (for Codecov)
 - HTML report: `build/coverage/` (for local review)
@@ -117,17 +118,63 @@ docker compose logs -f clickhouse
 
 ### High-Level Structure
 - **`src/imbi/`**: Main application code
-  - `app.py`: FastAPI application factory with lifespan management
+  - `app.py`: FastAPI application factory with lifespan management and auto-seeding
   - `entrypoint.py`: CLI commands (Typer-based)
-  - `models.py`: Core domain models (Blueprint, Namespace, ProjectType, Project)
+  - `models.py`: Core domain models (Blueprint, User, Group, Role, Permission, Project, etc.)
   - `settings.py`: Configuration via Pydantic Settings with URL credential extraction
+  - `blueprints.py`: Blueprint filtering and schema validation logic
   - `endpoints/`: API endpoint routers
     - `status.py`: Health check endpoint
+    - `auth.py`: Authentication (OAuth2/OIDC, local password) and token management
+    - `users.py`: User CRUD operations
+    - `groups.py`: Group CRUD operations
+    - `roles.py`: Role CRUD operations
+    - `blueprints.py`: Blueprint CRUD operations
+  - `auth/`: Authentication and authorization system
+    - `core.py`: JWT token generation and password hashing
+    - `oauth.py`: OAuth2/OIDC provider integration (Google, GitHub, Keycloak)
+    - `permissions.py`: Permission checking and resource-based authorization
+    - `seed.py`: Auto-seeding of roles and permissions
+    - `models.py`: Auth-specific data models
   - `neo4j/`: Neo4j graph database integration layer
     - `client.py`: Singleton driver with event loop awareness
     - `__init__.py`: High-level API and cypherantic wrappers
     - `constants.py`: Index definitions and vector configuration
-- **`tests/`**: Test suite with 100% code coverage (55 tests)
+  - `clickhouse/`: ClickHouse analytics database integration
+    - `client.py`: Async ClickHouse client with connection pooling
+    - `__init__.py`: High-level API for queries and inserts
+- **`tests/`**: Test suite with 315 tests (~30% coverage, being expanded)
+
+### ClickHouse Integration Pattern
+
+The ClickHouse module provides async operations for analytics and time-series data:
+
+```python
+from imbi import clickhouse
+
+# Initialize connection (called during app startup)
+await clickhouse.initialize()
+
+# Insert Pydantic models
+from imbi.models import SomeModel
+data = [SomeModel(...), SomeModel(...)]
+result = await clickhouse.insert('table_name', data)
+
+# Query with parameters
+results = await clickhouse.query(
+    'SELECT * FROM table WHERE column = {param:String}',
+    parameters={'param': 'value'}
+)
+
+# Cleanup (called during app shutdown)
+await clickhouse.aclose()
+```
+
+**Implementation details** (`src/imbi/clickhouse/client.py`):
+- Singleton pattern with async connection management
+- Automatic Pydantic model serialization for inserts
+- Support for nested/complex types via flattening
+- Connection pooling and health checks
 
 ### Neo4j Integration Pattern
 
@@ -177,6 +224,51 @@ edges = await neo4j.retrieve_relationship_edges(model, 'dependencies')
 - `retrieve_relationship_edges()`: Fetch relationship edges as Pydantic models
 - Full type safety with TypeVars preserving model types through operations
 
+### Authentication & Authorization Pattern
+
+The auth system provides OAuth2/OIDC and local password authentication with fine-grained permissions:
+
+```python
+from imbi.auth import permissions
+import fastapi
+import typing
+
+@router.get('/resource')
+async def get_resource(
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('resource:read'))
+    ]
+) -> dict:
+    """Endpoint requires 'resource:read' permission."""
+    # auth.user contains authenticated user
+    # auth.token_metadata contains JWT token info
+    return {'user': auth.user.username}
+
+# Check permissions programmatically
+has_permission = await permissions.user_has_permission(
+    user_id, 'resource:write'
+)
+```
+
+**Authentication flow**:
+1. User authenticates via OAuth provider or local password
+2. Server issues JWT access token (15 min) and refresh token (7 days)
+3. Client includes `Authorization: Bearer <token>` in requests
+4. `require_permission()` dependency validates token and checks permissions
+5. Endpoint receives `AuthContext` with user and token metadata
+
+**Auto-seeding** (`auth/seed.py`):
+- On first startup, creates default roles (admin, user, service) with permissions
+- Controlled via `IMBI_AUTO_SEED_AUTH` environment variable (default: true)
+- Idempotent: checks if system is seeded before running
+
+**OAuth providers** (`auth/oauth.py`):
+- Google, GitHub, Keycloak support
+- Configurable via environment variables (client ID, secret, discovery URLs)
+- Automatic user creation on first OAuth login
+- Links OAuth identity to user account
+
 ### FastAPI Application Structure
 
 **Application factory** (`src/imbi/app.py`):
@@ -188,7 +280,9 @@ app = create_app()  # Returns configured FastAPI instance
 
 **Lifespan management**: The application uses FastAPI's lifespan context manager to:
 - Initialize Neo4j indexes on startup (`neo4j.initialize()`)
-- Clean up Neo4j connections on shutdown (`neo4j.aclose()`)
+- Initialize ClickHouse connection and test connectivity (`clickhouse.initialize()`)
+- Auto-seed authentication system with default roles and permissions (if not already seeded)
+- Clean up Neo4j and ClickHouse connections on shutdown
 - Ensures proper resource management across application lifecycle
 
 **Endpoint registration** (`src/imbi/endpoints/`):
@@ -207,15 +301,18 @@ app = create_app()  # Returns configured FastAPI instance
    - Domain entities use `pydantic.BaseModel`
    - Keep models simple, focused on data structure
    - Model class names become Neo4j labels (lowercase)
+   - Includes: Blueprint, User, Group, Role, Permission, Project, Organization, Team, etc.
 
 2. **Settings** (`src/imbi/settings.py`):
    - Use `pydantic_settings.BaseSettings` for configuration
-   - Prefix environment variables (e.g., `NEO4J_URL`)
+   - Prefix environment variables (e.g., `NEO4J_URL`, `CLICKHOUSE_URL`)
    - Support `.env` files with `BASE_SETTINGS` config dict
+   - Separate settings classes for auth, Neo4j, ClickHouse
 
-3. **Neo4j models** (`src/imbi/neo4j/models.py`):
-   - `Node`: Represents graph nodes with labels and properties
-   - `coerce_neo4j_datetime()`: Convert Neo4j DateTime to Python datetime
+3. **Auth models** (`src/imbi/auth/models.py`):
+   - JWT token payloads and metadata
+   - OAuth provider configurations
+   - Authentication request/response models
 
 ### Testing Patterns
 
@@ -339,29 +436,44 @@ gh pr create --base v2 --title "Add new feature" --body "..."
 
 ## Important Notes
 
-**Current development status**: This is a v2 alpha rewrite. Core infrastructure is complete with 100% test coverage (55 tests):
+**Current development status**: This is a v2 alpha rewrite. Core infrastructure and authentication complete with 315 tests (~30% coverage):
 
 ✅ **Implemented**:
-- FastAPI application with lifespan management (Neo4j init/cleanup)
+- FastAPI application with lifespan management (Neo4j, ClickHouse init/cleanup, auto-seeding)
 - Status endpoint with health check (`GET /status`)
 - CLI with `run-server` command (development and production modes)
 - Neo4j integration with singleton pattern, cypherantic wrappers, indexes, upsert operations
+- ClickHouse integration with async client, schema management, insert/query operations
 - Settings management via Pydantic with URL credential extraction
-- Core domain models (Blueprint, Namespace, ProjectType, Project)
-- Docker Compose development environment (Neo4j, ClickHouse)
+- Core domain models (Blueprint, User, Group, Role, Permission, Project, Organization, Team)
+- Blueprint CRUD endpoints with permission-based authorization
+- User/Group/Role management endpoints
+- Authentication system:
+  - OAuth2/OIDC support (Google, GitHub, Keycloak)
+  - Local password authentication
+  - JWT token generation and refresh
+  - Auto-seeding of roles and permissions on startup
+- Authorization system:
+  - Permission-based access control
+  - Resource-level permissions (read, write, delete)
+  - Role-based authorization with group support
+- Docker Compose development environment (Neo4j, ClickHouse, Jaeger)
 - Pre-commit hooks with Ruff linting and formatting
 - Bootstrap script for automated setup
-- Comprehensive test suite with 100% code coverage
+- Test suite with 315 tests (coverage being expanded)
 
 🚧 **In Progress**:
-- ClickHouse integration (dependency present, service running, but not yet integrated in code)
-- Additional API endpoints (projects, namespaces, blueprints CRUD)
-- Authentication/authorization
-- Webhook service
+- Expanding test coverage to 90%+ (currently ~30%)
+- Additional API endpoints (projects, namespaces, project types, environments)
+- Webhook service for GitHub/PagerDuty integration
 - Conversational AI features
+- MCP server integration
+- UI rewrite
 
 **Database strategy**:
-- **Neo4j**: Graph database for service relationships and dependencies
-- **ClickHouse**: Analytics and time-series data (planned)
+- **Neo4j**: Graph database for service relationships, dependencies, and user/permission model
+- **ClickHouse**: Analytics and time-series data for operations logs and metrics
 
 **Vector embeddings**: Configuration present for 1536-dimensional vectors with cosine similarity for AI-powered search (see `neo4j/constants.py`)
+
+**Authentication/Authorization**: Full OAuth2/OIDC support with multiple providers, local password auth, JWT tokens, and fine-grained permission system integrated with all endpoints

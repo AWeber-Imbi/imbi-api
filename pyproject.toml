@@ -53,8 +53,11 @@ dependencies = [
 [project.optional-dependencies]
 otel = [
   "opentelemetry-distro",
+  "opentelemetry-instrumentation-anthropic",
   "opentelemetry-instrumentation-asyncio",
   "opentelemetry-instrumentation-fastapi",
+  "opentelemetry-instrumentation-httpx",
+  "opentelemetry-instrumentation-jinja2",
 ]
 sentry = [
   "sentry-sdk"

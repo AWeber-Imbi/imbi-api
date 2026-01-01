@@ -6,7 +6,7 @@ import typing
 
 import fastapi
 
-from imbi import clickhouse, endpoints, neo4j, version
+from imbi import clickhouse, email, endpoints, neo4j, version
 from imbi.auth import seed
 from imbi.middleware import rate_limit
 
@@ -21,27 +21,35 @@ async def fastapi_lifespan(
     init_results = await asyncio.gather(
         clickhouse.initialize(),
         neo4j.initialize(),
+        email.initialize(),
         return_exceptions=True,
     )
 
     # Check if ClickHouse init returned False (failure without exception)
     if init_results[0] is False:
         LOGGER.error('ClickHouse initialization failed')
-        # Clean up Neo4j if it succeeded
+        # Clean up Neo4j and Email if they succeeded
         if not isinstance(init_results[1], Exception):
             await neo4j.aclose()
+        if not isinstance(init_results[2], Exception):
+            await email.aclose()
         raise RuntimeError('ClickHouse initialization failed')
 
     # Check for initialization failures (exceptions)
     for i, result in enumerate(init_results):
         if isinstance(result, Exception):
-            service_name = ['ClickHouse', 'Neo4j'][i]
+            service_name = ['ClickHouse', 'Neo4j', 'Email'][i]
             LOGGER.error('%s initialization failed: %s', service_name, result)
             # Clean up successfully initialized services
-            if i == 1 and init_results[0] is True:
-                await clickhouse.aclose()
-            elif i == 0 and not isinstance(init_results[1], Exception):
-                await neo4j.aclose()
+            cleanup_tasks = []
+            if i > 0 and init_results[0] is True:
+                cleanup_tasks.append(clickhouse.aclose())
+            if i != 1 and not isinstance(init_results[1], Exception):
+                cleanup_tasks.append(neo4j.aclose())
+            if i != 2 and not isinstance(init_results[2], Exception):
+                cleanup_tasks.append(email.aclose())
+            if cleanup_tasks:
+                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
             raise result
 
     # Auto-seed authentication system if not already seeded
@@ -64,12 +72,13 @@ async def fastapi_lifespan(
     shutdown_results = await asyncio.gather(
         neo4j.aclose(),
         clickhouse.aclose(),
+        email.aclose(),
         return_exceptions=True,
     )
     # Log any shutdown failures but don't raise
     for i, result in enumerate(shutdown_results):
         if isinstance(result, Exception):
-            service_name = ['Neo4j', 'ClickHouse'][i]
+            service_name = ['Neo4j', 'ClickHouse', 'Email'][i]
             LOGGER.warning('%s shutdown failed: %s', service_name, result)
     LOGGER.debug('Clean shutdown complete')
 
