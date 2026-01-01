@@ -105,9 +105,12 @@ class APIKeysEndpointsTestCase(unittest.TestCase):
 
             # Verify key format
             self.assertTrue(data['key_id'].startswith('ik_'))
-            self.assertTrue(data['key_secret'].startswith('ik_'))
-            parts = data['key_secret'].split('_')
-            self.assertEqual(len(parts), 3)  # ik_<id>_<secret>
+            self.assertTrue(data['key_secret'].startswith(data['key_id']))
+            # Full key should be: key_id + '_' + secret
+            # Verify it's longer than just the key_id (has secret appended)
+            self.assertGreater(
+                len(data['key_secret']), len(data['key_id']) + 10
+            )
 
     def test_create_api_key_with_expiration(self) -> None:
         """Test API key creation with expiration."""
