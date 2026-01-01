@@ -80,33 +80,46 @@ uv run pre-commit run --all-files
 
 Imbi organizes services using a flexible, graph-based data model:
 
-- **Projects**: Individual services or applications in your organization
+- **Organizations**: Top-level organizational units
     - Unique slug identifier
-    - Project type (web service, library, database, etc.)
-    - Namespace for organizational grouping (team, department, product line)
-    - Metadata via customizable blueprints (JSON Schema-based)
+    - Name, description, and optional icon
+    - Foundation for hierarchical team structure
+
+- **Teams**: Groups within organizations
+    - Managed by an organization (MANAGED_BY relationship)
+    - Own and maintain projects
+    - Unique slug identifier within their scope
+
+- **Projects**: Individual services or applications
+    - Owned by a team (OWNED_BY relationship)
+    - Categorized by project type (TYPE relationship)
+    - Deployed in environments (DEPLOYED_IN relationship)
     - Links to external tools (GitHub, Jira, PagerDuty, monitoring, etc.)
     - Environment-specific URLs (staging, production, etc.)
+    - Custom identifiers (repo IDs, service IDs, etc.)
 
-- **Dependencies**: Graph relationships between projects
-    - Direct dependencies (service A → service B)
-    - Component dependencies (shared libraries, databases)
-    - Visualize the entire dependency tree
-
-- **Namespaces**: Organizational grouping for projects
-    - Teams, departments, or product lines
-    - Hierarchical organization
-    - Ownership and access control boundaries
-
-- **Project Types**: Categorization of services
+- **Project Types**: Service categorization
     - Web Services, APIs, Libraries, Databases, etc.
-    - Custom types with specific metadata requirements
-    - Environment URL configuration per type
+    - Unique slug identifier
+    - Used to classify projects
+
+- **Environments**: Deployment targets
+    - Production, Staging, Development, etc.
+    - Unique slug identifier
+    - Projects can be deployed to multiple environments
 
 - **Blueprints**: JSON Schema-based metadata templates
-    - Define custom fields for different project types
+    - Apply to Organizations, Teams, Environments, Project Types, or Projects
+    - Define custom fields with validation rules
     - Enforce required metadata
-    - Support for complex validation rules
+    - Priority-based application when multiple blueprints match
+    - Optional filtering based on entity properties
+
+- **Users, Groups, and Roles**: Authentication and authorization
+    - Users with OAuth or local password authentication
+    - Groups for organizing users
+    - Roles with fine-grained permissions
+    - Resource-based access control
 
 ### API Access
 
@@ -123,63 +136,6 @@ curl http://localhost:8000/auth/providers
 open http://localhost:8000/docs  # OpenAPI/ReDoc UI
 ```
 
-<<<<<<< HEAD
-## Implemented Features
-
-### Email Sending
-
-Imbi includes a production-ready email sending module for transactional emails:
-
-**Key Features:**
-- **SMTP Integration**: Configurable SMTP client with TLS/SSL support
-- **Retry Logic**: Exponential backoff for transient failures (default: 3 retries)
-- **Template System**: Jinja2-based HTML and text email templates with autoescape
-- **Audit Logging**: All email attempts logged to ClickHouse for tracking
-- **Dry Run Mode**: Test email rendering without sending
-- **Password Reset Flow**: Secure token generation stored in Neo4j
-
-**Available Email Types:**
-- Welcome emails for new users
-- Password reset with secure tokens
-- Email verification (planned)
-- Security alerts (planned)
-
-**Configuration:**
-```bash
-# Enable email sending
-IMBI_EMAIL_ENABLED=true
-IMBI_EMAIL_DRY_RUN=false
-
-# SMTP settings
-IMBI_EMAIL_SMTP_HOST=smtp.example.com
-IMBI_EMAIL_SMTP_PORT=587
-IMBI_EMAIL_SMTP_USE_TLS=true
-IMBI_EMAIL_SMTP_USERNAME=user@example.com
-IMBI_EMAIL_SMTP_PASSWORD=secret
-
-# Sender information
-IMBI_EMAIL_FROM_EMAIL=noreply@example.com
-IMBI_EMAIL_FROM_NAME="Imbi Platform"
-
-# Retry settings
-IMBI_EMAIL_MAX_RETRIES=3
-IMBI_EMAIL_INITIAL_RETRY_DELAY=1.0
-IMBI_EMAIL_RETRY_BACKOFF_FACTOR=2.0
-```
-
-**Development Testing:**
-For local development, use [Mailpit](https://mailpit.axllent.org/) (included in `compose.yaml`):
-```bash
-# Mailpit SMTP runs on port 1025
-# Web UI available at http://localhost:8025
-docker compose up -d mailpit
-```
-
-**Test Coverage:**
-- 48 comprehensive tests (47 passing, 1 skipped)
-- 90%+ coverage across all email modules
-- Unit tests, integration tests, and Mailpit tests
-=======
 **Available Endpoints**:
 - `GET /status` - Health check
 - `GET /auth/providers` - List available authentication providers
@@ -199,7 +155,6 @@ docker compose up -d mailpit
 - `POST /groups` - Create group (requires `group:write` permission)
 - `GET /roles` - List roles (requires `role:read` permission)
 - `POST /roles` - Create role (requires `role:write` permission)
->>>>>>> ef3cf08 (Update documentation to reflect current implementation status)
 
 ## Roadmap
 
