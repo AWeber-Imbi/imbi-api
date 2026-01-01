@@ -4,6 +4,7 @@ import datetime
 import logging
 import secrets
 import typing
+from urllib import parse as urlparse
 
 import fastapi
 import jwt
@@ -93,13 +94,11 @@ async def get_auth_providers() -> auth_models.AuthProvidersResponse:
 @auth_router.post('/login', response_model=auth_models.TokenResponse)
 async def login(
     credentials: auth_models.LoginRequest,
-    request: fastapi.Request,
 ) -> auth_models.TokenResponse:
     """Login with email and password.
 
     Args:
         credentials: Email and password
-        request: FastAPI request object
 
     Returns:
         JWT tokens (access and refresh)
@@ -313,14 +312,12 @@ async def logout(
 @auth_router.get('/oauth/{provider}')
 async def oauth_login(
     provider: str,
-    request: fastapi.Request,
     redirect_uri: str = fastapi.Query(default='/dashboard'),
 ) -> fastapi.responses.RedirectResponse:
     """Initiate OAuth login flow.
 
     Args:
         provider: OAuth provider ('google', 'github', 'oidc')
-        request: FastAPI request object
         redirect_uri: Where to redirect after successful auth
 
     Returns:
@@ -360,33 +357,42 @@ async def oauth_login(
     base_url = auth_settings.oauth_callback_base_url
     callback_url = f'{base_url}/auth/oauth/{provider}/callback'
 
-    # Build authorization URL based on provider
+    # Build authorization URL based on provider with proper URL encoding
     if provider == 'google':
+        params = {
+            'client_id': auth_settings.oauth_google_client_id or '',
+            'redirect_uri': callback_url,
+            'response_type': 'code',
+            'scope': 'openid email profile',
+            'state': state_token,
+        }
         auth_url = (
-            'https://accounts.google.com/o/oauth2/v2/auth'
-            f'?client_id={auth_settings.oauth_google_client_id}'
-            f'&redirect_uri={callback_url}'
-            f'&response_type=code'
-            f'&scope=openid email profile'
-            f'&state={state_token}'
+            'https://accounts.google.com/o/oauth2/v2/auth?'
+            + urlparse.urlencode(params)
         )
     elif provider == 'github':
+        params = {
+            'client_id': auth_settings.oauth_github_client_id or '',
+            'redirect_uri': callback_url,
+            'scope': 'read:user user:email',
+            'state': state_token,
+        }
         auth_url = (
-            'https://github.com/login/oauth/authorize'
-            f'?client_id={auth_settings.oauth_github_client_id}'
-            f'&redirect_uri={callback_url}'
-            f'&scope=read:user user:email'
-            f'&state={state_token}'
+            'https://github.com/login/oauth/authorize?'
+            + urlparse.urlencode(params)
         )
     elif provider == 'oidc':
         issuer = (auth_settings.oauth_oidc_issuer_url or '').rstrip('/')
+        params = {
+            'client_id': auth_settings.oauth_oidc_client_id or '',
+            'redirect_uri': callback_url,
+            'response_type': 'code',
+            'scope': 'openid email profile',
+            'state': state_token,
+        }
         auth_url = (
-            f'{issuer}/protocol/openid-connect/auth'
-            f'?client_id={auth_settings.oauth_oidc_client_id}'
-            f'&redirect_uri={callback_url}'
-            f'&response_type=code'
-            f'&scope=openid email profile'
-            f'&state={state_token}'
+            f'{issuer}/protocol/openid-connect/auth?'
+            + urlparse.urlencode(params)
         )
 
     LOGGER.info('OAuth login initiated for provider %s', provider)
@@ -464,7 +470,7 @@ async def oauth_callback(
         access_token, access_jti = core.create_access_token(
             user.username, auth_settings
         )
-        _, refresh_jti = core.create_refresh_token(
+        refresh_token, refresh_jti = core.create_refresh_token(
             user.username, auth_settings
         )
 
@@ -511,13 +517,20 @@ async def oauth_callback(
             provider,
         )
 
-        # Redirect to frontend with token
-        return fastapi.responses.RedirectResponse(
-            url=f'{state_data.redirect_uri}?access_token={access_token}'
+        # Redirect to frontend with tokens in URL fragment (not sent to server)
+        # Using fragments prevents tokens from appearing in server logs,
+        # browser history, or Referer headers
+        redirect_url = (
+            f'{state_data.redirect_uri}#'
+            f'access_token={access_token}&'
+            f'refresh_token={refresh_token}&'
+            f'token_type=bearer&'
+            f'expires_in={auth_settings.access_token_expire_seconds}'
         )
+        return fastapi.responses.RedirectResponse(url=redirect_url)
 
-    except Exception as e:
-        LOGGER.exception('OAuth callback failed: %s', e)
+    except Exception:
+        LOGGER.exception('OAuth callback failed')
         return fastapi.responses.RedirectResponse(
             url='/auth/callback?error=authentication_failed'
         )
@@ -550,8 +563,21 @@ async def find_or_create_oauth_identity(
 
     Raises:
         ValueError: If user auto-creation disabled and no user found
+        ValueError: If email domain not in allowed list (Google OAuth)
 
     """
+    # Enforce domain restrictions for Google OAuth
+    if provider == 'google' and auth_settings.oauth_google_allowed_domains:
+        email_domain = profile['email'].split('@')[1].lower()
+        allowed = [
+            d.lower() for d in auth_settings.oauth_google_allowed_domains
+        ]
+        if email_domain not in allowed:
+            raise ValueError(
+                f'Email domain {email_domain} not in allowed domains: '
+                f'{", ".join(auth_settings.oauth_google_allowed_domains)}'
+            )
+
     # Try to find existing OAuth identity
     identity = await neo4j.fetch_node(
         models.OAuthIdentity,

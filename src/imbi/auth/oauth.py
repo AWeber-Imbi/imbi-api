@@ -10,8 +10,10 @@ import jwt
 from imbi import settings
 from imbi.auth import models
 
-# Cache for OIDC discovery documents (issuer_url -> discovery_data)
-_oidc_discovery_cache: dict[str, dict[str, typing.Any]] = {}
+# Cache for OIDC discovery documents with TTL
+# Format: {issuer_url: (discovery_data, timestamp)}
+_oidc_discovery_cache: dict[str, tuple[dict[str, typing.Any], float]] = {}
+_OIDC_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 
 async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
@@ -27,9 +29,14 @@ async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
         ValueError: If discovery fails
 
     """
-    # Check cache first
+    # Check cache first (with TTL validation)
     if issuer_url in _oidc_discovery_cache:
-        return _oidc_discovery_cache[issuer_url]
+        discovery_data, cached_at = _oidc_discovery_cache[issuer_url]
+        age = time.time() - cached_at
+        if age < _OIDC_CACHE_TTL_SECONDS:
+            return discovery_data
+        # Cache expired, remove it
+        del _oidc_discovery_cache[issuer_url]
 
     # Fetch discovery document
     issuer = issuer_url.rstrip('/')
@@ -54,8 +61,8 @@ async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
     if 'userinfo_endpoint' not in discovery_data:
         raise ValueError('OIDC discovery missing userinfo_endpoint')
 
-    # Cache the result
-    _oidc_discovery_cache[issuer_url] = discovery_data
+    # Cache the result with timestamp
+    _oidc_discovery_cache[issuer_url] = (discovery_data, time.time())
     return discovery_data
 
 
@@ -261,6 +268,13 @@ def normalize_oauth_profile(
         if not email:
             raise ValueError('OIDC profile missing required email claim')
 
+        # Validate identity field (sub or id must be present)
+        user_id = raw_profile.get('sub') or raw_profile.get('id')
+        if not user_id:
+            raise ValueError(
+                'OIDC profile missing required identity field (sub or id)'
+            )
+
         # Generate name from available fields
         name = (
             raw_profile.get('name')
@@ -269,7 +283,7 @@ def normalize_oauth_profile(
         )
 
         return {
-            'id': raw_profile.get('sub') or raw_profile.get('id'),
+            'id': user_id,
             'email': email,
             'name': name,
             'avatar_url': raw_profile.get('picture'),

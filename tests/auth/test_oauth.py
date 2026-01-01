@@ -289,12 +289,15 @@ class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
         self, mock_client_class: mock.Mock
     ) -> None:
         """Test OIDC discovery uses cache on second call."""
-        # Populate cache manually
+        # Populate cache manually with timestamp
         cached_data = {
             'token_endpoint': 'https://cached.example.com/token',
             'userinfo_endpoint': 'https://cached.example.com/userinfo',
         }
-        oauth._oidc_discovery_cache['https://cached.example.com'] = cached_data
+        oauth._oidc_discovery_cache['https://cached.example.com'] = (
+            cached_data,
+            time.time(),
+        )
 
         # Perform discovery - should use cache
         discovery = await oauth._discover_oidc_endpoints(
