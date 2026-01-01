@@ -36,10 +36,6 @@ Imbi helps organizations answer critical questions about their service landscape
 - **Pydantic v2**: Type-safe data validation and settings management
 - **Cypherantic**: Type-safe Neo4j integration with automatic Pydantic model mapping
 
-**Current Status**: Core infrastructure and authentication system complete with 315 tests (~30% coverage being expanded).
-REST API with health check, authentication, user/group/role management, blueprint CRUD endpoints, and email sending functional.
-Additional CRUD endpoints and UI in development.
-
 ### What's New in v2
 
 - **Graph Database**: Neo4j replaces Postgres for intuitive relationship modeling and AI-friendly Cypher queries
