@@ -13,6 +13,7 @@ __all__ = [
     'Environment',
     'Group',
     'Node',
+    'OAuthIdentity',
     'Organization',
     'PasswordChangeRequest',
     'Permission',
@@ -160,6 +161,36 @@ class User(pydantic.BaseModel):
         list['Role'],
         cypherantic.Relationship(rel_type='HAS_ROLE', direction='OUTGOING'),
     ] = []
+
+
+class OAuthIdentity(pydantic.BaseModel):
+    """OAuth provider identity linked to a user."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    provider: typing.Literal['google', 'github', 'oidc']
+    provider_user_id: str
+    email: pydantic.EmailStr
+    display_name: str
+    avatar_url: pydantic.HttpUrl | None = None
+
+    # OAuth tokens (TODO: Encrypt in Phase 5)
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_expires_at: datetime.datetime | None = None
+
+    # Metadata
+    linked_at: datetime.datetime
+    last_used: datetime.datetime
+    raw_profile: dict[str, typing.Any] | None = None
+
+    # Relationship to User
+    user: typing.Annotated[
+        User,
+        cypherantic.Relationship(
+            rel_type='OAUTH_IDENTITY', direction='OUTGOING'
+        ),
+    ]
 
 
 class Group(Node):

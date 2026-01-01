@@ -143,7 +143,10 @@ class LoginEndpointTestCase(unittest.TestCase):
 
             response = self.client.post(
                 '/auth/login',
-                json={'username': 'testuser', 'password': 'TestPassword123!'},
+                json={
+                    'email': 'test@example.com',
+                    'password': 'TestPassword123!',
+                },
             )
 
             self.assertEqual(response.status_code, 200)
@@ -157,14 +160,14 @@ class LoginEndpointTestCase(unittest.TestCase):
             mock_fetch.assert_called()
             mock_upsert.assert_called()  # Update last_login
 
-    def test_login_invalid_username(self) -> None:
-        """Test login with invalid username."""
+    def test_login_invalid_email(self) -> None:
+        """Test login with invalid email."""
         with mock.patch('imbi.neo4j.fetch_node') as mock_fetch:
             mock_fetch.return_value = None
 
             response = self.client.post(
                 '/auth/login',
-                json={'username': 'invaliduser', 'password': 'password'},
+                json={'email': 'invalid@example.com', 'password': 'password'},
             )
 
             self.assertEqual(response.status_code, 401)
@@ -177,7 +180,10 @@ class LoginEndpointTestCase(unittest.TestCase):
 
             response = self.client.post(
                 '/auth/login',
-                json={'username': 'testuser', 'password': 'WrongPassword!'},
+                json={
+                    'email': 'test@example.com',
+                    'password': 'WrongPassword!',
+                },
             )
 
             self.assertEqual(response.status_code, 401)
@@ -201,7 +207,7 @@ class LoginEndpointTestCase(unittest.TestCase):
 
             response = self.client.post(
                 '/auth/login',
-                json={'username': 'inactive', 'password': 'password'},
+                json={'email': 'inactive@example.com', 'password': 'password'},
             )
 
             self.assertEqual(response.status_code, 401)
@@ -224,7 +230,7 @@ class LoginEndpointTestCase(unittest.TestCase):
 
             response = self.client.post(
                 '/auth/login',
-                json={'username': 'oauthuser', 'password': 'anypassword'},
+                json={'email': 'oauth@example.com', 'password': 'anypassword'},
             )
 
             self.assertEqual(response.status_code, 401)

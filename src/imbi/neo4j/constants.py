@@ -32,4 +32,10 @@ INDEXES: list[str] = [
     # JWT Tokens
     'CREATE CONSTRAINT token_jti_unique IF NOT EXISTS '
     'FOR (n:TokenMetadata) REQUIRE n.jti IS UNIQUE;',
+    # OAuth Identities
+    'CREATE CONSTRAINT oauth_identity_provider_user_unique IF NOT EXISTS '
+    'FOR (n:OAuthIdentity) '
+    'REQUIRE (n.provider, n.provider_user_id) IS UNIQUE;',
+    'CREATE INDEX oauth_identity_email IF NOT EXISTS '
+    'FOR (n:OAuthIdentity) ON (n.email);',
 ]
