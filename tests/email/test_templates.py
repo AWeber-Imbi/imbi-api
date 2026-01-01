@@ -141,7 +141,7 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test the strip_html Jinja2 filter."""
         html = '<p>Hello <strong>world</strong>!</p>'
 
-        text = self.manager._strip_html(html)
+        text = self.manager._html_to_text(html)
 
         self.assertEqual('Hello world!', text)
         self.assertNotIn('<', text)

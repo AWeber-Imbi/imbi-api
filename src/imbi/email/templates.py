@@ -35,7 +35,7 @@ class TemplateManager:
         )
 
         # Add custom filters
-        self._env.filters['strip_html'] = self._strip_html
+        self._env.filters['strip_html'] = self._html_to_text
 
     @classmethod
     def get_instance(cls) -> 'TemplateManager':
@@ -203,15 +203,3 @@ class TemplateManager:
         text = re.sub(r'[ \t]+', ' ', text)
 
         return text.strip()
-
-    def _strip_html(self, html: str) -> str:
-        """Strip HTML tags from string (custom Jinja2 filter).
-
-        Args:
-            html: HTML string
-
-        Returns:
-            String with HTML tags removed
-
-        """
-        return self._html_to_text(html)
