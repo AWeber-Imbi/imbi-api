@@ -8,6 +8,7 @@ from urllib import parse as urlparse
 
 import fastapi
 import jwt
+import pydantic
 import pyotp
 
 from imbi import models, neo4j, settings
@@ -98,8 +99,9 @@ async def get_auth_providers() -> auth_models.AuthProvidersResponse:
 @rate_limit.limiter.limit('5/minute')  # type: ignore[untyped-decorator]
 async def login(
     request: fastapi.Request,
-    credentials: auth_models.LoginRequest,
-    mfa_code: str | None = fastapi.Body(default=None, embed=True),
+    email: typing.Annotated[pydantic.EmailStr, fastapi.Body()],
+    password: typing.Annotated[str, fastapi.Body()],
+    mfa_code: typing.Annotated[str | None, fastapi.Body()] = None,
 ) -> auth_models.TokenResponse:
     """Login with email and password (Phase 5: with optional MFA).
 
@@ -107,7 +109,8 @@ async def login(
     provide a valid TOTP code or backup code via the mfa_code parameter.
 
     Args:
-        credentials: Email and password
+        email: User email address
+        password: User password
         mfa_code: Optional MFA code (6-digit TOTP or backup code)
 
     Returns:
@@ -119,12 +122,12 @@ async def login(
 
     """
     # Fetch user from database
-    user = await neo4j.fetch_node(models.User, {'email': credentials.email})
+    user = await neo4j.fetch_node(models.User, {'email': email})
 
     if not user or not user.is_active:
         LOGGER.warning(
             'Login failed for email %s: user not found or inactive',
-            credentials.email,
+            email,
         )
         raise fastapi.HTTPException(
             status_code=401,
@@ -135,7 +138,7 @@ async def login(
     if not user.password_hash:
         LOGGER.warning(
             'Login failed for email %s: password authentication not enabled',
-            credentials.email,
+            email,
         )
         raise fastapi.HTTPException(
             status_code=401,
@@ -143,10 +146,8 @@ async def login(
         )
 
     # Verify password
-    if not core.verify_password(credentials.password, user.password_hash):
-        LOGGER.warning(
-            'Login failed for email %s: invalid password', credentials.email
-        )
+    if not core.verify_password(password, user.password_hash):
+        LOGGER.warning('Login failed for email %s: invalid password', email)
         raise fastapi.HTTPException(
             status_code=401,
             detail='Invalid credentials',
@@ -154,7 +155,7 @@ async def login(
 
     # Check if password needs rehashing
     if core.password_needs_rehash(user.password_hash):
-        user.password_hash = core.hash_password(credentials.password)
+        user.password_hash = core.hash_password(password)
         await neo4j.upsert(user, {'username': user.username})
         LOGGER.info('Rehashed password for user %s', user.username)
 

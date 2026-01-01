@@ -134,10 +134,17 @@ class LoginEndpointTestCase(unittest.TestCase):
 
     def test_login_success(self) -> None:
         """Test successful login."""
+        # Mock neo4j.run for MFA query (returns empty result = no MFA)
+        mock_result = mock.AsyncMock()
+        mock_result.data = mock.AsyncMock(return_value=[])
+        mock_result.__aenter__ = mock.AsyncMock(return_value=mock_result)
+        mock_result.__aexit__ = mock.AsyncMock(return_value=None)
+
         with (
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
             mock.patch('imbi.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi.neo4j.run', return_value=mock_result),
         ):
             mock_fetch.return_value = self.test_user
 
