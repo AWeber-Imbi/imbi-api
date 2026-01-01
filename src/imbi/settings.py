@@ -196,7 +196,9 @@ class Email(pydantic_settings.BaseSettings):
                 mailpit_port = os.getenv('MAILPIT_SMTP_PORT')
                 if mailpit_port:
                     self.smtp_port = int(mailpit_port)
-                    self.smtp_use_tls = False
+                    # Only override TLS if not explicitly set
+                    if not os.getenv('IMBI_EMAIL_SMTP_USE_TLS'):
+                        self.smtp_use_tls = False
         return self
 
 
