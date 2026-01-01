@@ -464,7 +464,7 @@ gh pr create --base v2 --title "Add new feature" --body "..."
 
 🚧 **In Progress**:
 - Expanding test coverage to 90%+ (currently ~30%)
-- Additional API endpoints (projects, namespaces, project types, environments)
+- Additional API endpoints (projects, organizations, teams, project types, environments)
 - Webhook service for GitHub/PagerDuty integration
 - Conversational AI features
 - MCP server integration
