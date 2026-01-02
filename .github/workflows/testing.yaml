@@ -38,8 +38,6 @@ jobs:
 
       - name: Test with python ${{ matrix.python-version }}
         run: uv run pytest
-        env:
-          NEO4J_URL: bolt://neo4j:neo4j@127.0.0.1:7687
 
       - name: Upload Coverage
         uses: codecov/codecov-action@v5
