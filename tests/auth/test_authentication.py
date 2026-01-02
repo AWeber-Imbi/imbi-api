@@ -9,6 +9,7 @@ from fastapi import testclient
 
 from imbi import app, models, settings
 from imbi.auth import core
+from imbi.middleware import rate_limit
 
 
 class PasswordHashingTestCase(unittest.TestCase):
@@ -121,6 +122,9 @@ class LoginEndpointTestCase(unittest.TestCase):
         and whose created_at is the current time.
         """
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
         self.test_user = models.User(
             username='testuser',
             email='test@example.com',
@@ -258,6 +262,9 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         flag, and creation timestamp.
         """
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!'
         )
@@ -404,6 +411,9 @@ class LogoutEndpointTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!'
         )

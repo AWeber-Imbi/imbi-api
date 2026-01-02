@@ -1,6 +1,7 @@
 """Data models for email sending and audit logging."""
 
 import datetime
+import hashlib
 import secrets
 import typing
 
@@ -21,7 +22,15 @@ class EmailMessage(pydantic.BaseModel):
 
 
 class EmailAudit(pydantic.BaseModel):
-    """Audit log entry for sent emails (stored in ClickHouse)."""
+    """Audit log entry for sent emails (stored in ClickHouse).
+
+    For GDPR compliance, the model computes privacy-preserving fields:
+    - to_email_hash: SHA256 hash of email for privacy
+    - to_email_domain: Domain only for analytics
+
+    The to_email field is kept internally but excluded from serialization
+    to ClickHouse.
+    """
 
     model_config = pydantic.ConfigDict(extra='ignore')
 
@@ -36,6 +45,32 @@ class EmailAudit(pydantic.BaseModel):
     user_id: str | None = None
     related_entity_type: str | None = None
     related_entity_id: str | None = None
+
+    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @property
+    def to_email_hash(self) -> str:
+        """Compute SHA256 hash of email for privacy-preserving storage."""
+        return hashlib.sha256(
+            str(self.to_email).lower().encode('utf-8')
+        ).hexdigest()
+
+    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @property
+    def to_email_domain(self) -> str:
+        """Extract domain from email for analytics."""
+        return str(self.to_email).split('@')[1]
+
+    @pydantic.model_serializer(mode='wrap', when_used='always')
+    def _serialize_without_email(
+        self,
+        serializer: pydantic.SerializerFunctionWrapHandler,
+        info: pydantic.SerializationInfo,
+    ) -> dict[str, typing.Any]:
+        """Exclude to_email from serialization to ClickHouse."""
+        data: dict[str, typing.Any] = serializer(self)
+        # Remove PII field before storage
+        data.pop('to_email', None)
+        return data
 
 
 class PasswordResetToken(pydantic.BaseModel):

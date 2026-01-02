@@ -19,6 +19,7 @@ import qrcode
 
 from imbi import models, neo4j, settings
 from imbi.auth import core, permissions
+from imbi.auth.encryption import TokenEncryption
 
 LOGGER = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ async def setup_mfa(
     backup_codes = [secrets.token_hex(4) for _ in range(10)]
     hashed_backup_codes = [core.hash_password(code) for code in backup_codes]
 
-    # Store TOTP secret in Neo4j (not enabled yet)
+    # Store TOTP secret in Neo4j (encrypted, not enabled yet)
     # First, delete any existing TOTP secret
     delete_query = """
     MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
@@ -155,15 +156,18 @@ async def setup_mfa(
     async with neo4j.run(delete_query, username=auth.user.username) as result:
         await result.consume()
 
-    # Create new TOTP secret
+    # Encrypt TOTP secret before storage
+    encryptor = TokenEncryption.get_instance()
     totp_secret = models.TOTPSecret(
-        secret=secret,
+        secret='',  # Will be set via encryption helper
         enabled=False,  # Not enabled until verified
         backup_codes=hashed_backup_codes,
         created_at=datetime.datetime.now(datetime.UTC),
         last_used=None,
         user=auth.user,
     )
+    totp_secret.set_encrypted_secret(secret, encryptor)
+
     await neo4j.create_node(totp_secret)
     # Relationship created automatically by create_node via model annotation
 
@@ -214,28 +218,74 @@ async def verify_and_enable_mfa(
         )
 
     totp_data = records[0]['t']
-    secret = totp_data['secret']
+    encrypted_secret = totp_data['secret']
 
-    # Verify TOTP code
+    # Decrypt TOTP secret
+    encryptor = TokenEncryption.get_instance()
+    try:
+        secret = encryptor.decrypt(encrypted_secret)
+        if secret is None:
+            raise ValueError('Decryption returned None')
+    except (ValueError, TypeError) as err:
+        LOGGER.error('Failed to decrypt TOTP secret: %s', err)
+        raise fastapi.HTTPException(
+            status_code=500, detail='Failed to decrypt MFA secret'
+        ) from err
+
+    # Verify TOTP code or backup code
     totp = pyotp.TOTP(
         secret,
         interval=auth_settings.mfa_totp_period,
         digits=auth_settings.mfa_totp_digits,
     )
 
-    # Allow 1 time step before/after for clock skew
-    if not totp.verify(verify_request.code, valid_window=1):
+    is_valid = False
+    used_backup_code = False
+
+    # First try TOTP verification (allow 1 time step before/after for skew)
+    if totp.verify(verify_request.code, valid_window=1):
+        is_valid = True
+    else:
+        # Try backup codes
+        backup_codes = totp_data.get('backup_codes', [])
+        for backup_hash in backup_codes:
+            if core.verify_password(verify_request.code, backup_hash):
+                is_valid = True
+                used_backup_code = True
+                # Remove used backup code
+                backup_codes.remove(backup_hash)
+                break
+
+    if not is_valid:
         raise fastapi.HTTPException(status_code=401, detail='Invalid MFA code')
 
-    # Enable MFA
-    update_query = """
-    MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
-    SET t.enabled = true, t.last_used = datetime()
-    """
-    async with neo4j.run(update_query, username=auth.user.username) as result:
-        await result.consume()
-
-    LOGGER.info('MFA enabled for user %s', auth.user.username)
+    # Enable MFA and update backup codes if one was used
+    if used_backup_code:
+        update_query = """
+        MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+        SET t.enabled = true,
+            t.last_used = datetime(),
+            t.backup_codes = $backup_codes
+        """
+        async with neo4j.run(
+            update_query,
+            username=auth.user.username,
+            backup_codes=backup_codes,
+        ) as result:
+            await result.consume()
+        LOGGER.info(
+            'MFA enabled for user %s (used backup code)', auth.user.username
+        )
+    else:
+        update_query = """
+        MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+        SET t.enabled = true, t.last_used = datetime()
+        """
+        async with neo4j.run(
+            update_query, username=auth.user.username
+        ) as result:
+            await result.consume()
+        LOGGER.info('MFA enabled for user %s', auth.user.username)
 
 
 @mfa_router.delete('/disable', status_code=204)
@@ -243,30 +293,101 @@ async def disable_mfa(
     auth: typing.Annotated[
         permissions.AuthContext, fastapi.Depends(permissions.get_current_user)
     ],
-    current_password: str = fastapi.Body(..., embed=True),
+    current_password: str | None = fastapi.Body(default=None, embed=True),
+    mfa_code: str | None = fastapi.Body(default=None, embed=True),
 ) -> None:
-    """Disable MFA for the authenticated user (requires password).
+    """Disable MFA for the authenticated user.
 
-    Disabling MFA requires the user's current password for security.
+    Disabling MFA requires identity verification:
+    - For password-based users: provide current_password
+    - For OAuth-only users: provide mfa_code (TOTP or backup code)
+
     This permanently deletes the TOTP secret and backup codes.
 
     Args:
         auth: Current authenticated user context
-        current_password: User's current password (for verification)
+        current_password: User's current password (for password-based users)
+        mfa_code: MFA code (for OAuth-only users without password)
 
     Raises:
-        HTTPException: 401 if password is incorrect
+        HTTPException: 401 if verification fails or neither credential provided
 
     """
-    # Verify current password
-    if not auth.user.password_hash:
-        raise fastapi.HTTPException(
-            status_code=401,
-            detail='Password authentication not available for this account',
+    auth_settings = settings.get_auth_settings()
+
+    # Verify identity based on account type
+    if auth.user.password_hash:
+        # Password-based user - require password
+        if not current_password:
+            raise fastapi.HTTPException(
+                status_code=401,
+                detail='Password required to disable MFA',
+            )
+        if not core.verify_password(current_password, auth.user.password_hash):
+            raise fastapi.HTTPException(
+                status_code=401, detail='Invalid password'
+            )
+    else:
+        # OAuth-only user - require MFA code as proof of identity
+        if not mfa_code:
+            raise fastapi.HTTPException(
+                status_code=401,
+                detail='MFA code required to disable MFA (OAuth-only account)',
+            )
+
+        # Fetch and verify MFA code
+        totp_query = """
+        MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+        RETURN t
+        """
+        async with neo4j.run(
+            totp_query, username=auth.user.username
+        ) as result:
+            totp_records = await result.data()
+
+        if not totp_records:
+            raise fastapi.HTTPException(
+                status_code=404, detail='MFA not enabled'
+            )
+
+        totp_data = totp_records[0]['t']
+
+        # Decrypt TOTP secret
+        encryptor = TokenEncryption.get_instance()
+        try:
+            secret = encryptor.decrypt(totp_data['secret'])
+            if secret is None:
+                raise ValueError('Decryption returned None')
+        except (ValueError, TypeError) as err:
+            LOGGER.error('Failed to decrypt TOTP secret: %s', err)
+            raise fastapi.HTTPException(
+                status_code=500, detail='Failed to decrypt MFA secret'
+            ) from err
+
+        # Verify MFA code
+        totp = pyotp.TOTP(
+            secret,
+            interval=auth_settings.mfa_totp_period,
+            digits=auth_settings.mfa_totp_digits,
         )
 
-    if not core.verify_password(current_password, auth.user.password_hash):
-        raise fastapi.HTTPException(status_code=401, detail='Invalid password')
+        is_valid = False
+
+        # Try TOTP first
+        if totp.verify(mfa_code, valid_window=1):
+            is_valid = True
+        else:
+            # Try backup codes
+            backup_codes = totp_data.get('backup_codes', [])
+            for backup_hash in backup_codes:
+                if core.verify_password(mfa_code, backup_hash):
+                    is_valid = True
+                    break
+
+        if not is_valid:
+            raise fastapi.HTTPException(
+                status_code=401, detail='Invalid MFA code'
+            )
 
     # Delete TOTP secret
     query = """

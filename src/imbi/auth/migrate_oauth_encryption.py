@@ -55,15 +55,24 @@ async def migrate_oauth_tokens() -> dict[str, int]:
 
             Note: Corrupted encrypted tokens (decrypt returns None) are treated
             as plaintext and will be re-encrypted. This is safe as the original
-            corrupted value is unusable anyway.
+            corrupted value is unusable anyway. The old token will be lost,
+            but it was already invalid.
             """
             if not token:
                 return False
             try:
                 result = encryptor.decrypt(token)
+                if result is None:
+                    # Decryption failed - could be corrupted encrypted data
+                    # or plaintext. Either way, treat as needing migration.
+                    LOGGER.warning(
+                        'Token decryption returned None - treating as '
+                        'plaintext or corrupted (will be re-encrypted)'
+                    )
                 return result is not None
-            except (ValueError, TypeError):
-                # Token is not properly encrypted
+            except (ValueError, TypeError) as err:
+                # Token is not properly encrypted (likely plaintext)
+                LOGGER.debug('Token is not encrypted: %s', err)
                 return False
 
         for record in records:

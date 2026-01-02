@@ -39,18 +39,18 @@ INDEXES: list[str] = [
     'CREATE INDEX oauth_identity_email IF NOT EXISTS '
     'FOR (n:OAuthIdentity) ON (n.email);',
     # Phase 5: TOTP Secrets
-    'CREATE INDEX totp_secret_user IF NOT EXISTS '
-    'FOR (n:TOTPSecret) ON (n.user);',
+    # Note: 'user' is a relationship (MFA_FOR), not a property
+    # Queries should traverse the relationship instead of using an index
     # Phase 5: Sessions
     'CREATE CONSTRAINT session_id_unique IF NOT EXISTS '
     'FOR (n:Session) REQUIRE n.session_id IS UNIQUE;',
-    'CREATE INDEX session_user IF NOT EXISTS FOR (n:Session) ON (n.user);',
+    # Note: 'user' is a relationship (SESSION_FOR), not a property
     'CREATE INDEX session_expires IF NOT EXISTS '
     'FOR (n:Session) ON (n.expires_at);',
     # Phase 5: API Keys
     'CREATE CONSTRAINT api_key_id_unique IF NOT EXISTS '
     'FOR (n:APIKey) REQUIRE n.key_id IS UNIQUE;',
-    'CREATE INDEX api_key_user IF NOT EXISTS FOR (n:APIKey) ON (n.user);',
+    # Note: 'user' is a relationship (OWNED_BY), not a property
     'CREATE INDEX api_key_revoked IF NOT EXISTS '
     'FOR (n:APIKey) ON (n.revoked);',
 ]

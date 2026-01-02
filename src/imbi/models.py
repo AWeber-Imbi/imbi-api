@@ -306,11 +306,16 @@ class TokenMetadata(pydantic.BaseModel):
 
 
 class TOTPSecret(pydantic.BaseModel):
-    """TOTP secret for MFA/2FA (Phase 5)."""
+    """TOTP secret for MFA/2FA (Phase 5).
+
+    The secret field is encrypted at rest using Fernet symmetric encryption
+    for security. Use set_encrypted_secret() and get_decrypted_secret()
+    to handle encryption/decryption.
+    """
 
     model_config = pydantic.ConfigDict(extra='ignore')
 
-    secret: str  # Base32-encoded TOTP secret
+    secret: str  # Encrypted Base32-encoded TOTP secret
     enabled: bool = False
     backup_codes: list[str] = []  # Hashed backup codes (Argon2)
     created_at: datetime.datetime
@@ -320,6 +325,41 @@ class TOTPSecret(pydantic.BaseModel):
         User,
         cypherantic.Relationship(rel_type='MFA_FOR', direction='OUTGOING'),
     ]
+
+    def set_encrypted_secret(
+        self,
+        plaintext_secret: str,
+        encryptor: typing.Any,  # TokenEncryption from imbi.auth.encryption
+    ) -> None:
+        """Encrypt and set the TOTP secret (Phase 5).
+
+        Args:
+            plaintext_secret: Base32-encoded TOTP secret in plaintext
+            encryptor: TokenEncryption instance for encrypting the secret
+
+        """
+        self.secret = encryptor.encrypt(plaintext_secret) or ''
+
+    def get_decrypted_secret(
+        self,
+        encryptor: typing.Any,  # TokenEncryption from imbi.auth.encryption
+    ) -> str:
+        """Get decrypted TOTP secret (Phase 5).
+
+        Args:
+            encryptor: TokenEncryption instance for decrypting the secret
+
+        Returns:
+            Base32-encoded TOTP secret in plaintext
+
+        Raises:
+            ValueError: If decryption fails or returns None
+
+        """
+        decrypted = encryptor.decrypt(self.secret)
+        if decrypted is None:
+            raise ValueError('Failed to decrypt TOTP secret')
+        return str(decrypted)
 
 
 class Session(pydantic.BaseModel):

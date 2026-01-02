@@ -181,8 +181,21 @@ async def login(
                 )
 
             auth_settings = settings.get_auth_settings()
+
+            # Decrypt TOTP secret
+            encryptor = TokenEncryption.get_instance()
+            try:
+                secret = encryptor.decrypt(totp_data['secret'])
+                if secret is None:
+                    raise ValueError('Decryption returned None')
+            except (ValueError, TypeError) as err:
+                LOGGER.error('Failed to decrypt TOTP secret: %s', err)
+                raise fastapi.HTTPException(
+                    status_code=500, detail='Failed to decrypt MFA secret'
+                ) from err
+
             totp = pyotp.TOTP(
-                totp_data['secret'],
+                secret,
                 interval=auth_settings.mfa_totp_period,
                 digits=auth_settings.mfa_totp_digits,
             )

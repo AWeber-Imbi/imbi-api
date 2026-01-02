@@ -5,6 +5,7 @@ from fastapi import testclient
 
 from imbi import app, settings
 from imbi.auth import models as auth_models
+from imbi.middleware import rate_limit
 
 
 class AuthProvidersEndpointTestCase(unittest.TestCase):
@@ -297,6 +298,8 @@ class LoginPasswordRehashTestCase(unittest.TestCase):
         """Set up test client."""
         settings._auth_settings = None
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
 
     def tearDown(self) -> None:
         """Reset settings singleton after tests."""
@@ -378,12 +381,25 @@ class LoginMFATestCase(unittest.TestCase):
         settings._auth_settings = None
         self.client = testclient.TestClient(app.create_app())
         # Reset rate limiter to avoid 429 errors across tests
-        from imbi.middleware import rate_limit
-
         rate_limit.limiter.reset()
+
+        # Mock encryption for MFA tests (plaintext secrets in tests)
+        from imbi.auth.encryption import TokenEncryption
+
+        mock_encryptor = mock.Mock()
+        # decrypt() returns the input as-is (plaintext)
+        mock_encryptor.decrypt = mock.Mock(side_effect=lambda x: x)
+        # encrypt() returns the input as-is (plaintext)
+        mock_encryptor.encrypt = mock.Mock(side_effect=lambda x: x)
+
+        self.encryption_patcher = mock.patch.object(
+            TokenEncryption, 'get_instance', return_value=mock_encryptor
+        )
+        self.encryption_patcher.start()
 
     def tearDown(self) -> None:
         """Reset settings singleton after tests."""
+        self.encryption_patcher.stop()
         settings._auth_settings = None
 
     def test_login_mfa_required_no_code(self) -> None:

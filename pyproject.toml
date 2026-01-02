@@ -44,7 +44,7 @@ dependencies = [
   "pyotp>=2.9.0",
   "python-slugify",
   "qrcode>=8.0",
-  "slowapi>=0.1.9",
+  "slowapi==0.1.9",  # Pin: alpha quality, API may change
   "typer",
   "uvicorn",
   "yarl",

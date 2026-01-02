@@ -923,7 +923,7 @@ requires-dist = [
     { name = "python-slugify" },
     { name = "qrcode", specifier = ">=8.0" },
     { name = "sentry-sdk", marker = "extra == 'sentry'" },
-    { name = "slowapi", specifier = ">=0.1.9" },
+    { name = "slowapi", specifier = "==0.1.9" },
     { name = "typer" },
     { name = "uvicorn" },
     { name = "yarl" },

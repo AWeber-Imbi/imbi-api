@@ -37,6 +37,24 @@ class MFAEndpointsTestCase(unittest.TestCase):
             mfa_totp_digits=6,
         )
 
+        # Mock encryption for MFA tests (plaintext secrets in tests)
+        from imbi.auth.encryption import TokenEncryption
+
+        mock_encryptor = mock.Mock()
+        # decrypt() returns the input as-is (plaintext)
+        mock_encryptor.decrypt = mock.Mock(side_effect=lambda x: x)
+        # encrypt() returns the input as-is (plaintext)
+        mock_encryptor.encrypt = mock.Mock(side_effect=lambda x: x)
+
+        self.encryption_patcher = mock.patch.object(
+            TokenEncryption, 'get_instance', return_value=mock_encryptor
+        )
+        self.encryption_patcher.start()
+
+    def tearDown(self) -> None:
+        """Clean up test fixtures."""
+        self.encryption_patcher.stop()
+
     def _create_mock_run(
         self, totp_data: dict | None = None, include_consume: bool = False
     ):
@@ -431,5 +449,5 @@ class MFAEndpointsTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()['detail'],
-                'Password authentication not available for this account',
+                'MFA code required to disable MFA (OAuth-only account)',
             )
