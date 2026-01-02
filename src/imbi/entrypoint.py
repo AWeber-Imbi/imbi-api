@@ -9,7 +9,7 @@ from importlib import resources
 import typer
 import uvicorn
 
-from imbi import models, neo4j, settings, version
+from imbi import clickhouse, models, neo4j, settings, version
 from imbi.auth import core, seed
 
 main = typer.Typer()
@@ -123,6 +123,14 @@ async def _setup_async() -> None:
         typer.echo(f'✗ Failed to connect to Neo4j: {e}', err=True)
         raise typer.Exit(code=1) from e
 
+    # Initialize ClickHouse connection
+    try:
+        await clickhouse.initialize()
+    except Exception as e:
+        typer.echo(f'✗ Failed to connect to ClickHouse: {e}', err=True)
+        await neo4j.aclose()
+        raise typer.Exit(code=1) from e
+
     try:
         # Check if system is already set up
         is_seeded = await seed.check_if_seeded()
@@ -182,12 +190,22 @@ async def _setup_async() -> None:
             typer.echo(f'✗ Failed to create admin user: {e}', err=True)
             raise typer.Exit(code=1) from e
 
+        # Step 3: Set up ClickHouse schema
+        typer.echo('\nStep 3: Setting up ClickHouse schema...')
+        try:
+            await clickhouse.setup_schema()
+            typer.echo('  ✓ ClickHouse schema created successfully')
+        except Exception as e:
+            typer.echo(f'✗ Failed to set up ClickHouse schema: {e}', err=True)
+            raise typer.Exit(code=1) from e
+
         # Success message
         typer.echo('\n✓ Setup complete!')
         typer.echo(f'\nYou can now log in with: {email}')
 
     finally:
         await neo4j.aclose()
+        await clickhouse.aclose()
 
 
 async def _check_admin_exists() -> bool:
