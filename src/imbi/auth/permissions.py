@@ -129,7 +129,7 @@ async def authenticate_jwt(
         records = await result.data()
         if not records:
             raise fastapi.HTTPException(
-                status_code=401, detail='User not found or inactive'
+                status_code=401, detail='User not found'
             )
         user_data = neo4j.convert_neo4j_types(records[0]['u'])
         user = models.User(**user_data)
