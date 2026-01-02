@@ -20,7 +20,6 @@ class APIKeysEndpointsTestCase(unittest.TestCase):
 
         # Create test user
         self.test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             is_active=True,

@@ -21,7 +21,6 @@ class GroupEndpointsTestCase(unittest.TestCase):
 
         # Create an admin user for authentication
         self.admin_user = models.User(
-            username='admin',
             email='admin@example.com',
             display_name='Admin User',
             password_hash='$argon2id$hashed',

@@ -59,7 +59,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
             access_token_expire_seconds=3600,
         )
         self.test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
@@ -115,7 +114,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
                 token, self.auth_settings
             )
 
-        self.assertEqual(auth_context.user.email, 'testuser')
+        self.assertEqual(auth_context.user.email, 'test@example.com')
         self.assertEqual(auth_context.auth_method, 'jwt')
         self.assertEqual(auth_context.session_id, jti)
         self.assertIn('blueprint:read', auth_context.permissions)
@@ -179,7 +178,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         mock_token_result.__aexit__.return_value = None
 
         inactive_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
@@ -334,7 +332,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         token, _jti = core.create_access_token('testuser', self.auth_settings)
 
         test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
@@ -417,7 +414,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         token, _jti = core.create_access_token('testuser', self.auth_settings)
 
         test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
@@ -538,7 +534,6 @@ class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
         flag, and a created_at timestamp set to the current UTC time.
         """
         self.admin_user = models.User(
-            username='admin',
             email='admin@example.com',
             display_name='Admin User',
             password_hash='hash',
@@ -549,7 +544,6 @@ class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
         self.regular_user = models.User(
-            username='regular',
             email='regular@example.com',
             display_name='Regular User',
             password_hash='hash',

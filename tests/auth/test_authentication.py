@@ -126,7 +126,6 @@ class LoginEndpointTestCase(unittest.TestCase):
         rate_limit.limiter.reset()
 
         self.test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             password_hash=core.hash_password('TestPassword123!'),
@@ -203,7 +202,6 @@ class LoginEndpointTestCase(unittest.TestCase):
     def test_login_inactive_user(self) -> None:
         """Test login with inactive user."""
         inactive_user = models.User(
-            username='inactive',
             email='inactive@example.com',
             display_name='Inactive User',
             password_hash=core.hash_password('password'),
@@ -226,7 +224,6 @@ class LoginEndpointTestCase(unittest.TestCase):
     def test_login_no_password_hash(self) -> None:
         """Test login for user without password authentication."""
         oauth_user = models.User(
-            username='oauthuser',
             email='oauth@example.com',
             display_name='OAuth User',
             password_hash=None,  # OAuth-only user
@@ -269,7 +266,6 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             jwt_secret='test-secret-key-32-characters!'
         )
         self.test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             is_active=True,
@@ -418,7 +414,6 @@ class LogoutEndpointTestCase(unittest.TestCase):
             jwt_secret='test-secret-key-32-characters!'
         )
         self.test_user = models.User(
-            username='testuser',
             email='test@example.com',
             display_name='Test User',
             is_active=True,

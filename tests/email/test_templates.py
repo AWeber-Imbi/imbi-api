@@ -38,7 +38,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         self.assertEqual(message.template_name, 'welcome')
         self.assertIn('Welcome to Imbi, Test User!', message.subject)
         self.assertIn('Test User', message.html_body)
-        self.assertIn('testuser', message.html_body)
         self.assertIn('https://imbi.example.com/login', message.html_body)
         self.assertIn('<!DOCTYPE html>', message.html_body)
 
@@ -53,7 +52,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         message = self.manager.render_email('welcome', context)
 
         self.assertIn('Test User', message.text_body)
-        self.assertIn('testuser', message.text_body)
         self.assertIn('https://imbi.example.com/login', message.text_body)
         self.assertIn('WELCOME TO IMBI', message.text_body)
         self.assertNotIn('<', message.text_body)  # No HTML tags
@@ -160,7 +158,7 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test that Jinja2 autoescape is enabled for HTML."""
         context = {
             'to_email': 'user@example.com',
-            'display_name': 'Test User',
+            'display_name': 'Test User<script>alert("xss")</script>',
             'login_url': 'https://imbi.example.com/login',
         }
 
