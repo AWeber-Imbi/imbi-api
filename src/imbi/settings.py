@@ -115,6 +115,23 @@ class Auth(pydantic_settings.BaseSettings):
     # API Key Configuration
     api_key_max_lifetime_days: int = 365
 
+    # Encryption Configuration (Phase 5)
+    encryption_key: str | None = pydantic.Field(
+        default=None,
+        description='Base64-encoded Fernet key for token encryption',
+    )
+
+    # MFA Configuration (Phase 5)
+    mfa_issuer_name: str = 'Imbi'
+    mfa_totp_period: int = 30  # seconds
+    mfa_totp_digits: int = 6
+
+    # Rate Limiting Configuration (Phase 5)
+    rate_limit_login: str = '5/minute'
+    rate_limit_token_refresh: str = '10/minute'
+    rate_limit_oauth_init: str = '3/minute'
+    rate_limit_api_key: str = '100/minute'
+
     # OAuth Provider Configurations
     oauth_google_enabled: bool = False
     oauth_google_client_id: str | None = None
@@ -142,6 +159,27 @@ class Auth(pydantic_settings.BaseSettings):
 
     # Local password authentication
     local_auth_enabled: bool = True
+
+    @pydantic.model_validator(mode='after')
+    def generate_encryption_key_if_missing(self) -> 'Auth':
+        """Generate encryption key if not provided (Phase 5).
+
+        Auto-generates a Fernet encryption key if IMBI_AUTH_ENCRYPTION_KEY
+        is not set in the environment. Logs a warning since this key should
+        be stable across restarts in production.
+        """
+        if self.encryption_key is None:
+            from cryptography import fernet
+
+            self.encryption_key = fernet.Fernet.generate_key().decode('ascii')
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                'Encryption key auto-generated. Set IMBI_AUTH_ENCRYPTION_KEY '
+                'in production for stable key across restarts.'
+            )
+        return self
 
 
 class Email(pydantic_settings.BaseSettings):

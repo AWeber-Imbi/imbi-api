@@ -8,6 +8,7 @@ import fastapi
 
 from imbi import clickhouse, email, endpoints, neo4j, version
 from imbi.auth import seed
+from imbi.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -94,6 +95,10 @@ def create_app() -> fastapi.FastAPI:
             'url': 'https://github.com/AWeber-Imbi/imbi-api/blob/main/LICENSE',
         },
     )
+
+    # Phase 5: Setup rate limiting middleware
+    rate_limit.setup_rate_limiting(app)
+
     for router in endpoints.routers:
         app.include_router(router)
     return app

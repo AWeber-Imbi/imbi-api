@@ -9,6 +9,7 @@ from fastapi import testclient
 
 from imbi import app, models, settings
 from imbi.auth import core
+from imbi.middleware import rate_limit
 
 
 class PasswordHashingTestCase(unittest.TestCase):
@@ -121,6 +122,9 @@ class LoginEndpointTestCase(unittest.TestCase):
         and whose created_at is the current time.
         """
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
         self.test_user = models.User(
             username='testuser',
             email='test@example.com',
@@ -134,10 +138,17 @@ class LoginEndpointTestCase(unittest.TestCase):
 
     def test_login_success(self) -> None:
         """Test successful login."""
+        # Mock neo4j.run for MFA query (returns empty result = no MFA)
+        mock_result = mock.AsyncMock()
+        mock_result.data = mock.AsyncMock(return_value=[])
+        mock_result.__aenter__ = mock.AsyncMock(return_value=mock_result)
+        mock_result.__aexit__ = mock.AsyncMock(return_value=None)
+
         with (
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
             mock.patch('imbi.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi.neo4j.run', return_value=mock_result),
         ):
             mock_fetch.return_value = self.test_user
 
@@ -251,6 +262,9 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         flag, and creation timestamp.
         """
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
         self.auth_settings = settings.Auth(
             jwt_secret='test-secret-key-32-characters!'
         )
@@ -267,21 +281,33 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
     def test_token_refresh_success(self) -> None:
         """Test successful token refresh."""
         # Create a valid refresh token
-        refresh_token, _ = core.create_refresh_token(
+        refresh_token, refresh_jti = core.create_refresh_token(
             self.test_user.username, self.auth_settings
+        )
+
+        # Create non-revoked token metadata
+        token_metadata = models.TokenMetadata(
+            jti=refresh_jti,
+            token_type='refresh',
+            issued_at=datetime.datetime.now(datetime.UTC),
+            expires_at=datetime.datetime.now(datetime.UTC)
+            + datetime.timedelta(days=30),
+            revoked=False,
+            user=self.test_user,
         )
 
         with (
             mock.patch('imbi.settings.get_auth_settings') as mock_settings,
             mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
             mock.patch('imbi.neo4j.create_node'),
+            mock.patch('imbi.neo4j.upsert'),
         ):
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
 
             # First call returns token metadata (not revoked)
             # Second call returns user
-            mock_fetch.side_effect = [None, self.test_user]
+            mock_fetch.side_effect = [token_metadata, self.test_user]
 
             response = self.client.post(
                 '/auth/token/refresh',
@@ -292,7 +318,8 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             data = response.json()
             self.assertIn('access_token', data)
             self.assertIn('refresh_token', data)
-            self.assertEqual(data['refresh_token'], refresh_token)
+            # Token rotation: new refresh token should be different
+            self.assertNotEqual(data['refresh_token'], refresh_token)
 
     def test_token_refresh_expired(self) -> None:
         """Test refresh with expired token."""
@@ -384,10 +411,67 @@ class LogoutEndpointTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.client = testclient.TestClient(app.create_app())
+        # Reset rate limiter to avoid 429 errors across tests
+        rate_limit.limiter.reset()
+
+        self.auth_settings = settings.Auth(
+            jwt_secret='test-secret-key-32-characters!'
+        )
+        self.test_user = models.User(
+            username='testuser',
+            email='test@example.com',
+            display_name='Test User',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
 
     def test_logout(self) -> None:
-        """Test logout endpoint (placeholder in Phase 1)."""
-        response = self.client.post('/auth/logout')
+        """Test logout endpoint revokes tokens."""
+        # Create access token
+        access_token, _ = core.create_access_token(
+            self.test_user.username, self.auth_settings
+        )
 
-        # In Phase 1, this is a no-op that returns 204
-        self.assertEqual(response.status_code, 204)
+        # Mock Neo4j run calls - different results for different queries
+        def mock_run_side_effect(query: str, **params):
+            mock_result = mock.AsyncMock()
+            mock_result.consume = mock.AsyncMock()
+            mock_result.__aenter__ = mock.AsyncMock(return_value=mock_result)
+            mock_result.__aexit__ = mock.AsyncMock(return_value=None)
+
+            # Check if token is revoked (authenticate_jwt)
+            if 'TokenMetadata' in query and 'revoked' in query:
+                mock_result.data = mock.AsyncMock(
+                    return_value=[{'revoked': False}]
+                )
+            # Load user (authenticate_jwt)
+            elif 'User' in query and 'username' in query:
+                user_dict = self.test_user.model_dump(mode='json')
+                mock_result.data = mock.AsyncMock(
+                    return_value=[{'u': user_dict}]
+                )
+            # Load permissions (load_user_permissions)
+            elif 'Permission' in query or 'GRANTS' in query:
+                mock_result.data = mock.AsyncMock(
+                    return_value=[{'permissions': []}]
+                )
+            # Logout operations (revoke token, delete sessions)
+            else:
+                mock_result.data = mock.AsyncMock(return_value=[])
+
+            return mock_result
+
+        with (
+            mock.patch('imbi.settings.get_auth_settings') as mock_settings,
+            mock.patch('imbi.neo4j.run', side_effect=mock_run_side_effect),
+        ):
+            mock_settings.return_value = self.auth_settings
+
+            response = self.client.post(
+                '/auth/logout',
+                headers={'Authorization': f'Bearer {access_token}'},
+            )
+
+            self.assertEqual(response.status_code, 204)

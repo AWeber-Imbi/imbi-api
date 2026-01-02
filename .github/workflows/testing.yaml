@@ -33,6 +33,8 @@ jobs:
 
       - name: Bootstrap environment
         run: ./bootstrap
+        env:
+          TEST_HOST: 127.0.0.1
 
       - name: Test with python ${{ matrix.python-version }}
         run: uv run pytest

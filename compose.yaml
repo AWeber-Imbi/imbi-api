@@ -19,16 +19,6 @@ services:
       - "4317"  # OTLP/HTTP
       - "16686" # UI port
 
-  neo4j:
-    image: neo4j:latest
-    environment:
-      NEO4J_AUTH: none
-    ports:
-      - "7474"
-      - "7687"
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO-  http://localhost:7474" ]
-
   mailpit:
     image: axllent/mailpit:v1.21.5
     ports:
@@ -39,3 +29,13 @@ services:
       - MP_SMTP_AUTH_ALLOW_INSECURE=1
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info" ]
+
+  neo4j:
+    image: neo4j:latest
+    environment:
+      NEO4J_AUTH: none
+    ports:
+      - "7474"
+      - "7687"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO-  http://localhost:7474" ]
