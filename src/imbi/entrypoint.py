@@ -156,7 +156,6 @@ async def _setup_async() -> None:
         typer.echo('\nStep 2: Create initial admin user')
 
         # Prompt for user details
-        username = typer.prompt('  Username', default='admin')
         email = typer.prompt('  Email', default='admin@example.com')
         display_name = typer.prompt('  Display name', default='Administrator')
 
@@ -174,19 +173,18 @@ async def _setup_async() -> None:
         # Create admin user
         try:
             admin_user = await _create_admin_user(
-                username=username,
                 email=email,
                 display_name=display_name,
                 password=password,
             )
-            typer.echo(f'  ✓ Created admin user: {admin_user.username}')
+            typer.echo(f'  ✓ Created admin user: {admin_user.email}')
         except Exception as e:
             typer.echo(f'✗ Failed to create admin user: {e}', err=True)
             raise typer.Exit(code=1) from e
 
         # Success message
         typer.echo('\n✓ Setup complete!')
-        typer.echo(f'\nYou can now log in as: {username}')
+        typer.echo(f'\nYou can now log in with: {email}')
 
     finally:
         await neo4j.aclose()
@@ -208,7 +206,6 @@ async def _check_admin_exists() -> bool:
 
 
 async def _create_admin_user(
-    username: str,
     email: str,
     display_name: str,
     password: str,
@@ -216,7 +213,6 @@ async def _create_admin_user(
     """Create an admin user with the specified credentials.
 
     Args:
-        username: Username for the admin user
         email: Email address for the admin user
         display_name: Display name for the admin user
         password: Plaintext password (will be hashed)
@@ -232,7 +228,6 @@ async def _create_admin_user(
 
     # Create user model
     user = models.User(
-        username=username,
         email=email,
         display_name=display_name,
         password_hash=password_hash,
@@ -244,9 +239,8 @@ async def _create_admin_user(
 
     # Create user in Neo4j
     query = """
-    MERGE (u:User {username: $username})
+    MERGE (u:User {email: $email})
     ON CREATE SET
-        u.email = $email,
         u.display_name = $display_name,
         u.password_hash = $password_hash,
         u.is_active = $is_active,
@@ -254,7 +248,6 @@ async def _create_admin_user(
         u.is_service_account = $is_service_account,
         u.created_at = datetime($created_at)
     ON MATCH SET
-        u.email = $email,
         u.display_name = $display_name,
         u.password_hash = $password_hash,
         u.is_active = $is_active,
@@ -265,7 +258,6 @@ async def _create_admin_user(
 
     async with neo4j.run(
         query=query,
-        username=user.username,
         email=user.email,
         display_name=user.display_name,
         password_hash=user.password_hash,
@@ -280,12 +272,12 @@ async def _create_admin_user(
 
     # Assign admin role to user
     role_query = """
-    MATCH (u:User {username: $username})
+    MATCH (u:User {email: $email})
     MATCH (r:Role {slug: 'admin'})
     MERGE (u)-[:HAS_ROLE]->(r)
     """
 
-    async with neo4j.run(query=role_query, username=username) as result:
+    async with neo4j.run(query=role_query, email=email) as result:
         await result.consume()
 
     return user
