@@ -156,11 +156,11 @@ class User(pydantic.BaseModel):
     avatar_url: pydantic.HttpUrl | None = None
 
     groups: typing.Annotated[
-        list['Group'],
+        list['GroupEdge'],
         cypherantic.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
     ] = []
     roles: typing.Annotated[
-        list['Role'],
+        list['RoleEdge'],
         cypherantic.Relationship(rel_type='HAS_ROLE', direction='OUTGOING'),
     ] = []
 
@@ -264,6 +264,26 @@ class Role(Node):
     ] = None
 
 
+class EmptyRelationship(pydantic.BaseModel):
+    """Empty relationship properties for simple relationships without data."""
+
+    pass
+
+
+class GroupEdge(typing.NamedTuple):
+    """Edge type for User->Group MEMBER_OF relationships."""
+
+    node: Group
+    properties: EmptyRelationship
+
+
+class RoleEdge(typing.NamedTuple):
+    """Edge type for User->Role HAS_ROLE relationships."""
+
+    node: Role
+    properties: EmptyRelationship
+
+
 class Permission(pydantic.BaseModel):
     """Permission for a specific resource action."""
 
@@ -299,9 +319,9 @@ class TokenMetadata(pydantic.BaseModel):
     revoked_at: datetime.datetime | None = None
 
     user: typing.Annotated[
-        User,
+        User | None,
         cypherantic.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
-    ]
+    ] = None
 
 
 class TOTPSecret(pydantic.BaseModel):
