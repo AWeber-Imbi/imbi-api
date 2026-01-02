@@ -270,7 +270,7 @@ class Role(Node):
 class EmptyRelationship(pydantic.BaseModel):
     """Empty relationship properties for simple relationships without data."""
 
-    pass
+    ...  # Explicitly empty - no relationship properties needed
 
 
 class GroupEdge(typing.NamedTuple):
