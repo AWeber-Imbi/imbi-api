@@ -156,15 +156,15 @@ async def login(
     # Check if password needs rehashing
     if core.password_needs_rehash(user.password_hash):
         user.password_hash = core.hash_password(password)
-        await neo4j.upsert(user, {'username': user.email})
+        await neo4j.upsert(user, {'email': user.email})
         LOGGER.info('Rehashed password for user %s', user.email)
 
     # Phase 5: Check if MFA is enabled
     totp_query = """
-    MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+    MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     RETURN t
     """
-    async with neo4j.run(totp_query, username=user.email) as result:
+    async with neo4j.run(totp_query, email=user.email) as result:
         totp_records = await result.data()
 
     if totp_records:
@@ -203,12 +203,10 @@ async def login(
             if totp.verify(mfa_code, valid_window=1):
                 # Update last used timestamp
                 update_query = """
-                MATCH (u:User {username: $username})<-[:MFA_FOR]-(t:TOTPSecret)
+                MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
                 SET t.last_used = datetime()
                 """
-                async with neo4j.run(
-                    update_query, username=user.email
-                ) as result:
+                async with neo4j.run(update_query, email=user.email) as result:
                     await result.consume()
 
                 LOGGER.info('MFA verified via TOTP for user %s', user.email)
@@ -222,13 +220,13 @@ async def login(
                         # Remove used backup code
                         backup_codes.pop(i)
                         update_query = """
-                        MATCH (u:User {username: $username})
+                        MATCH (u:User {email: $email})
                               <-[:MFA_FOR]-(t:TOTPSecret)
                         SET t.backup_codes = $backup_codes
                         """
                         async with neo4j.run(
                             update_query,
-                            username=user.email,
+                            email=user.email,
                             backup_codes=backup_codes,
                         ) as result:
                             await result.consume()
@@ -283,7 +281,7 @@ async def login(
 
     # Update last login timestamp
     user.last_login = now
-    await neo4j.upsert(user, {'username': user.email})
+    await neo4j.upsert(user, {'email': user.email})
 
     LOGGER.info('User %s logged in successfully', user.email)
 
@@ -446,19 +444,19 @@ async def logout(
     if revoke_all_sessions:
         # Revoke all user tokens
         query = """
-        MATCH (u:User {username: $username})<-[:ISSUED_TO]-(t:TokenMetadata)
+        MATCH (u:User {email: $email})<-[:ISSUED_TO]-(t:TokenMetadata)
         WHERE t.revoked = false
         SET t.revoked = true, t.revoked_at = datetime()
         """
-        async with neo4j.run(query, username=auth.user.email) as result:
+        async with neo4j.run(query, email=auth.user.email) as result:
             await result.consume()
 
         # Delete all sessions
         query = """
-        MATCH (u:User {username: $username})<-[:SESSION_FOR]-(s:Session)
+        MATCH (u:User {email: $email})<-[:SESSION_FOR]-(s:Session)
         DETACH DELETE s
         """
-        async with neo4j.run(query, username=auth.user.email) as result:
+        async with neo4j.run(query, email=auth.user.email) as result:
             await result.consume()
     else:
         # Revoke only associated refresh token (issued within 5 seconds)
@@ -472,7 +470,7 @@ async def logout(
         if records:
             issued_at = records[0]['issued_at']
             query = """
-            MATCH (u:User {username: $username})
+            MATCH (u:User {email: $email})
                   <-[:ISSUED_TO]-(t:TokenMetadata)
             WHERE t.token_type = 'refresh'
               AND t.revoked = false
@@ -480,7 +478,7 @@ async def logout(
             SET t.revoked = true, t.revoked_at = datetime()
             """
             async with neo4j.run(
-                query, username=auth.user.email, issued_at=issued_at
+                query, email=auth.user.email, issued_at=issued_at
             ) as result:
                 await result.consume()
 
@@ -686,7 +684,7 @@ async def oauth_callback(
 
         # Update user last_login
         user.last_login = now
-        await neo4j.upsert(user, {'username': user.email})
+        await neo4j.upsert(user, {'email': user.email})
 
         # Update OAuth identity last_used
         oauth_identity.last_used = now

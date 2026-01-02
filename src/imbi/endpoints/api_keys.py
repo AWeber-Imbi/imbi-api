@@ -189,10 +189,10 @@ async def list_api_keys(
 
     """
     query = """
-    MATCH (u:User {username: $username})<-[:OWNED_BY]-(k:APIKey)
+    MATCH (u:User {email: $email})<-[:OWNED_BY]-(k:APIKey)
     RETURN k ORDER BY k.created_at DESC
     """
-    async with neo4j.run(query, username=auth.user.email) as result:
+    async with neo4j.run(query, email=auth.user.email) as result:
         records = await result.data()
 
     api_keys = [
