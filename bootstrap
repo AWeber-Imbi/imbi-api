@@ -80,3 +80,9 @@ echo ' done.'
 if test "${CI}" = 'true'; then
 	echo '::endgroup::'
 fi
+
+if test "${CI}" = 'true'; then
+	echo "::group::.env"
+	cat .env
+	echo '::endgroup::'
+fi
