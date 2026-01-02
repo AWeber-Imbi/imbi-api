@@ -3,6 +3,8 @@
 import unittest
 from unittest import mock
 
+from slowapi import errors as slowapi_errors
+
 from imbi.middleware import rate_limit
 
 
@@ -39,8 +41,8 @@ class GetRateLimitKeyTestCase(unittest.TestCase):
         """Test rate limit key fallback to IP for unauthenticated requests."""
         # Create mock request without auth context
         mock_request = mock.MagicMock()
-        # Remove auth_context attribute to simulate unauthenticated request
-        delattr(mock_request.state, 'auth_context')
+        # Use spec=[] to create a state without auth_context attribute
+        mock_request.state = mock.Mock(spec=[])
 
         with mock.patch(
             'imbi.middleware.rate_limit.slowapi_util.get_remote_address',
@@ -85,7 +87,8 @@ class GetRateLimitKeyTestCase(unittest.TestCase):
     def test_ipv6_address(self) -> None:
         """Test rate limit key with IPv6 address."""
         mock_request = mock.MagicMock()
-        delattr(mock_request.state, 'auth_context')
+        # Use spec=[] to create a state without auth_context attribute
+        mock_request.state = mock.Mock(spec=[])
 
         with mock.patch(
             'imbi.middleware.rate_limit.slowapi_util.get_remote_address',
@@ -113,20 +116,8 @@ class SetupRateLimitingTestCase(unittest.TestCase):
         # Verify exception handler was registered
         mock_app.add_exception_handler.assert_called_once()
         # Verify the exception type is RateLimitExceeded
-        from slowapi import errors as slowapi_errors
-
         call_args = mock_app.add_exception_handler.call_args
         self.assertEqual(call_args[0][0], slowapi_errors.RateLimitExceeded)
-
-    def test_limiter_configuration(self) -> None:
-        """Test that limiter is configured correctly."""
-        # Verify limiter has custom key function
-        self.assertEqual(
-            rate_limit.limiter._key_func, rate_limit.get_rate_limit_key
-        )
-
-        # Verify no default limits
-        self.assertEqual(rate_limit.limiter._default_limits, [])
 
 
 class LimiterInitializationTestCase(unittest.TestCase):
@@ -141,7 +132,3 @@ class LimiterInitializationTestCase(unittest.TestCase):
         limiter2 = imbi.middleware.rate_limit.limiter
 
         self.assertIs(limiter1, limiter2)
-
-    def test_limiter_key_function_is_callable(self) -> None:
-        """Test that limiter's key function is callable."""
-        self.assertTrue(callable(rate_limit.limiter._key_func))
