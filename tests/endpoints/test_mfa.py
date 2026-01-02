@@ -104,7 +104,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_get_mfa_status_not_setup(self) -> None:
         """Test MFA status when not setup."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         with (
@@ -128,7 +128,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_get_mfa_status_enabled(self) -> None:
         """Test MFA status when enabled."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         totp_data = {
@@ -160,7 +160,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_get_mfa_status_not_enabled(self) -> None:
         """Test MFA status when setup but not enabled."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         totp_data = {
@@ -192,7 +192,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_setup_mfa_success(self) -> None:
         """Test successful MFA setup."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         # Mock QR code generation
@@ -256,7 +256,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_verify_mfa_valid_code(self) -> None:
         """Test MFA verification with valid code."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         # Generate valid TOTP code
@@ -293,7 +293,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_verify_mfa_invalid_code(self) -> None:
         """Test MFA verification with invalid code."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         totp_data = {
@@ -324,7 +324,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_verify_mfa_not_setup(self) -> None:
         """Test MFA verification when not setup."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         with (
@@ -349,7 +349,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_disable_mfa_success(self) -> None:
         """Test MFA disable with valid password."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         with (
@@ -373,7 +373,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
     def test_disable_mfa_invalid_password(self) -> None:
         """Test MFA disable with invalid password."""
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         with (
@@ -407,7 +407,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
         )
 
         access_token, _ = core.create_access_token(
-            oauth_user.username, self.auth_settings
+            oauth_user.email, self.auth_settings
         )
 
         def mock_run_oauth(query: str, **params):

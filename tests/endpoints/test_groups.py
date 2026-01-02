@@ -154,7 +154,6 @@ class GroupEndpointsTestCase(unittest.TestCase):
                 'g': {'name': 'Engineering', 'slug': 'engineering'},
                 'members': [
                     {
-                        'username': 'user1',
                         'email': 'user1@example.com',
                         'display_name': 'User 1',
                         'is_active': True,
@@ -163,7 +162,6 @@ class GroupEndpointsTestCase(unittest.TestCase):
                         'created_at': datetime.datetime.now(datetime.UTC),
                     },
                     {
-                        'username': 'user2',
                         'email': 'user2@example.com',
                         'display_name': 'User 2',
                         'is_active': True,

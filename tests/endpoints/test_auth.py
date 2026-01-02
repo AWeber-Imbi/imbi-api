@@ -1384,8 +1384,8 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             )
             self.assertIsNotNone(user_created)
             # Username should have suffix due to collision
-            self.assertNotEqual(user_created.username, 'newuser')
-            self.assertTrue(user_created.username.startswith('newuser_'))
+            self.assertNotEqual(user_created.email, 'newuser')
+            self.assertTrue(user_created.email.startswith('newuser_'))
 
 
 class TokenRefreshTestCase(unittest.TestCase):
@@ -1423,7 +1423,7 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         # Create refresh token
         refresh_token, refresh_jti = core.create_refresh_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         # Create token metadata
@@ -1538,7 +1538,7 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         # Create access token (wrong type)
         access_token, _ = core.create_access_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         with mock.patch(
@@ -1574,7 +1574,7 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         # Create refresh token
         refresh_token, refresh_jti = core.create_refresh_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         # Create revoked token metadata
@@ -1626,7 +1626,7 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         # Create refresh token
         refresh_token, refresh_jti = core.create_refresh_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         # Create token metadata
@@ -1696,7 +1696,7 @@ class LogoutTestCase(unittest.TestCase):
 
         # Create access token
         access_token, access_jti = core.create_access_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         # Create mock auth context
@@ -1787,7 +1787,7 @@ class LogoutTestCase(unittest.TestCase):
 
         # Create access token
         access_token, access_jti = core.create_access_token(
-            test_user.username, auth_settings
+            test_user.email, auth_settings
         )
 
         # Create mock auth context

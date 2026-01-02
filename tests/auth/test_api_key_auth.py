@@ -77,7 +77,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
                 self.full_key, self.auth_settings
             )
 
-            self.assertEqual(auth_context.user.username, 'testuser')
+            self.assertEqual(auth_context.user.email, 'testuser')
             self.assertEqual(auth_context.session_id, self.key_id)
             self.assertEqual(auth_context.auth_method, 'api_key')
             self.assertIn('read:projects', auth_context.permissions)
@@ -395,7 +395,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
             # Should succeed - key not expired
-            self.assertEqual(auth_context.user.username, 'testuser')
+            self.assertEqual(auth_context.user.email, 'testuser')
             self.assertEqual(auth_context.session_id, self.key_id)
 
 
@@ -465,6 +465,6 @@ class GetCurrentUserTestCase(unittest.IsolatedAsyncioTestCase):
 
             auth_context = await permissions.get_current_user(credentials)
 
-            self.assertEqual(auth_context.user.username, 'testuser')
+            self.assertEqual(auth_context.user.email, 'testuser')
             self.assertEqual(auth_context.session_id, self.key_id)
             self.assertEqual(auth_context.auth_method, 'api_key')

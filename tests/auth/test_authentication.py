@@ -282,7 +282,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         """Test successful token refresh."""
         # Create a valid refresh token
         refresh_token, refresh_jti = core.create_refresh_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         # Create non-revoked token metadata
@@ -329,7 +329,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             refresh_token_expire_seconds=-1,
         )
         refresh_token, _ = core.create_refresh_token(
-            self.test_user.username, expired_settings
+            self.test_user.email, expired_settings
         )
 
         with mock.patch('imbi.settings.get_auth_settings') as mock_settings:
@@ -357,7 +357,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         """Test refresh with access token instead of refresh token."""
         # Use access token instead of refresh token
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         with mock.patch('imbi.settings.get_auth_settings') as mock_settings:
@@ -375,7 +375,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
     def test_token_refresh_revoked(self) -> None:
         """Test refresh with revoked token."""
         refresh_token, refresh_jti = core.create_refresh_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         # Create revoked token metadata
@@ -431,7 +431,7 @@ class LogoutEndpointTestCase(unittest.TestCase):
         """Test logout endpoint revokes tokens."""
         # Create access token
         access_token, _ = core.create_access_token(
-            self.test_user.username, self.auth_settings
+            self.test_user.email, self.auth_settings
         )
 
         # Mock Neo4j run calls - different results for different queries

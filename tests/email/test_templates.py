@@ -28,7 +28,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test rendering welcome email HTML."""
         context = {
             'to_email': 'user@example.com',
-            'username': 'testuser',
             'display_name': 'Test User',
             'login_url': 'https://imbi.example.com/login',
         }
@@ -47,7 +46,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test rendering welcome email plain text."""
         context = {
             'to_email': 'user@example.com',
-            'username': 'testuser',
             'display_name': 'Test User',
             'login_url': 'https://imbi.example.com/login',
         }
@@ -64,7 +62,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test subject line extraction from template comment."""
         context = {
             'to_email': 'user@example.com',
-            'username': 'testuser',
             'display_name': 'Test User',
             'login_url': 'https://imbi.example.com/login',
         }
@@ -81,7 +78,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test subject line with Jinja2 variables."""
         context = {
             'to_email': 'user@example.com',
-            'username': 'testuser',
             'display_name': 'Jane Doe',
             'login_url': 'https://imbi.example.com/login',
         }
@@ -94,7 +90,6 @@ class TemplateManagerTestCase(unittest.TestCase):
     def test_missing_to_email(self) -> None:
         """Test rendering fails without to_email in context."""
         context = {
-            'username': 'testuser',
             'display_name': 'Test User',
         }
 
@@ -151,7 +146,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test that original context is preserved in EmailMessage."""
         context = {
             'to_email': 'user@example.com',
-            'username': 'testuser',
             'display_name': 'Test User',
             'login_url': 'https://imbi.example.com/login',
             'extra_data': {'key': 'value'},
@@ -166,7 +160,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         """Test that Jinja2 autoescape is enabled for HTML."""
         context = {
             'to_email': 'user@example.com',
-            'username': '<script>alert("xss")</script>',
             'display_name': 'Test User',
             'login_url': 'https://imbi.example.com/login',
         }
@@ -201,7 +194,6 @@ class TemplateManagerTestCase(unittest.TestCase):
         ):
             context = {
                 'to_email': 'user@example.com',
-                'username': 'testuser',
                 'display_name': 'Test User',
                 'login_url': 'https://imbi.example.com/login',
             }

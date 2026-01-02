@@ -241,7 +241,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
                     )
 
                     # Verify token was created
-                    self.assertEqual(token.username, 'testuser')
+                    self.assertEqual(token.email, 'testuser')
                     self.assertEqual(token.email, 'test@example.com')
                     self.assertIsNotNone(token.token)
                     self.assertIsNotNone(token.expires_at)

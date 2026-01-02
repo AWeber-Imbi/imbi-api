@@ -76,7 +76,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.post(
                 '/users/',
                 json={
-                    'username': 'newuser',
                     'email': 'new@example.com',
                     'display_name': 'New User',
                     'password': 'SecurePass123!@#',
@@ -101,7 +100,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.post(
                 '/users/',
                 json={
-                    'username': 'oauthuser',
                     'email': 'oauth@example.com',
                     'display_name': 'OAuth User',
                     'password': None,
@@ -120,7 +118,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.post(
                 '/users/',
                 json={
-                    'username': 'duplicate',
                     'email': 'dup@example.com',
                     'display_name': 'Duplicate User',
                 },
@@ -265,7 +262,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.put(
                 '/users/testuser',
                 json={
-                    'username': 'testuser',
                     'email': 'new@example.com',
                     'display_name': 'New Name',
                     'is_active': True,
@@ -285,7 +281,6 @@ class UserEndpointsTestCase(unittest.TestCase):
         response = self.client.put(
             '/users/testuser',
             json={
-                'username': 'different',
                 'email': 'test@example.com',
                 'display_name': 'Test',
             },
@@ -313,7 +308,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.put(
                 '/users/testuser',
                 json={
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test',
                     'is_admin': True,  # Trying to elevate
@@ -329,7 +323,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_update_user_cannot_deactivate_self(self) -> None:
         """Test user cannot deactivate their own account."""
         # Set auth user to be the same as the user being updated
-        self.auth_context.user.username = 'testuser'
+        self.auth_context.user.email = 'testuser'
 
         existing_user = models.User(
             username='testuser',
@@ -345,7 +339,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.put(
                 '/users/testuser',
                 json={
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test',
                     'is_active': False,  # Trying to deactivate
@@ -356,7 +349,7 @@ class UserEndpointsTestCase(unittest.TestCase):
             self.assertIn('deactivate', response.json()['detail'])
 
         # Restore admin username
-        self.auth_context.user.username = 'admin'
+        self.auth_context.user.email = 'admin'
 
     def test_update_user_not_found(self) -> None:
         """Test updating non-existent user."""
@@ -364,7 +357,6 @@ class UserEndpointsTestCase(unittest.TestCase):
             response = self.client.put(
                 '/users/nonexistent',
                 json={
-                    'username': 'nonexistent',
                     'email': 'test@example.com',
                     'display_name': 'Test',
                 },
@@ -382,7 +374,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_delete_user_cannot_delete_self(self) -> None:
         """Test user cannot delete their own account."""
         # Set auth user to be the same as the user being deleted
-        self.auth_context.user.username = 'testuser'
+        self.auth_context.user.email = 'testuser'
 
         response = self.client.delete('/users/testuser')
 
@@ -390,7 +382,7 @@ class UserEndpointsTestCase(unittest.TestCase):
         self.assertIn('delete', response.json()['detail'])
 
         # Restore admin username
-        self.auth_context.user.username = 'admin'
+        self.auth_context.user.email = 'admin'
 
     def test_delete_user_not_found(self) -> None:
         """Test deleting non-existent user."""
@@ -402,7 +394,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_change_password_self_success(self) -> None:
         """Test user changing their own password."""
         # Set auth user to be the same as target user
-        self.auth_context.user.username = 'testuser'
+        self.auth_context.user.email = 'testuser'
         self.auth_context.user.is_admin = False
 
         mock_user = models.User(
@@ -437,7 +429,7 @@ class UserEndpointsTestCase(unittest.TestCase):
             mock_upsert.assert_called_once()
 
         # Restore admin
-        self.auth_context.user.username = 'admin'
+        self.auth_context.user.email = 'admin'
         self.auth_context.user.is_admin = True
 
     def test_change_password_admin_force_change(self) -> None:
@@ -473,7 +465,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_change_password_wrong_current(self) -> None:
         """Test password change with incorrect current password."""
         # Set auth user to be target user
-        self.auth_context.user.username = 'testuser'
+        self.auth_context.user.email = 'testuser'
         self.auth_context.user.is_admin = False
 
         mock_user = models.User(
@@ -503,7 +495,7 @@ class UserEndpointsTestCase(unittest.TestCase):
             self.assertIn('incorrect', response.json()['detail'].lower())
 
         # Restore admin
-        self.auth_context.user.username = 'admin'
+        self.auth_context.user.email = 'admin'
         self.auth_context.user.is_admin = True
 
     def test_change_password_not_self_or_admin(self) -> None:

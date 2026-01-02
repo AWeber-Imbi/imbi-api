@@ -32,7 +32,7 @@ class Neo4jSettingsTestCase(unittest.TestCase):
 
         # URL should be cleaned (no credentials)
         self.assertEqual(str(neo4j.url), 'neo4j://localhost:7687')
-        self.assertIsNone(neo4j.url.username)
+        self.assertIsNone(neo4j.url.email)
         self.assertIsNone(neo4j.url.password)
 
     def test_url_with_only_username(self) -> None:

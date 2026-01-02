@@ -83,7 +83,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         mock_user_result.data.return_value = [
             {
                 'u': {
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test User',
                     'password_hash': self.test_user.password_hash,
@@ -116,7 +115,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
                 token, self.auth_settings
             )
 
-        self.assertEqual(auth_context.user.username, 'testuser')
+        self.assertEqual(auth_context.user.email, 'testuser')
         self.assertEqual(auth_context.auth_method, 'jwt')
         self.assertEqual(auth_context.session_id, jti)
         self.assertIn('blueprint:read', auth_context.permissions)
@@ -194,7 +193,6 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         mock_user_result.data.return_value = [
             {
                 'u': {
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test User',
                     'password_hash': inactive_user.password_hash,
@@ -356,7 +354,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         mock_user_result.data.return_value = [
             {
                 'u': {
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test User',
                     'password_hash': test_user.password_hash,
@@ -440,7 +437,6 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         mock_user_result.data.return_value = [
             {
                 'u': {
-                    'username': 'testuser',
                     'email': 'test@example.com',
                     'display_name': 'Test User',
                     'password_hash': test_user.password_hash,
