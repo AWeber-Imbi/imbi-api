@@ -71,15 +71,16 @@ class Neo4j(pydantic_settings.BaseSettings):
             # Rebuild URL without credentials
             scheme = self.url.scheme
             host = self.url.host or 'localhost'
-            port = self.url.port or 7687
             path = self.url.path or ''
 
-            # Construct clean URL (no trailing slash if no path)
+            # Build URL - only include port if explicitly set
+            url_parts = f'{scheme}://{host}'
+            if self.url.port:
+                url_parts += f':{self.url.port}'
             if path:
-                clean_url = f'{scheme}://{host}:{port}{path}'
-            else:
-                clean_url = f'{scheme}://{host}:{port}'
-            self.url = pydantic.AnyUrl(clean_url)
+                url_parts += path
+
+            self.url = pydantic.AnyUrl(url_parts)
 
         return self
 

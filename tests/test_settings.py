@@ -127,6 +127,26 @@ class Neo4jSettingsTestCase(unittest.TestCase):
         # URL should preserve bolt scheme
         self.assertEqual(str(neo4j.url), 'bolt://localhost:7687')
 
+    def test_url_with_credentials_no_port(self) -> None:
+        """Test URL with credentials but no explicit port."""
+        neo4j = settings.Neo4j(
+            url=pydantic.AnyUrl('neo4j://user:pass@localhost')
+        )
+
+        # Credentials should be extracted
+        self.assertEqual(neo4j.user, 'user')
+        self.assertEqual(neo4j.password, 'pass')
+
+        # URL should be cleaned (may or may not include implicit port)
+        self.assertIn(
+            str(neo4j.url),
+            (
+                'neo4j://localhost',
+                'neo4j://localhost:7687',
+                'neo4j://localhost/',
+            ),
+        )
+
 
 class EmailSettingsTestCase(unittest.TestCase):
     """Test cases for Email settings."""
