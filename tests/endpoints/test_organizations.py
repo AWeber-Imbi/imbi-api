@@ -67,7 +67,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
         ):
             # Mock blueprint application
             mock_get_model.return_value = models.Organization
-            mock_create.return_value = self.test_org.model_dump()
+            mock_create.return_value = self.test_org
 
             response = self.client.post(
                 '/organizations/',
@@ -104,7 +104,8 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
                 'description': 'Engineering organization',
                 'region': 'us-west-2',  # Custom field
             }
-            mock_create.return_value = org_data
+            org_instance = dynamic_model(**org_data)
+            mock_create.return_value = org_instance
 
             response = self.client.post('/organizations/', json=org_data)
 
