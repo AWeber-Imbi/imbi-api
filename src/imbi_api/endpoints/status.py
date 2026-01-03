@@ -3,7 +3,7 @@ import typing
 import fastapi
 import pydantic
 
-from imbi import version
+from imbi_api import version
 
 status_router = fastapi.APIRouter()
 

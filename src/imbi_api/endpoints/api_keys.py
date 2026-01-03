@@ -12,9 +12,10 @@ import typing
 
 import fastapi
 import pydantic
+from imbi_common import models, neo4j, settings
+from imbi_common.auth import core
 
-from imbi import models, neo4j, settings
-from imbi.auth import core, permissions
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 

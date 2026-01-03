@@ -5,10 +5,10 @@ import typing
 
 import fastapi
 import pydantic
+from imbi_common import blueprints, models, neo4j
 from neo4j import exceptions
 
-from imbi import blueprints, models, neo4j
-from imbi.auth import permissions
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,11 +76,11 @@ async def create_organization(
 
     try:
         created = await neo4j.create_node(org)
-        return created.model_dump()
+        return typing.cast(dict[str, typing.Any], created.model_dump())
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=f'Organization with slug {org.slug!r} already exists',  # type: ignore[attr-defined]
+            detail=f'Organization with slug {org.slug!r} already exists',
         ) from e
 
 
@@ -148,7 +148,7 @@ async def get_organization(
             status_code=404,
             detail=f'Organization with slug {slug!r} not found',
         )
-    return org.model_dump()
+    return typing.cast(dict[str, typing.Any], org.model_dump())
 
 
 @organizations_router.put('/{slug}')
@@ -211,7 +211,7 @@ async def update_organization(
         ) from e
 
     await neo4j.upsert(org, {'slug': slug})
-    return org.model_dump()
+    return typing.cast(dict[str, typing.Any], org.model_dump())
 
 
 @organizations_router.delete('/{slug}', status_code=204)

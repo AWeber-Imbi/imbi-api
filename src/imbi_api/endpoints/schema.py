@@ -4,9 +4,9 @@ import logging
 import typing
 
 import fastapi
+from imbi_common import blueprints, models
 
-from imbi import blueprints, models
-from imbi.auth import permissions
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +51,9 @@ async def get_model_schema(
     dynamic_model = await blueprints.get_model(model_class)
 
     # Generate and return JSON schema
-    schema = dynamic_model.model_json_schema()
+    schema = typing.cast(
+        dict[str, typing.Any], dynamic_model.model_json_schema()
+    )
 
     LOGGER.debug(
         'Generated schema for %s with %d properties',

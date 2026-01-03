@@ -10,12 +10,12 @@ import httpx
 import jwt
 import pydantic
 import pyotp
+from imbi_common import models, neo4j, settings
+from imbi_common.auth import core, encryption
 
-from imbi import models, neo4j, settings
-from imbi.auth import core, oauth, permissions
-from imbi.auth import models as auth_models
-from imbi.auth.encryption import TokenEncryption
-from imbi.middleware import rate_limit
+from imbi_api.auth import models as auth_models
+from imbi_api.auth import oauth, permissions
+from imbi_api.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ async def login(
             auth_settings = settings.get_auth_settings()
 
             # Decrypt TOTP secret
-            encryptor = TokenEncryption.get_instance()
+            encryptor = encryption.TokenEncryption.get_instance()
             try:
                 secret = encryptor.decrypt(totp_data['secret'])
                 if secret is None:
@@ -774,7 +774,7 @@ async def find_or_create_oauth_identity(
 
     if identity:
         # Phase 5: Encrypt and update tokens
-        encryptor = TokenEncryption.get_instance()
+        encryptor = encryption.TokenEncryption.get_instance()
         identity.set_encrypted_tokens(
             token_response['access_token'],
             token_response.get('refresh_token'),
@@ -837,7 +837,7 @@ async def find_or_create_oauth_identity(
     )
 
     # Phase 5: Encrypt tokens before storing
-    encryptor = TokenEncryption.get_instance()
+    encryptor = encryption.TokenEncryption.get_instance()
     identity.set_encrypted_tokens(
         token_response['access_token'],
         token_response.get('refresh_token'),

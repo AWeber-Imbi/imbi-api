@@ -6,10 +6,11 @@ import typing
 from urllib import parse as urlparse
 
 import fastapi
+from imbi_common import models, neo4j
+from imbi_common.auth import core
 from neo4j import exceptions
 
-from imbi import models, neo4j
-from imbi.auth import core, permissions
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 

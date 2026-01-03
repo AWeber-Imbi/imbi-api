@@ -2,15 +2,15 @@ import asyncio
 import datetime
 import getpass
 import pathlib
-import tomllib
 import typing
-from importlib import resources
 
 import typer
 import uvicorn
+from imbi_common import clickhouse, logging, models, neo4j, settings
+from imbi_common.auth import core
 
-from imbi import clickhouse, models, neo4j, settings, version
-from imbi.auth import core, seed
+from imbi_api import version
+from imbi_api.auth import seed
 
 main = typer.Typer()
 
@@ -39,9 +39,8 @@ def serve(
 ) -> None:
     """Start the Imbi HTTP server"""
     config = settings.ServerConfig()
-
-    log_config_file = resources.files('imbi') / 'log-config.toml'
-    log_config = tomllib.loads(log_config_file.read_text())
+    log_config = logging.get_log_config()
+    logging.configure_logging(log_config)
 
     params: UvicornParameters = {
         'factory': True,
@@ -66,12 +65,12 @@ def serve(
         params.update(
             {
                 'reload': True,
-                'reload_dirs': [str(pathlib.Path.cwd() / 'src' / 'imbi')],
+                'reload_dirs': [str(pathlib.Path.cwd() / 'src' / 'imbi_api')],
                 'reload_excludes': ['**/*.pyc'],
             }
         )
 
-    uvicorn.run('imbi.app:create_app', **params)
+    uvicorn.run('imbi_api.app:create_app', **params)
 
 
 @main.command()

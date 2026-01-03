@@ -8,9 +8,8 @@ import fastapi
 import jwt
 import pydantic
 from fastapi import security
-
-from imbi import models, neo4j, settings
-from imbi.auth import core
+from imbi_common import models, neo4j, settings
+from imbi_common.auth import core
 
 LOGGER = logging.getLogger(__name__)
 

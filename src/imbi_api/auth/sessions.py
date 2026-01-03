@@ -6,7 +6,7 @@ concurrent session limits, and tracking session activity.
 
 import logging
 
-from imbi import neo4j, settings
+from imbi_common import neo4j, settings
 
 LOGGER = logging.getLogger(__name__)
 

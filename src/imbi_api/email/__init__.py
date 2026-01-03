@@ -12,9 +12,9 @@ HTML and plain text versions.
 """
 
 import logging
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib import parse
 
-from imbi import clickhouse, neo4j
+from imbi_common import clickhouse, neo4j
 
 from . import client, models, templates
 
@@ -143,11 +143,11 @@ async def send_password_reset(
     LOGGER.debug('Password reset token stored in Neo4j for %s', username)
 
     # Build reset URL with token (handle existing query params)
-    parsed = urlparse(reset_url_base)
-    query_params = parse_qs(parsed.query)
+    parsed = parse.urlparse(reset_url_base)
+    query_params = parse.parse_qs(parsed.query)
     query_params['token'] = [token_model.token]
-    new_query = urlencode(query_params, doseq=True)
-    reset_url = urlunparse(parsed._replace(query=new_query))
+    new_query = parse.urlencode(query_params, doseq=True)
+    reset_url = parse.urlunparse(parsed._replace(query=new_query))
 
     # Render template
     template_manager = templates.TemplateManager.get_instance()

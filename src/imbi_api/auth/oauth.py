@@ -6,9 +6,9 @@ import typing
 
 import httpx
 import jwt
+from imbi_common import settings
 
-from imbi import settings
-from imbi.auth import models
+from imbi_api.auth import models
 
 # Cache for OIDC discovery documents with TTL
 # Format: {issuer_url: (discovery_data, timestamp)}

@@ -4,10 +4,10 @@ import logging
 import typing
 
 import fastapi
+from imbi_common import models, neo4j
 from neo4j import exceptions
 
-from imbi import models, neo4j
-from imbi.auth import permissions
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 

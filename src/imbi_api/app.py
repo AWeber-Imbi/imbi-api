@@ -4,9 +4,10 @@ import logging
 import typing
 
 import fastapi
+from imbi_common import clickhouse, neo4j
 
-from imbi import clickhouse, email, endpoints, neo4j, version
-from imbi.middleware import rate_limit
+from imbi_api import email, endpoints, version
+from imbi_api.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
 

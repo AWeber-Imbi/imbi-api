@@ -16,10 +16,10 @@ import fastapi
 import pydantic
 import pyotp
 import qrcode
+from imbi_common import models, neo4j, settings
+from imbi_common.auth import core, encryption
 
-from imbi import models, neo4j, settings
-from imbi.auth import core, permissions
-from imbi.auth.encryption import TokenEncryption
+from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ async def setup_mfa(
         await result.consume()
 
     # Encrypt TOTP secret before storage
-    encryptor = TokenEncryption.get_instance()
+    encryptor = encryption.TokenEncryption.get_instance()
     totp_secret = models.TOTPSecret(
         secret='',  # Will be set via encryption helper
         enabled=False,  # Not enabled until verified
@@ -221,7 +221,7 @@ async def verify_and_enable_mfa(
     encrypted_secret = totp_data['secret']
 
     # Decrypt TOTP secret
-    encryptor = TokenEncryption.get_instance()
+    encryptor = encryption.TokenEncryption.get_instance()
     try:
         secret = encryptor.decrypt(encrypted_secret)
         if secret is None:
@@ -349,7 +349,7 @@ async def disable_mfa(
         totp_data = totp_records[0]['t']
 
         # Decrypt TOTP secret
-        encryptor = TokenEncryption.get_instance()
+        encryptor = encryption.TokenEncryption.get_instance()
         try:
             secret = encryptor.decrypt(totp_data['secret'])
             if secret is None:

@@ -2,7 +2,7 @@
 
 import logging
 
-from imbi import models, neo4j
+from imbi_common import models, neo4j
 
 LOGGER = logging.getLogger(__name__)
 
