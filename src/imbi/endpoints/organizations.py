@@ -19,12 +19,12 @@ organizations_router = fastapi.APIRouter(
 
 @organizations_router.post('/', status_code=201)
 async def create_organization(
-    data: models.Organization,
+    data: dict[str, typing.Any],
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('organization:create')),
     ],
-) -> models.Organization:
+) -> dict[str, typing.Any]:
     """
     Create a new organization with blueprint fields applied.
 
@@ -65,7 +65,7 @@ async def create_organization(
     """
     dynamic_model = await blueprints.get_model(models.Organization)
     try:
-        org = dynamic_model.model_validate(data.model_dump())
+        org = dynamic_model(**data)
     except pydantic.ValidationError as e:
         LOGGER.warning('Validation error creating organization: %s', e)
         raise fastapi.HTTPException(
@@ -74,13 +74,12 @@ async def create_organization(
         ) from e
 
     try:
-        return await neo4j.create_node(org)  # type: ignore
+        created = await neo4j.create_node(org)
+        return created.model_dump()
     except exceptions.ConstraintError as e:
-        # Get slug from org (dynamic model)
-        slug_value = getattr(org, 'slug', 'unknown')
         raise fastapi.HTTPException(
             status_code=409,
-            detail=f'Organization with slug {slug_value!r} already exists',
+            detail=f'Organization with slug {org.slug!r} already exists',  # type: ignore[attr-defined]
         ) from e
 
 
@@ -90,7 +89,7 @@ async def list_organizations(
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('organization:read')),
     ],
-) -> list[models.Organization]:
+) -> list[dict[str, typing.Any]]:
     """
     Retrieve all organizations with blueprint fields applied.
 
@@ -110,9 +109,9 @@ async def list_organizations(
     # Apply blueprints to get dynamic model
     dynamic_model = await blueprints.get_model(models.Organization)
 
-    organizations: list[models.Organization] = []
+    organizations: list[dict[str, typing.Any]] = []
     async for org in neo4j.fetch_nodes(dynamic_model, order_by='name'):
-        organizations.append(org)  # type: ignore[arg-type]
+        organizations.append(org.model_dump())
     return organizations
 
 
@@ -123,7 +122,7 @@ async def get_organization(
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('organization:read')),
     ],
-) -> models.Organization:
+) -> dict[str, typing.Any]:
     """
     Retrieve an organization by slug with blueprint fields applied.
 
@@ -148,18 +147,18 @@ async def get_organization(
             status_code=404,
             detail=f'Organization with slug {slug!r} not found',
         )
-    return org  # type: ignore
+    return org.model_dump()
 
 
 @organizations_router.put('/{slug}')
 async def update_organization(
     slug: str,
-    data: models.Organization,
+    data: dict[str, typing.Any],
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('organization:update')),
     ],
-) -> models.Organization:
+) -> dict[str, typing.Any]:
     """
     Update an existing organization with blueprint fields.
 
@@ -182,6 +181,17 @@ async def update_organization(
         401: Not authenticated
         403: Missing organization:update permission
     """
+    # Verify slug in data matches URL
+    if 'slug' in data and data['slug'] != slug:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Slug in URL ({slug!r}) must match slug in body '
+            f'({data["slug"]!r})',
+        )
+
+    # Ensure slug is in data
+    data['slug'] = slug
+
     dynamic_model = await blueprints.get_model(models.Organization)
     existing = await neo4j.fetch_node(dynamic_model, {'slug': slug})
     if existing is None:
@@ -190,15 +200,8 @@ async def update_organization(
             detail=f'Organization with slug {slug!r} not found',
         )
 
-    if data.slug != slug:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f'Slug in URL ({slug!r}) must match slug in body '
-            f'({data.slug!r})',
-        )
-
     try:
-        org = dynamic_model.model_validate(data.model_dump())
+        org = dynamic_model(**data)
     except pydantic.ValidationError as e:
         LOGGER.warning('Validation error updating organization: %s', e)
         raise fastapi.HTTPException(
@@ -207,7 +210,7 @@ async def update_organization(
         ) from e
 
     await neo4j.upsert(org, {'slug': slug})
-    return org  # type: ignore
+    return org.model_dump()
 
 
 @organizations_router.delete('/{slug}', status_code=204)

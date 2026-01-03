@@ -172,10 +172,19 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
     def test_list_organizations_with_blueprint_fields(self) -> None:
         """Test listing organizations includes blueprint fields."""
-        org_with_custom = models.Organization(
+        # Mock dynamic model with extra field
+        dynamic_model = pydantic.create_model(
+            'OrganizationWithBlueprint',
+            __base__=models.Organization,
+            region=(str, 'us-west-2'),  # Custom field with default
+        )
+
+        # Create instance of dynamic model with blueprint field
+        org_with_custom = dynamic_model(
             name='Engineering',
             slug='engineering',
             description='Engineering organization',
+            region='us-west-2',
         )
 
         async def mock_fetch_nodes(*args, **kwargs):
@@ -185,12 +194,6 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             mock.patch('imbi.blueprints.get_model') as mock_get_model,
             mock.patch('imbi.neo4j.fetch_nodes', new=mock_fetch_nodes),
         ):
-            # Mock dynamic model with extra field
-            dynamic_model = pydantic.create_model(
-                'OrganizationWithBlueprint',
-                __base__=models.Organization,
-                region=(str, 'us-west-2'),  # Custom field with default
-            )
             mock_get_model.return_value = dynamic_model
 
             response = self.client.get('/organizations/')
@@ -200,6 +203,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             self.assertEqual(len(data), 1)
             # Blueprint field should be present with default value
             self.assertIn('region', data[0])
+            self.assertEqual(data[0]['region'], 'us-west-2')
 
     def test_get_organization(self) -> None:
         """Test retrieving single organization."""
