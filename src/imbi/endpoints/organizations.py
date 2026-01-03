@@ -29,7 +29,7 @@ async def create_organization(
     Create a new organization with blueprint fields applied.
 
     This endpoint accepts the base Organization fields (name, slug,
-    description, icon_url) plus any additional fields defined by enabled
+    description, icon) plus any additional fields defined by enabled
     blueprints.
 
     To see the current schema with all blueprint fields, use:
@@ -41,7 +41,7 @@ async def create_organization(
             - name (str, required): Organization name
             - slug (str, required): URL-safe identifier
             - description (str, optional): Organization description
-            - icon_url (str, optional): Icon URL
+            - icon (str, optional): Icon URL
 
     Returns:
         dict: The created organization with all fields (base + blueprint)
@@ -58,6 +58,7 @@ async def create_organization(
             "name": "Engineering",
             "slug": "engineering",
             "description": "Engineering department",
+            "icon": "https://example.com/icon.png",
             "region": "us-west-2",  // Custom blueprint field
             "cost_center": "ENG-001"  // Custom blueprint field
         }

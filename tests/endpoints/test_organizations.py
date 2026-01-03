@@ -224,7 +224,11 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
     def test_get_organization_not_found(self) -> None:
         """Test retrieving non-existent organization."""
-        with mock.patch('imbi.neo4j.fetch_node') as mock_fetch:
+        with (
+            mock.patch('imbi.blueprints.get_model') as mock_get_model,
+            mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
+        ):
+            mock_get_model.return_value = models.Organization
             mock_fetch.return_value = None
 
             response = self.client.get('/organizations/nonexistent')
@@ -306,7 +310,11 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
     def test_update_organization_not_found(self) -> None:
         """Test updating non-existent organization."""
-        with mock.patch('imbi.neo4j.fetch_node') as mock_fetch:
+        with (
+            mock.patch('imbi.blueprints.get_model') as mock_get_model,
+            mock.patch('imbi.neo4j.fetch_node') as mock_fetch,
+        ):
+            mock_get_model.return_value = models.Organization
             mock_fetch.return_value = None
 
             response = self.client.put(
