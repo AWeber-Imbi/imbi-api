@@ -4,7 +4,8 @@ import datetime
 import unittest
 from unittest import mock
 
-from imbi_api import settings
+from imbi_common import settings
+
 from imbi_api.auth import sessions
 
 

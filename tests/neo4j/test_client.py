@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from imbi_api.neo4j import client
+from imbi_common.neo4j import client
 
 
 class Neo4jClientTestCase(unittest.IsolatedAsyncioTestCase):

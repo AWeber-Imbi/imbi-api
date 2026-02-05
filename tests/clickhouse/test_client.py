@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from clickhouse_connect.driver import exceptions
-from imbi_api.clickhouse import client
+from imbi_common.clickhouse import client
 
 
 class SchemataQueryTestCase(unittest.TestCase):

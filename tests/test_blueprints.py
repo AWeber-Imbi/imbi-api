@@ -3,9 +3,10 @@ import unittest
 from unittest import mock
 
 import pydantic
+from imbi_common import blueprints, neo4j
 from neo4j import exceptions
 
-from imbi_api import blueprints, models, neo4j
+from imbi_api import models
 
 
 class GetModelTestCase(unittest.IsolatedAsyncioTestCase):

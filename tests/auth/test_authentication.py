@@ -6,9 +6,10 @@ from unittest import mock
 
 import jwt
 from fastapi import testclient
+from imbi_common import settings
+from imbi_common.auth import core
 
-from imbi_api import app, models, settings
-from imbi_api.auth import core
+from imbi_api import app, models
 from imbi_api.middleware import rate_limit
 
 

@@ -2,8 +2,9 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
+from imbi_common import settings
 
-from imbi_api import app, settings
+from imbi_api import app
 from imbi_api.auth import models as auth_models
 from imbi_api.middleware import rate_limit
 
@@ -385,7 +386,7 @@ class LoginMFATestCase(unittest.TestCase):
         rate_limit.limiter.reset()
 
         # Mock encryption for MFA tests (plaintext secrets in tests)
-        from imbi_api.auth.encryption import TokenEncryption
+        from imbi_common.auth.encryption import TokenEncryption
 
         mock_encryptor = mock.Mock()
         # decrypt() returns the input as-is (plaintext)
@@ -407,8 +408,9 @@ class LoginMFATestCase(unittest.TestCase):
         """Test login with MFA enabled but no code provided."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         test_user = models.User(
             email='test@example.com',
@@ -457,9 +459,9 @@ class LoginMFATestCase(unittest.TestCase):
         import datetime
 
         import pyotp
+        from imbi_common.auth import core
 
         from imbi_api import models
-        from imbi_api.auth import core
 
         test_user = models.User(
             email='test@example.com',
@@ -527,8 +529,9 @@ class LoginMFATestCase(unittest.TestCase):
         """Test login with valid backup code."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         test_user = models.User(
             email='test@example.com',
@@ -594,8 +597,9 @@ class LoginMFATestCase(unittest.TestCase):
         """Test login with invalid MFA code."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         test_user = models.User(
             email='test@example.com',
@@ -707,8 +711,9 @@ class LoginMFATestCase(unittest.TestCase):
         """Test login with invalid password."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         test_user = models.User(
             email='test@example.com',
@@ -769,8 +774,9 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         """Test OAuth callback with existing identity."""
         import datetime
 
+        from imbi_common.auth import encryption
+
         from imbi_api import models
-        from imbi_api.auth import encryption
         from imbi_api.auth import models as auth_models
 
         # Reset settings to pick up env vars
@@ -884,8 +890,9 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         """Test OAuth callback creating new user."""
         import datetime
 
+        from imbi_common.auth import encryption
+
         from imbi_api import models
-        from imbi_api.auth import encryption
         from imbi_api.auth import models as auth_models
 
         # Reset settings to pick up env vars
@@ -1015,7 +1022,8 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         """Test OAuth callback with Google domain restriction."""
         import datetime
 
-        from imbi_api.auth import encryption
+        from imbi_common.auth import encryption
+
         from imbi_api.auth import models as auth_models
 
         # Reset settings to pick up env vars
@@ -1086,8 +1094,9 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         """Test OAuth callback auto-linking to existing user by email."""
         import datetime
 
+        from imbi_common.auth import encryption
+
         from imbi_api import models
-        from imbi_api.auth import encryption
         from imbi_api.auth import models as auth_models
 
         # Reset settings to pick up env vars
@@ -1191,7 +1200,8 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         """Test OAuth callback with user auto-creation disabled."""
         import datetime
 
-        from imbi_api.auth import encryption
+        from imbi_common.auth import encryption
+
         from imbi_api.auth import models as auth_models
 
         # Reset settings to pick up env vars
@@ -1262,8 +1272,9 @@ class TokenRefreshTestCase(unittest.TestCase):
         """Test successful token refresh."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',
@@ -1378,8 +1389,9 @@ class TokenRefreshTestCase(unittest.TestCase):
         """Test token refresh with access token instead of refresh token."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',
@@ -1413,8 +1425,9 @@ class TokenRefreshTestCase(unittest.TestCase):
         """Test token refresh with revoked token."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',
@@ -1465,8 +1478,9 @@ class TokenRefreshTestCase(unittest.TestCase):
         """Test token refresh with inactive user."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',
@@ -1534,8 +1548,10 @@ class LogoutTestCase(unittest.TestCase):
         """Test logout with revoke_all_sessions=False."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core, permissions
+        from imbi_api.auth import permissions
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',
@@ -1626,8 +1642,10 @@ class LogoutTestCase(unittest.TestCase):
         """Test logout with revoke_all_sessions=True."""
         import datetime
 
+        from imbi_common.auth import core
+
         from imbi_api import models
-        from imbi_api.auth import core, permissions
+        from imbi_api.auth import permissions
 
         auth_settings = settings.Auth(
             jwt_secret='test-secret-key-min-32-chars-long',

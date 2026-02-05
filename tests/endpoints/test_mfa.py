@@ -7,9 +7,10 @@ from unittest import mock
 
 import pyotp
 from fastapi import testclient
+from imbi_common import settings
+from imbi_common.auth import core
 
-from imbi_api import app, models, settings
-from imbi_api.auth import core
+from imbi_api import app, models
 
 
 class MFAEndpointsTestCase(unittest.TestCase):
@@ -37,7 +38,7 @@ class MFAEndpointsTestCase(unittest.TestCase):
         )
 
         # Mock encryption for MFA tests (plaintext secrets in tests)
-        from imbi_api.auth.encryption import TokenEncryption
+        from imbi_common.auth.encryption import TokenEncryption
 
         mock_encryptor = mock.Mock()
         # decrypt() returns the input as-is (plaintext)

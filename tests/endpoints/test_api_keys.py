@@ -5,9 +5,10 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
+from imbi_common import settings
+from imbi_common.auth import core
 
-from imbi_api import app, models, settings
-from imbi_api.auth import core
+from imbi_api import app, models
 
 
 class APIKeysEndpointsTestCase(unittest.TestCase):

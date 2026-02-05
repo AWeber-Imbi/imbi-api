@@ -4,8 +4,7 @@ import unittest
 from unittest import mock
 
 from cryptography import fernet
-
-from imbi_api.auth import encryption
+from imbi_common.auth import encryption
 
 
 class TokenEncryptionTestCase(unittest.TestCase):

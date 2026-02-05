@@ -6,9 +6,11 @@ from unittest import mock
 
 import fastapi
 from fastapi import security
+from imbi_common import settings
+from imbi_common.auth import core
 
-from imbi_api import models, settings
-from imbi_api.auth import core, permissions
+from imbi_api import models
+from imbi_api.auth import permissions
 
 
 class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):

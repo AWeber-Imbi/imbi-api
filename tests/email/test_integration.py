@@ -263,7 +263,9 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_clickhouse_audit_error_handling(self) -> None:
         """Test that ClickHouse errors don't fail email sends."""
-        from imbi_api import clickhouse, email
+        from imbi_common import clickhouse
+
+        from imbi_api import email
 
         with mock.patch(
             'imbi_api.email.client.settings.Email'
