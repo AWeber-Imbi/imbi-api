@@ -52,7 +52,7 @@ class Neo4jClientTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Mock the constants to have an index
         with mock.patch(
-            'imbi_api.neo4j.constants.INDEXES',
+            'imbi_common.neo4j.constants.INDEXES',
             [
                 'CREATE CONSTRAINT test IF NOT EXISTS FOR (n:Test) '
                 'REQUIRE n.id IS UNIQUE'

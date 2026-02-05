@@ -79,7 +79,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings.reply_to = None
 
             # Mock ClickHouse to avoid database dependency
-            with mock.patch('imbi_api.clickhouse.insert') as mock_insert:
+            with mock.patch('imbi_common.clickhouse.insert') as mock_insert:
                 mock_insert.return_value = None
 
                 # Send email
@@ -191,7 +191,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings = mock_settings.return_value
             email_settings.enabled = False
 
-            with mock.patch('imbi_api.clickhouse.insert'):
+            with mock.patch('imbi_common.clickhouse.insert'):
                 audit = await email.send_welcome_email(
                     username='testuser',
                     email='test@example.com',
@@ -214,7 +214,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings.enabled = True
             email_settings.dry_run = True
 
-            with mock.patch('imbi_api.clickhouse.insert'):
+            with mock.patch('imbi_common.clickhouse.insert'):
                 audit = await email.send_welcome_email(
                     username='testuser',
                     email='test@example.com',
@@ -237,8 +237,10 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings.enabled = True
             email_settings.dry_run = True
 
-            with mock.patch('imbi_api.clickhouse.insert'):
-                with mock.patch('imbi_api.neo4j.create_node') as mock_create:
+            with mock.patch('imbi_common.clickhouse.insert'):
+                with mock.patch(
+                    'imbi_common.neo4j.create_node'
+                ) as mock_create:
                     mock_create.return_value = None
 
                     token, audit = await email.send_password_reset(
@@ -275,7 +277,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings.dry_run = True
 
             # Mock ClickHouse to raise an error
-            with mock.patch('imbi_api.clickhouse.insert') as mock_insert:
+            with mock.patch('imbi_common.clickhouse.insert') as mock_insert:
                 mock_insert.side_effect = clickhouse.client.DatabaseError(
                     'Connection failed'
                 )
@@ -303,8 +305,10 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             email_settings.enabled = True
             email_settings.dry_run = True
 
-            with mock.patch('imbi_api.clickhouse.insert'):
-                with mock.patch('imbi_api.neo4j.create_node') as mock_create:
+            with mock.patch('imbi_common.clickhouse.insert'):
+                with mock.patch(
+                    'imbi_common.neo4j.create_node'
+                ) as mock_create:
                     mock_create.return_value = None
 
                     # Mock template manager to capture reset URL

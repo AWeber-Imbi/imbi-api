@@ -342,18 +342,21 @@ class LoginPasswordRehashTestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
-            mock.patch('imbi_api.neo4j.create_node'),
-            mock.patch('imbi_api.neo4j.upsert') as mock_upsert,
             mock.patch(
-                'imbi_api.auth.core.verify_password', return_value=True
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
+            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+            mock.patch(
+                'imbi_common.auth.core.verify_password', return_value=True
             ),
             mock.patch(
-                'imbi_api.auth.core.password_needs_rehash', return_value=True
+                'imbi_common.auth.core.password_needs_rehash',
+                return_value=True,
             ) as mock_needs_rehash,
             mock.patch(
-                'imbi_api.auth.core.hash_password',
+                'imbi_common.auth.core.hash_password',
                 return_value='new-hashed-password',
             ) as mock_hash,
         ):
@@ -442,8 +445,10 @@ class LoginMFATestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
+            mock.patch(
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -507,9 +512,11 @@ class LoginMFATestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
-            mock.patch('imbi_api.neo4j.create_node'),
+            mock.patch(
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
+            mock.patch('imbi_common.neo4j.create_node'),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -575,9 +582,11 @@ class LoginMFATestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
-            mock.patch('imbi_api.neo4j.create_node'),
+            mock.patch(
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
+            mock.patch('imbi_common.neo4j.create_node'),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -630,8 +639,10 @@ class LoginMFATestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
+            mock.patch(
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -654,10 +665,10 @@ class LoginMFATestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=None),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=None),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -691,10 +702,12 @@ class LoginMFATestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=oauth_user),
+            mock.patch(
+                'imbi_common.neo4j.fetch_node', return_value=oauth_user
+            ),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -729,10 +742,10 @@ class LoginMFATestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=test_user),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=test_user),
         ):
             response = self.client.post(
                 '/auth/login',
@@ -845,11 +858,13 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 return_value=mock_profile,
             ),
             mock.patch(
-                'imbi_api.neo4j.fetch_node', return_value=test_identity
+                'imbi_common.neo4j.fetch_node', return_value=test_identity
             ),
-            mock.patch('imbi_api.neo4j.refresh_relationship') as mock_refresh,
-            mock.patch('imbi_api.neo4j.create_node'),
-            mock.patch('imbi_api.neo4j.upsert'),
+            mock.patch(
+                'imbi_common.neo4j.refresh_relationship'
+            ) as mock_refresh,
+            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.upsert'),
         ):
             # Set up identity.user for refresh_relationship
             async def mock_refresh_side_effect(obj, rel_name):
@@ -948,16 +963,18 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 return_value=mock_profile,
             ),
             mock.patch(
-                'imbi_api.neo4j.fetch_node',
+                'imbi_common.neo4j.fetch_node',
                 side_effect=mock_fetch_node_side_effect,
             ),
             mock.patch(
-                'imbi_api.neo4j.create_node',
+                'imbi_common.neo4j.create_node',
                 side_effect=mock_create_node_side_effect,
             ),
-            mock.patch('imbi_api.neo4j.create_relationship'),
-            mock.patch('imbi_api.neo4j.refresh_relationship') as mock_refresh,
-            mock.patch('imbi_api.neo4j.upsert'),
+            mock.patch('imbi_common.neo4j.create_relationship'),
+            mock.patch(
+                'imbi_common.neo4j.refresh_relationship'
+            ) as mock_refresh,
+            mock.patch('imbi_common.neo4j.upsert'),
         ):
             # Set up user after identity is created
             async def mock_refresh_side_effect(obj, rel_name):
@@ -1064,7 +1081,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 'imbi_api.auth.oauth.fetch_oauth_profile',
                 return_value=mock_profile,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=None),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=None),
         ):
             response = self.client.get(
                 '/auth/oauth/google/callback?code=test-code&state=test-state',
@@ -1158,13 +1175,15 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 return_value=mock_profile,
             ),
             mock.patch(
-                'imbi_api.neo4j.fetch_node',
+                'imbi_common.neo4j.fetch_node',
                 side_effect=mock_fetch_node_side_effect,
             ),
-            mock.patch('imbi_api.neo4j.create_node'),
-            mock.patch('imbi_api.neo4j.create_relationship'),
-            mock.patch('imbi_api.neo4j.refresh_relationship') as mock_refresh,
-            mock.patch('imbi_api.neo4j.upsert'),
+            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.create_relationship'),
+            mock.patch(
+                'imbi_common.neo4j.refresh_relationship'
+            ) as mock_refresh,
+            mock.patch('imbi_common.neo4j.upsert'),
         ):
             # Set up identity.user for refresh_relationship
             async def mock_refresh_side_effect(obj, rel_name):
@@ -1242,7 +1261,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 'imbi_api.auth.oauth.fetch_oauth_profile',
                 return_value=mock_profile,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=None),
+            mock.patch('imbi_common.neo4j.fetch_node', return_value=None),
         ):
             response = self.client.get(
                 '/auth/oauth/google/callback?code=test-code&state=test-state',
@@ -1309,12 +1328,12 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch_node,
-            mock.patch('imbi_api.neo4j.upsert'),
-            mock.patch('imbi_api.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch_node,
+            mock.patch('imbi_common.neo4j.upsert'),
+            mock.patch('imbi_common.neo4j.create_node'),
         ):
             # First call fetches token metadata, second fetches user
             mock_fetch_node.side_effect = [token_meta, test_user]
@@ -1358,7 +1377,8 @@ class TokenRefreshTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_api.settings.get_auth_settings', return_value=auth_settings
+            'imbi_common.settings.get_auth_settings',
+            return_value=auth_settings,
         ):
             response = self.client.post(
                 '/auth/token/refresh',
@@ -1375,7 +1395,8 @@ class TokenRefreshTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_api.settings.get_auth_settings', return_value=auth_settings
+            'imbi_common.settings.get_auth_settings',
+            return_value=auth_settings,
         ):
             response = self.client.post(
                 '/auth/token/refresh',
@@ -1411,7 +1432,8 @@ class TokenRefreshTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_api.settings.get_auth_settings', return_value=auth_settings
+            'imbi_common.settings.get_auth_settings',
+            return_value=auth_settings,
         ):
             response = self.client.post(
                 '/auth/token/refresh',
@@ -1461,10 +1483,12 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node', return_value=token_meta),
+            mock.patch(
+                'imbi_common.neo4j.fetch_node', return_value=token_meta
+            ),
         ):
             response = self.client.post(
                 '/auth/token/refresh',
@@ -1514,11 +1538,11 @@ class TokenRefreshTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_api.settings.get_auth_settings',
+                'imbi_common.settings.get_auth_settings',
                 return_value=auth_settings,
             ),
-            mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch_node,
-            mock.patch('imbi_api.neo4j.upsert'),
+            mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch_node,
+            mock.patch('imbi_common.neo4j.upsert'),
         ):
             # First call returns token metadata, second returns inactive user
             mock_fetch_node.side_effect = [token_meta, test_user]
@@ -1612,11 +1636,11 @@ class LogoutTestCase(unittest.TestCase):
         try:
             with (
                 mock.patch(
-                    'imbi_api.settings.get_auth_settings',
+                    'imbi_common.settings.get_auth_settings',
                     return_value=auth_settings,
                 ),
                 mock.patch(
-                    'imbi_api.neo4j.run', side_effect=mock_run_side_effect
+                    'imbi_common.neo4j.run', side_effect=mock_run_side_effect
                 ),
             ):
                 response = self.client.post(
@@ -1696,11 +1720,11 @@ class LogoutTestCase(unittest.TestCase):
         try:
             with (
                 mock.patch(
-                    'imbi_api.settings.get_auth_settings',
+                    'imbi_common.settings.get_auth_settings',
                     return_value=auth_settings,
                 ),
                 mock.patch(
-                    'imbi_api.neo4j.run', side_effect=mock_run_side_effect
+                    'imbi_common.neo4j.run', side_effect=mock_run_side_effect
                 ),
             ):
                 response = self.client.post(

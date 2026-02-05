@@ -145,10 +145,10 @@ class LoginEndpointTestCase(unittest.TestCase):
         mock_result.__aexit__ = mock.AsyncMock(return_value=None)
 
         with (
-            mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch,
-            mock.patch('imbi_api.neo4j.create_node'),
-            mock.patch('imbi_api.neo4j.upsert') as mock_upsert,
-            mock.patch('imbi_api.neo4j.run', return_value=mock_result),
+            mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch,
+            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi_common.neo4j.run', return_value=mock_result),
         ):
             mock_fetch.return_value = self.test_user
 
@@ -173,7 +173,7 @@ class LoginEndpointTestCase(unittest.TestCase):
 
     def test_login_invalid_email(self) -> None:
         """Test login with invalid email."""
-        with mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch:
+        with mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch:
             mock_fetch.return_value = None
 
             response = self.client.post(
@@ -186,7 +186,7 @@ class LoginEndpointTestCase(unittest.TestCase):
 
     def test_login_invalid_password(self) -> None:
         """Test login with invalid password."""
-        with mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch:
+        with mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch:
             mock_fetch.return_value = self.test_user
 
             response = self.client.post(
@@ -212,7 +212,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             created_at=datetime.datetime.now(datetime.UTC),
         )
 
-        with mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch:
+        with mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch:
             mock_fetch.return_value = inactive_user
 
             response = self.client.post(
@@ -234,7 +234,7 @@ class LoginEndpointTestCase(unittest.TestCase):
             created_at=datetime.datetime.now(datetime.UTC),
         )
 
-        with mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch:
+        with mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch:
             mock_fetch.return_value = oauth_user
 
             response = self.client.post(
@@ -294,10 +294,12 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with (
-            mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
-            mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch,
-            mock.patch('imbi_api.neo4j.create_node'),
-            mock.patch('imbi_api.neo4j.upsert'),
+            mock.patch(
+                'imbi_common.settings.get_auth_settings'
+            ) as mock_settings,
+            mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch,
+            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.neo4j.upsert'),
         ):
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
@@ -330,7 +332,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_api.settings.get_auth_settings'
+            'imbi_common.settings.get_auth_settings'
         ) as mock_settings:
             # Mock settings to use our test JWT secret
             mock_settings.return_value = expired_settings
@@ -360,7 +362,7 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_api.settings.get_auth_settings'
+            'imbi_common.settings.get_auth_settings'
         ) as mock_settings:
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
@@ -391,8 +393,10 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         )
 
         with (
-            mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
-            mock.patch('imbi_api.neo4j.fetch_node') as mock_fetch,
+            mock.patch(
+                'imbi_common.settings.get_auth_settings'
+            ) as mock_settings,
+            mock.patch('imbi_common.neo4j.fetch_node') as mock_fetch,
         ):
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings
@@ -464,8 +468,12 @@ class LogoutEndpointTestCase(unittest.TestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
-            mock.patch('imbi_api.neo4j.run', side_effect=mock_run_side_effect),
+            mock.patch(
+                'imbi_common.settings.get_auth_settings'
+            ) as mock_settings,
+            mock.patch(
+                'imbi_common.neo4j.run', side_effect=mock_run_side_effect
+            ),
         ):
             mock_settings.return_value = self.auth_settings
 

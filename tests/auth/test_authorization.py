@@ -24,7 +24,7 @@ class PermissionLoadingTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             perms = await permissions.load_user_permissions('testuser')
 
         self.assertEqual(perms, {'blueprint:read', 'blueprint:write'})
@@ -36,7 +36,7 @@ class PermissionLoadingTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             perms = await permissions.load_user_permissions('testuser')
 
         self.assertEqual(perms, set())
@@ -105,7 +105,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         mock_perm_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_api.neo4j.run',
+            'imbi_common.neo4j.run',
             side_effect=[
                 mock_token_result,
                 mock_user_result,
@@ -161,7 +161,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         from fastapi import HTTPException
 
         with (
-            mock.patch('imbi_api.neo4j.run', return_value=mock_result),
+            mock.patch('imbi_common.neo4j.run', return_value=mock_result),
             self.assertRaises(HTTPException) as ctx,
         ):
             await permissions.authenticate_jwt(token, self.auth_settings)
@@ -210,7 +210,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch(
-                'imbi_api.neo4j.run',
+                'imbi_common.neo4j.run',
                 side_effect=[mock_token_result, mock_user_result],
             ),
             self.assertRaises(HTTPException) as ctx,
@@ -264,10 +264,12 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch(
-                'imbi_api.auth.core.decode_token',
+                'imbi_common.auth.core.decode_token',
                 return_value=claims_without_sub,
             ),
-            mock.patch('imbi_api.neo4j.run', return_value=mock_token_result),
+            mock.patch(
+                'imbi_common.neo4j.run', return_value=mock_token_result
+            ),
             self.assertRaises(HTTPException) as ctx,
         ):
             await permissions.authenticate_jwt(
@@ -295,7 +297,7 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch(
-                'imbi_api.neo4j.run',
+                'imbi_common.neo4j.run',
                 side_effect=[mock_token_result, mock_user_result],
             ),
             self.assertRaises(HTTPException) as ctx,
@@ -391,9 +393,11 @@ class ProtectedEndpointTestCase(unittest.TestCase):
             )
 
         with (
-            mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
             mock.patch(
-                'imbi_api.neo4j.run',
+                'imbi_common.settings.get_auth_settings'
+            ) as mock_settings,
+            mock.patch(
+                'imbi_common.neo4j.run',
                 side_effect=[
                     mock_token_result,
                     mock_user_result,
@@ -401,7 +405,7 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                 ],
             ),
             mock.patch(
-                'imbi_api.neo4j.fetch_nodes', side_effect=mock_fetch_nodes
+                'imbi_common.neo4j.fetch_nodes', side_effect=mock_fetch_nodes
             ),
         ):
             mock_settings.return_value = self.auth_settings
@@ -458,9 +462,11 @@ class ProtectedEndpointTestCase(unittest.TestCase):
         mock_perm_result.__aexit__.return_value = None
 
         with (
-            mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
             mock.patch(
-                'imbi_api.neo4j.run',
+                'imbi_common.settings.get_auth_settings'
+            ) as mock_settings,
+            mock.patch(
+                'imbi_common.neo4j.run',
                 side_effect=[
                     mock_token_result,
                     mock_user_result,
@@ -488,7 +494,7 @@ class ResourcePermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             has_access = await permissions.check_resource_permission(
                 'testuser', 'Blueprint', 'test-blueprint', 'read'
             )
@@ -502,7 +508,7 @@ class ResourcePermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             has_access = await permissions.check_resource_permission(
                 'testuser', 'Blueprint', 'test-blueprint', 'delete'
             )
@@ -516,7 +522,7 @@ class ResourcePermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             has_access = await permissions.check_resource_permission(
                 'testuser', 'Blueprint', 'test-blueprint', 'read'
             )
@@ -602,7 +608,7 @@ class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
 
         check_fn = permissions.require_resource_access('blueprint', 'read')
 
-        with mock.patch('imbi_api.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
             result = await check_fn('test-slug', user_context)
 
         self.assertEqual(result, user_context)
@@ -626,7 +632,7 @@ class ResourceAccessDependencyTestCase(unittest.IsolatedAsyncioTestCase):
         from fastapi import HTTPException
 
         with (
-            mock.patch('imbi_api.neo4j.run', return_value=mock_result),
+            mock.patch('imbi_common.neo4j.run', return_value=mock_result),
             self.assertRaises(HTTPException) as ctx,
         ):
             await check_fn('test-slug', user_context)
