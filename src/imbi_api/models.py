@@ -14,7 +14,8 @@ import imbi_common.models
 # Re-export all public names from imbi_common.models
 __all__ = imbi_common.models.__all__
 
-# Re-export all models by dynamically copying attributes
+# Re-export all models as explicit aliases for type-checker support.
+# NOTE: When imbi_common.models adds new exports, add them here too.
 APIKey = imbi_common.models.APIKey
 Blueprint = imbi_common.models.Blueprint
 BlueprintAssignment = imbi_common.models.BlueprintAssignment

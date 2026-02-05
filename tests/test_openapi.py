@@ -12,6 +12,11 @@ from imbi_api import openapi
 class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
     """Test cases for generate_blueprint_models function."""
 
+    async def asyncSetUp(self) -> None:
+        """Reset module state before each test."""
+        openapi._blueprint_models = {}
+        openapi._schema_cache = None
+
     async def test_generate_blueprint_models_no_blueprints(self) -> None:
         """Test that base models are returned when no blueprints exist."""
         with unittest.mock.patch(
@@ -211,20 +216,22 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
 
         # Check that GET /organizations/ has array response
         paths = schema.get('paths', {})
-        if '/organizations/' in paths:
-            get_op = paths['/organizations/'].get('get', {})
-            responses = get_op.get('responses', {})
-            if '200' in responses:
-                content = responses['200'].get('content', {})
-                json_schema = content.get('application/json', {}).get(
-                    'schema', {}
-                )
-                self.assertEqual(json_schema.get('type'), 'array')
-                self.assertIn('items', json_schema)
+        self.assertIn('/organizations/', paths)
+        get_op = paths['/organizations/'].get('get', {})
+        responses = get_op.get('responses', {})
+        self.assertIn('200', responses)
+        content = responses['200'].get('content', {})
+        json_schema = content.get('application/json', {}).get('schema', {})
+        self.assertEqual(json_schema.get('type'), 'array')
+        self.assertIn('items', json_schema)
 
 
 class ClearSchemaCacheTestCase(unittest.TestCase):
     """Test cases for clear_schema_cache function."""
+
+    def setUp(self) -> None:
+        """Reset module state before each test."""
+        openapi._schema_cache = None
 
     def test_clear_schema_cache(self) -> None:
         """Test that clear_schema_cache clears the cache."""
