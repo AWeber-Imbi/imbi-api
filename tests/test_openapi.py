@@ -20,7 +20,8 @@ class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_generate_blueprint_models_no_blueprints(self) -> None:
         """Test that base models are returned when no blueprints exist."""
         with unittest.mock.patch(
-            'imbi_common.blueprints.get_model'
+            'imbi_common.blueprints.get_model',
+            new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
             # Mock returns the base model for each type
             mock_get_model.side_effect = lambda m: m
@@ -38,7 +39,8 @@ class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_generate_blueprint_models_with_blueprints(self) -> None:
         """Test that enhanced models include blueprint fields."""
         with unittest.mock.patch(
-            'imbi_common.blueprints.get_model'
+            'imbi_common.blueprints.get_model',
+            new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
             # Create an enhanced model with an extra field
             enhanced_org = pydantic.create_model(
@@ -68,7 +70,8 @@ class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_generate_blueprint_models_handles_errors(self) -> None:
         """Test that errors are handled gracefully, falling back to base."""
         with unittest.mock.patch(
-            'imbi_common.blueprints.get_model'
+            'imbi_common.blueprints.get_model',
+            new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
 
             def mock_side_effect(model_class: type) -> type:
@@ -102,7 +105,8 @@ class RefreshBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_refresh_updates_cache(self) -> None:
         """Test that refresh updates the cached models."""
         with unittest.mock.patch(
-            'imbi_common.blueprints.get_model'
+            'imbi_common.blueprints.get_model',
+            new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
             mock_get_model.side_effect = lambda m: m
 
@@ -121,7 +125,8 @@ class RefreshBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
         openapi._schema_cache = {'fake': 'schema'}
 
         with unittest.mock.patch(
-            'imbi_common.blueprints.get_model'
+            'imbi_common.blueprints.get_model',
+            new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
             mock_get_model.side_effect = lambda m: m
 
