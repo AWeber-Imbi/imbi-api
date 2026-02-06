@@ -132,11 +132,13 @@ class GroupEndpointsTestCase(unittest.TestCase):
         mock_roles_result.data.return_value = []
         mock_roles_ctx = mock.AsyncMock()
         mock_roles_ctx.__aenter__.return_value = mock_roles_result
+        mock_roles_ctx.__aexit__.return_value = None
 
         mock_parent_result = mock.AsyncMock()
         mock_parent_result.data.return_value = []
         mock_parent_ctx = mock.AsyncMock()
         mock_parent_ctx.__aenter__.return_value = mock_parent_result
+        mock_parent_ctx.__aexit__.return_value = None
 
         with (
             mock.patch(
