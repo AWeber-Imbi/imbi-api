@@ -988,13 +988,13 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aioboto3" },
+    { name = "aioboto3", specifier = ">=15.5.0" },
     { name = "aiohttp" },
     { name = "authlib", specifier = ">=1.6.6" },
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/aweber-imbi/imbi-common.git?rev=feature%2Fstorage-settings" },
+    { name = "imbi-common", git = "https://github.com/aweber-imbi/imbi-common.git?rev=main" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'otel'" },
@@ -1005,7 +1005,7 @@ requires-dist = [
     { name = "pillow" },
     { name = "pydantic", extras = ["email"] },
     { name = "pyotp", specifier = ">=2.9.0" },
-    { name = "python-multipart" },
+    { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "qrcode", specifier = ">=8.0" },
     { name = "sentry-sdk", marker = "extra == 'sentry'" },
     { name = "slowapi", specifier = "==0.1.9" },
@@ -1039,7 +1039,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/aweber-imbi/imbi-common.git?rev=feature%2Fstorage-settings#2c9c6edd7d84a34d401a31f48b527910835dad7c" }
+source = { git = "https://github.com/aweber-imbi/imbi-common.git?rev=main#e8bab790f63eedfb30324e22e94fe25001ec9f37" }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "clickhouse-connect" },
