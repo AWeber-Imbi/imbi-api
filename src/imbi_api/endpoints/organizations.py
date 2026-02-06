@@ -217,7 +217,7 @@ async def update_organization(
 @organizations_router.get('/{slug}/members')
 async def list_organization_members(
     slug: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('organization:read')),
     ],
@@ -236,7 +236,7 @@ async def list_organization_members(
         401: Not authenticated
         403: Missing organization:read permission
     """
-    query = """
+    query: typing.LiteralString = """
     MATCH (o:Organization {slug: $slug})
     OPTIONAL MATCH (u:User)-[m:MEMBER_OF]->(o)
     RETURN o, collect({

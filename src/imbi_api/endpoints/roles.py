@@ -93,7 +93,7 @@ async def get_role(
         )
 
     # Load permissions via direct Cypher query
-    perm_query = """
+    perm_query: typing.LiteralString = """
     MATCH (r:Role {slug: $slug})-[:GRANTS]->(p:Permission)
     RETURN p
     ORDER BY p.name
@@ -106,7 +106,7 @@ async def get_role(
         ]
 
     # Load parent role via direct Cypher query
-    parent_query = """
+    parent_query: typing.LiteralString = """
     MATCH (r:Role {slug: $slug})-[:INHERITS_FROM]->(parent:Role)
     RETURN parent
     """
@@ -140,11 +140,11 @@ async def list_role_users(
     Raises:
         fastapi.HTTPException: HTTP 404 if role not found.
     """
-    query = """
+    query: typing.LiteralString = """
     MATCH (r:Role {slug: $slug})
     OPTIONAL MATCH (u:User)-[m:MEMBER_OF]->(o:Organization)
     WHERE m.role = $slug
-    RETURN r, collect(u) AS users
+    RETURN r, collect(DISTINCT u) AS users
     """
     async with neo4j.run(query, slug=slug) as result:
         records = await result.data()
@@ -290,7 +290,7 @@ async def grant_permission(
         )
 
     # Create GRANTS relationship
-    query = """
+    query: typing.LiteralString = """
     MATCH (role:Role {slug: $slug})
     MATCH (perm:Permission {name: $permission_name})
     MERGE (role)-[:GRANTS]->(perm)
@@ -331,7 +331,7 @@ async def revoke_permission(
         )
 
     # Delete GRANTS relationship
-    query = """
+    query: typing.LiteralString = """
     MATCH (role:Role {slug: $slug})-[r:GRANTS]->
           (perm:Permission {name: $permission_name})
     DELETE r

@@ -241,10 +241,25 @@ class BootstrapAuthSystemTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['permissions'], 0)
         self.assertEqual(result['roles'], 0)
 
-    def test_bootstrap_result_has_no_group_key(self) -> None:
+    async def test_bootstrap_result_has_no_group_key(self) -> None:
         """Verify bootstrap result does not contain group key."""
-        # This is a structural test - group key was removed
-        self.assertNotIn('group', {'organization', 'permissions', 'roles'})
+        with (
+            mock.patch(
+                'imbi_api.auth.seed.seed_default_organization',
+                return_value=True,
+            ),
+            mock.patch(
+                'imbi_api.auth.seed.seed_permissions',
+                return_value=0,
+            ),
+            mock.patch(
+                'imbi_api.auth.seed.seed_default_roles',
+                return_value=0,
+            ),
+        ):
+            result = await seed.bootstrap_auth_system()
+
+        self.assertNotIn('group', result)
 
 
 class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):

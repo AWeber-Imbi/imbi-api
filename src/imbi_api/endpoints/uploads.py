@@ -127,7 +127,17 @@ async def create_upload(
         created_at=datetime.datetime.now(datetime.UTC),
     )
 
-    await neo4j.upsert(upload_model, {'id': upload_id})
+    try:
+        await neo4j.upsert(upload_model, {'id': upload_id})
+    except Exception:
+        LOGGER.exception(
+            'Failed to save upload metadata for %s, rolling back S3 objects',
+            upload_id,
+        )
+        await storage.delete(s3_key)
+        if thumbnail_s3_key:
+            await storage.delete(thumbnail_s3_key)
+        raise
 
     LOGGER.info(
         'Upload %s created by %s (%s, %d bytes)',
@@ -142,7 +152,7 @@ async def create_upload(
 
 @uploads_router.get('/')
 async def list_uploads(
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('upload:read')),
     ],
@@ -178,7 +188,7 @@ async def list_uploads(
 @uploads_router.get('/{upload_id}')
 async def get_upload(
     upload_id: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('upload:read')),
     ],
@@ -212,7 +222,7 @@ async def get_upload(
 @uploads_router.get('/{upload_id}/meta')
 async def get_upload_meta(
     upload_id: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('upload:read')),
     ],
@@ -238,7 +248,7 @@ async def get_upload_meta(
 @uploads_router.get('/{upload_id}/thumbnail')
 async def get_upload_thumbnail(
     upload_id: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('upload:read')),
     ],

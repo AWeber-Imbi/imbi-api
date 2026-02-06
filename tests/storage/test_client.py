@@ -99,6 +99,8 @@ class StorageClientOperationsTestCase(
         """Test downloading bytes from S3."""
         mock_body = mock.AsyncMock()
         mock_body.read.return_value = b'file-data'
+        mock_body.__aenter__.return_value = mock_body
+        mock_body.__aexit__.return_value = None
         mock_s3 = mock.AsyncMock()
         mock_s3.get_object.return_value = {'Body': mock_body}
 

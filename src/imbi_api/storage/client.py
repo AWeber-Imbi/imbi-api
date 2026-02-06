@@ -106,7 +106,8 @@ class StorageClient:
                 Bucket=self._settings.bucket,
                 Key=key,
             )
-            data: bytes = await response['Body'].read()
+            async with response['Body'] as body:
+                data: bytes = await body.read()
         LOGGER.debug('Downloaded %s (%d bytes)', key, len(data))
         return data
 
@@ -172,7 +173,15 @@ class StorageClient:
                     self._settings.bucket,
                 )
             except botocore_exceptions.ClientError:
-                await s3.create_bucket(
-                    Bucket=self._settings.bucket,
-                )
+                params: dict[str, typing.Any] = {
+                    'Bucket': self._settings.bucket,
+                }
+                if (
+                    self._settings.region
+                    and self._settings.region != 'us-east-1'
+                ):
+                    params['CreateBucketConfiguration'] = {
+                        'LocationConstraint': self._settings.region,
+                    }
+                await s3.create_bucket(**params)
                 LOGGER.info('Created bucket %s', self._settings.bucket)
