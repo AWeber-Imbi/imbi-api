@@ -205,11 +205,11 @@ async def update_blueprint(
             f'blueprint data ({blueprint.type!r})',
         )
 
-    stored = await neo4j.fetch_node(
-        models.Blueprint, {'slug': slug, 'type': blueprint_type}
+    await neo4j.upsert(
+        blueprint,
+        {'slug': slug, 'type': blueprint_type},
+        auto_increment=['version'],
     )
-    blueprint.version = ((stored.version or 0) + 1) if stored else 1
-    await neo4j.upsert(blueprint, {'slug': slug, 'type': blueprint_type})
     return blueprint
 
 
