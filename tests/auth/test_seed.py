@@ -202,7 +202,7 @@ class BootstrapAuthSystemTestCase(unittest.IsolatedAsyncioTestCase):
             ) as mock_org,
             mock.patch(
                 'imbi_api.auth.seed.seed_permissions',
-                return_value=24,
+                return_value=len(seed.STANDARD_PERMISSIONS),
             ) as mock_perms,
             mock.patch(
                 'imbi_api.auth.seed.seed_default_roles',
@@ -216,7 +216,10 @@ class BootstrapAuthSystemTestCase(unittest.IsolatedAsyncioTestCase):
         mock_roles.assert_called_once()
 
         self.assertTrue(result['organization'])
-        self.assertEqual(result['permissions'], 24)
+        self.assertEqual(
+            result['permissions'],
+            len(seed.STANDARD_PERMISSIONS),
+        )
         self.assertEqual(result['roles'], 3)
 
     async def test_bootstrap_auth_system_idempotent(self) -> None:

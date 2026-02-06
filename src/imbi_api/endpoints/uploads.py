@@ -311,12 +311,12 @@ async def delete_upload(
             detail=f'Upload {upload_id!r} not found',
         )
 
-    # Delete S3 objects
+    # Delete Neo4j node first to avoid broken metadata on S3 failure
+    await neo4j.delete_node(models.Upload, {'id': upload_id})
+
+    # Delete S3 objects (orphans can be cleaned up later if this fails)
     await storage.delete(upload.s3_key)
     if upload.thumbnail_s3_key:
         await storage.delete(upload.thumbnail_s3_key)
-
-    # Delete Neo4j node
-    await neo4j.delete_node(models.Upload, {'id': upload_id})
 
     LOGGER.info('Upload %s deleted by %s', upload_id, auth.user.email)

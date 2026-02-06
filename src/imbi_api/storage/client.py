@@ -19,7 +19,7 @@ class StorageClient:
 
     """
 
-    _instance: typing.ClassVar[typing.Optional['StorageClient']] = None
+    _instance: typing.ClassVar['StorageClient | None'] = None
     _lock: typing.ClassVar[asyncio.Lock] = asyncio.Lock()
 
     def __init__(self) -> None:
