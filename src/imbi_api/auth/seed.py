@@ -1,6 +1,7 @@
 """Permission and role seeding for authentication system."""
 
 import logging
+import typing
 
 from imbi_common import models, neo4j
 
@@ -209,16 +210,24 @@ async def seed_default_organization() -> bool:
         already existed.
 
     """
-    query = """
-    OPTIONAL MATCH (existing:Organization {slug: 'default'})
+    query: typing.LiteralString = """
+    OPTIONAL MATCH (existing:Organization {slug: $slug})
     WITH existing IS NULL AS is_new
-    MERGE (o:Organization {slug: 'default'})
+    MERGE (o:Organization {slug: $slug})
     ON CREATE SET
-        o.name = 'Default',
-        o.description = 'Default organization'
+        o.name = $name,
+        o.description = $description
+    ON MATCH SET
+        o.name = $name,
+        o.description = $description
     RETURN o, is_new
     """
-    async with neo4j.run(query) as result:
+    async with neo4j.run(
+        query,
+        slug='default',
+        name='Default',
+        description='Default organization',
+    ) as result:
         records = await result.data()
         created = bool(records and records[0].get('is_new'))
 
@@ -242,19 +251,27 @@ async def seed_default_group() -> bool:
         existed.
 
     """
-    query = """
-    OPTIONAL MATCH (existing:Group {slug: 'users'})
-    WITH existing IS NULL AS is_new
-    MERGE (g:Group {slug: 'users'})
+    query: typing.LiteralString = """
+    MATCH (o:Organization {slug: $org_slug})
+    OPTIONAL MATCH (existing:Group {slug: $group_slug})
+    WITH o, existing IS NULL AS is_new
+    MERGE (g:Group {slug: $group_slug})
     ON CREATE SET
-        g.name = 'Users',
-        g.description = 'Default users group'
-    WITH g, is_new
-    MATCH (o:Organization {slug: 'default'})
+        g.name = $group_name,
+        g.description = $group_description
+    ON MATCH SET
+        g.name = $group_name,
+        g.description = $group_description
     MERGE (g)-[:MANAGED_BY]->(o)
     RETURN g, is_new
     """
-    async with neo4j.run(query) as result:
+    async with neo4j.run(
+        query,
+        org_slug='default',
+        group_slug='users',
+        group_name='Users',
+        group_description='Default users group',
+    ) as result:
         records = await result.data()
         created = bool(records and records[0].get('is_new'))
 

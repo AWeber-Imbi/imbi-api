@@ -121,7 +121,9 @@ async def _setup_async() -> None:
                 return
 
         # Step 1: Seed permissions, roles, org, and group
-        typer.echo('Step 1: Seeding permissions and roles...')
+        typer.echo(
+            'Step 1: Seeding permissions, roles, organization, and group...'
+        )
         seed_result = await seed.bootstrap_auth_system()
 
         if seed_result['permissions'] > 0 or seed_result['roles'] > 0:
