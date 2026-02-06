@@ -120,7 +120,7 @@ async def _setup_async() -> None:
                 typer.echo('Setup cancelled.')
                 return
 
-        # Step 1: Seed permissions and roles
+        # Step 1: Seed permissions, roles, org, and group
         typer.echo('Step 1: Seeding permissions and roles...')
         seed_result = await seed.bootstrap_auth_system()
 
@@ -134,6 +134,16 @@ async def _setup_async() -> None:
                 '  ✓ Permissions and roles already exist '
                 '(no new entities created)'
             )
+
+        if seed_result['organization']:
+            typer.echo('  ✓ Created default organization')
+        else:
+            typer.echo('  ✓ Default organization already exists')
+
+        if seed_result['group']:
+            typer.echo('  ✓ Created default users group')
+        else:
+            typer.echo('  ✓ Default users group already exists')
 
         # Step 2: Create admin user
         typer.echo('\nStep 2: Create initial admin user')

@@ -199,33 +199,108 @@ async def seed_default_roles() -> int:
     return created_count
 
 
-async def bootstrap_auth_system() -> dict[str, int]:
-    """
-    Complete bootstrap of the authentication system.
+async def seed_default_organization() -> bool:
+    """Seed the default organization.
 
-    Seeds permissions, creates default roles, and establishes their
-    relationships. This operation is idempotent and can be run multiple
-    times safely.
+    Creates a 'Default' organization using MERGE to ensure idempotency.
 
     Returns:
-        dict[str, int]: Summary of created entities with keys:
+        True if the organization was newly created, False if it
+        already existed.
+
+    """
+    query = """
+    OPTIONAL MATCH (existing:Organization {slug: 'default'})
+    WITH existing IS NULL AS is_new
+    MERGE (o:Organization {slug: 'default'})
+    ON CREATE SET
+        o.name = 'Default',
+        o.description = 'Default organization'
+    RETURN o, is_new
+    """
+    async with neo4j.run(query) as result:
+        records = await result.data()
+        created = bool(records and records[0].get('is_new'))
+
+    if created:
+        LOGGER.info('Created default organization')
+    else:
+        LOGGER.info('Default organization already exists')
+    return created
+
+
+async def seed_default_group() -> bool:
+    """Seed the default 'Users' group within the default organization.
+
+    Creates a 'Users' group and links it to the default organization
+    via a MANAGED_BY relationship. Uses MERGE for idempotency.
+
+    The default organization must exist before calling this function.
+
+    Returns:
+        True if the group was newly created, False if it already
+        existed.
+
+    """
+    query = """
+    OPTIONAL MATCH (existing:Group {slug: 'users'})
+    WITH existing IS NULL AS is_new
+    MERGE (g:Group {slug: 'users'})
+    ON CREATE SET
+        g.name = 'Users',
+        g.description = 'Default users group'
+    WITH g, is_new
+    MATCH (o:Organization {slug: 'default'})
+    MERGE (g)-[:MANAGED_BY]->(o)
+    RETURN g, is_new
+    """
+    async with neo4j.run(query) as result:
+        records = await result.data()
+        created = bool(records and records[0].get('is_new'))
+
+    if created:
+        LOGGER.info('Created default users group')
+    else:
+        LOGGER.info('Default users group already exists')
+    return created
+
+
+async def bootstrap_auth_system() -> dict[str, int | bool]:
+    """Complete bootstrap of the authentication system.
+
+    Seeds permissions, creates default roles, the default organization,
+    and the default users group. This operation is idempotent and can
+    be run multiple times safely.
+
+    Returns:
+        dict with keys:
             - 'permissions': Number of permissions created
             - 'roles': Number of roles created
+            - 'organization': Whether the default org was created
+            - 'group': Whether the default group was created
+
     """
     LOGGER.info('Starting authentication system bootstrap')
 
-    # Seed permissions first
     permissions_created = await seed_permissions()
-
-    # Seed default roles and their permission relationships
     roles_created = await seed_default_roles()
+    org_created = await seed_default_organization()
+    group_created = await seed_default_group()
 
-    result = {'permissions': permissions_created, 'roles': roles_created}
+    result: dict[str, int | bool] = {
+        'permissions': permissions_created,
+        'roles': roles_created,
+        'organization': org_created,
+        'group': group_created,
+    }
 
     LOGGER.info(
-        'Bootstrap complete: %d permissions, %d roles',
+        'Bootstrap complete: %d permissions, %d roles, '
+        'org created=%s, group created=%s',
         permissions_created,
         roles_created,
+        org_created,
+        group_created,
     )
 
     return result
