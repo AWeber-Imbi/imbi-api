@@ -994,7 +994,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/aweber-imbi/imbi-common.git" },
+    { name = "imbi-common", git = "https://github.com/aweber-imbi/imbi-common.git?rev=feature%2Fstorage-settings" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'otel'" },
@@ -1039,7 +1039,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/aweber-imbi/imbi-common.git#75683a006629c921546ac6c92b9ca4d454a2771a" }
+source = { git = "https://github.com/aweber-imbi/imbi-common.git?rev=feature%2Fstorage-settings#2c9c6edd7d84a34d401a31f48b527910835dad7c" }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "clickhouse-connect" },
