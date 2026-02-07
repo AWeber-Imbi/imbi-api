@@ -221,12 +221,24 @@ async def update_team(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    await neo4j.upsert(team, {'slug': slug})
+    # Build property SET from model fields, excluding relationship
+    props = team.model_dump(exclude={'organization'})
 
-    # Return updated team with organization
+    update_query: typing.LiteralString = """
+    MATCH (t:Team {slug: $slug})-[:BELONGS_TO]->(o:Organization)
+    SET t = $props
+    RETURN t{.*, organization: o{.*}} AS team
+    """
+    async with neo4j.run(
+        update_query,
+        slug=slug,
+        props=props,
+    ) as result:
+        updated = await result.data()
+
     return typing.cast(
         dict[str, typing.Any],
-        team.model_dump(),
+        updated[0]['team'],
     )
 
 

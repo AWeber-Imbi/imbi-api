@@ -274,7 +274,17 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_run = self._mock_team_run(team_data)
+        updated_data = {
+            'name': 'Backend Services',
+            'slug': 'backend',
+            'description': 'Updated description',
+            'organization': {
+                'name': 'Engineering',
+                'slug': 'engineering',
+            },
+        }
+        fetch_result = self._mock_team_run(team_data)
+        update_result = self._mock_team_run(updated_data)
 
         with (
             mock.patch(
@@ -282,11 +292,8 @@ class TeamEndpointsTestCase(unittest.TestCase):
             ) as mock_get_model,
             mock.patch(
                 'imbi_common.neo4j.run',
-                return_value=mock_run,
+                side_effect=[fetch_result, update_result],
             ),
-            mock.patch(
-                'imbi_common.neo4j.upsert',
-            ) as mock_upsert,
         ):
             mock_get_model.return_value = models.Team
 
@@ -302,7 +309,6 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['name'], 'Backend Services')
-        mock_upsert.assert_called_once()
 
     def test_update_team_slug_rename(self) -> None:
         """Test updating with different slug renames it."""
@@ -315,7 +321,16 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_run = self._mock_team_run(team_data)
+        updated_data = {
+            'name': 'Backend',
+            'slug': 'new-slug',
+            'organization': {
+                'name': 'Engineering',
+                'slug': 'engineering',
+            },
+        }
+        fetch_result = self._mock_team_run(team_data)
+        update_result = self._mock_team_run(updated_data)
 
         with (
             mock.patch(
@@ -323,11 +338,8 @@ class TeamEndpointsTestCase(unittest.TestCase):
             ) as mock_get_model,
             mock.patch(
                 'imbi_common.neo4j.run',
-                return_value=mock_run,
-            ),
-            mock.patch(
-                'imbi_common.neo4j.upsert',
-            ) as mock_upsert,
+                side_effect=[fetch_result, update_result],
+            ) as mock_run,
         ):
             mock_get_model.return_value = models.Team
 
@@ -340,10 +352,11 @@ class TeamEndpointsTestCase(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 200)
-            mock_upsert.assert_called_once()
+            # Second call is the update query with the old slug
+            update_call = mock_run.call_args_list[1]
             self.assertEqual(
-                mock_upsert.call_args[0][1],
-                {'slug': 'backend'},
+                update_call.kwargs['slug'],
+                'backend',
             )
 
     def test_update_team_not_found(self) -> None:
