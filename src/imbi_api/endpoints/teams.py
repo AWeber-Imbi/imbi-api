@@ -6,6 +6,7 @@ import typing
 import fastapi
 import pydantic
 from imbi_common import blueprints, models, neo4j
+from neo4j import exceptions
 
 from imbi_api.auth import permissions
 
@@ -74,12 +75,18 @@ async def create_team(
     CREATE (t)-[:BELONGS_TO]->(o)
     RETURN t{.*, organization: o{.*}} AS team
     """
-    async with neo4j.run(
-        query,
-        org_slug=org_slug,
-        props=props,
-    ) as result:
-        records = await result.data()
+    try:
+        async with neo4j.run(
+            query,
+            org_slug=org_slug,
+            props=props,
+        ) as result:
+            records = await result.data()
+    except exceptions.ConstraintError as e:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(f'Team with slug {props["slug"]!r} already exists'),
+        ) from e
 
     if not records:
         raise fastapi.HTTPException(
@@ -229,12 +236,18 @@ async def update_team(
     SET t = $props
     RETURN t{.*, organization: o{.*}} AS team
     """
-    async with neo4j.run(
-        update_query,
-        slug=slug,
-        props=props,
-    ) as result:
-        updated = await result.data()
+    try:
+        async with neo4j.run(
+            update_query,
+            slug=slug,
+            props=props,
+        ) as result:
+            updated = await result.data()
+    except exceptions.ConstraintError as e:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(f'Team with slug {data["slug"]!r} already exists'),
+        ) from e
 
     return typing.cast(
         dict[str, typing.Any],

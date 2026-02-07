@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
+from neo4j import exceptions
 
 from imbi_api import app, models
 
@@ -173,6 +174,32 @@ class TeamEndpointsTestCase(unittest.TestCase):
             'Validation error',
             response.json()['detail'],
         )
+
+    def test_create_team_slug_conflict(self) -> None:
+        """Test creating team with a slug that already exists."""
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=exceptions.ConstraintError(),
+            ),
+        ):
+            mock_get_model.return_value = models.Team
+
+            response = self.client.post(
+                '/teams/',
+                json={
+                    'name': 'Backend',
+                    'slug': 'backend',
+                    'description': 'Backend team',
+                    'organization_slug': 'engineering',
+                },
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('already exists', response.json()['detail'])
 
     def test_list_teams(self) -> None:
         """Test listing all teams."""
@@ -358,6 +385,44 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 update_call.kwargs['slug'],
                 'backend',
             )
+
+    def test_update_team_slug_conflict(self) -> None:
+        """Test updating team with a slug that already exists."""
+        team_data = {
+            'name': 'Backend',
+            'slug': 'backend',
+            'description': 'Backend team',
+            'organization': {
+                'name': 'Engineering',
+                'slug': 'engineering',
+            },
+        }
+        fetch_result = self._mock_team_run(team_data)
+
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=[
+                    fetch_result,
+                    exceptions.ConstraintError(),
+                ],
+            ),
+        ):
+            mock_get_model.return_value = models.Team
+
+            response = self.client.put(
+                '/teams/backend',
+                json={
+                    'name': 'Backend',
+                    'slug': 'existing-slug',
+                },
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('already exists', response.json()['detail'])
 
     def test_update_team_not_found(self) -> None:
         """Test updating nonexistent team."""
