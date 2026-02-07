@@ -213,25 +213,27 @@ class UploadEndpointsTestCase(unittest.TestCase):
         )
 
     @mock.patch('imbi_api.endpoints.uploads.storage')
-    def test_get_upload_redirect(self, mock_storage) -> None:
-        """Test getting upload returns 307 redirect."""
-        mock_storage.presigned_url = mock.AsyncMock(
-            return_value='https://s3.example.com/signed',
+    def test_get_upload_serves_content(self, mock_storage) -> None:
+        """Test getting upload serves file content."""
+        mock_storage.download = mock.AsyncMock(
+            return_value=b'file-data',
         )
 
         with mock.patch(
             'imbi_common.neo4j.fetch_node',
             return_value=self.test_upload,
         ):
-            response = self.client.get(
-                '/uploads/test-uuid-1234',
-                follow_redirects=False,
-            )
+            response = self.client.get('/uploads/test-uuid-1234')
 
-        self.assertEqual(response.status_code, 307)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'file-data')
         self.assertEqual(
-            response.headers['location'],
-            'https://s3.example.com/signed',
+            response.headers['content-type'],
+            'image/png',
+        )
+        self.assertIn(
+            'max-age=3600',
+            response.headers['cache-control'],
         )
 
     def test_get_upload_not_found(self) -> None:
@@ -261,10 +263,10 @@ class UploadEndpointsTestCase(unittest.TestCase):
         self.assertTrue(data['has_thumbnail'])
 
     @mock.patch('imbi_api.endpoints.uploads.storage')
-    def test_get_thumbnail_redirect(self, mock_storage) -> None:
-        """Test getting thumbnail returns 307 redirect."""
-        mock_storage.presigned_url = mock.AsyncMock(
-            return_value='https://s3.example.com/thumb-signed',
+    def test_get_thumbnail_serves_content(self, mock_storage) -> None:
+        """Test getting thumbnail serves image content."""
+        mock_storage.download = mock.AsyncMock(
+            return_value=b'thumb-data',
         )
 
         with mock.patch(
@@ -273,10 +275,18 @@ class UploadEndpointsTestCase(unittest.TestCase):
         ):
             response = self.client.get(
                 '/uploads/test-uuid-1234/thumbnail',
-                follow_redirects=False,
             )
 
-        self.assertEqual(response.status_code, 307)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'thumb-data')
+        self.assertEqual(
+            response.headers['content-type'],
+            'image/webp',
+        )
+        self.assertIn(
+            'max-age=3600',
+            response.headers['cache-control'],
+        )
 
     def test_get_thumbnail_no_thumbnail(self) -> None:
         """Test getting thumbnail when none exists returns 404."""

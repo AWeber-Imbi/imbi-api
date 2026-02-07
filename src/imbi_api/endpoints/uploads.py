@@ -188,15 +188,13 @@ async def list_uploads(
 @uploads_router.get('/{upload_id}')
 async def get_upload(
     upload_id: str,
-    _auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(permissions.require_permission('upload:read')),
-    ],
-) -> fastapi.responses.RedirectResponse:
-    """Redirect to a presigned S3 URL for the uploaded file.
+) -> fastapi.responses.Response:
+    """Serve the uploaded file.
+
+    Pulls the file through from S3 and serves it directly.
 
     Returns:
-        307 redirect to the presigned URL.
+        The file content with appropriate content type.
 
     Raises:
         404: If the upload does not exist.
@@ -212,20 +210,17 @@ async def get_upload(
             detail=f'Upload {upload_id!r} not found',
         )
 
-    url = await storage.presigned_url(upload.s3_key)
-    return fastapi.responses.RedirectResponse(
-        url=url,
-        status_code=307,
+    data = await storage.download(upload.s3_key)
+    return fastapi.responses.Response(
+        content=data,
+        media_type=upload.content_type,
+        headers={'Cache-Control': 'public, max-age=3600'},
     )
 
 
 @uploads_router.get('/{upload_id}/meta')
 async def get_upload_meta(
     upload_id: str,
-    _auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(permissions.require_permission('upload:read')),
-    ],
 ) -> UploadResponse:
     """Return upload metadata as JSON.
 
@@ -248,15 +243,13 @@ async def get_upload_meta(
 @uploads_router.get('/{upload_id}/thumbnail')
 async def get_upload_thumbnail(
     upload_id: str,
-    _auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(permissions.require_permission('upload:read')),
-    ],
-) -> fastapi.responses.RedirectResponse:
-    """Redirect to a presigned S3 URL for the thumbnail.
+) -> fastapi.responses.Response:
+    """Serve the upload thumbnail.
+
+    Pulls the thumbnail through from S3 and serves it directly.
 
     Returns:
-        307 redirect to the presigned thumbnail URL.
+        The thumbnail image as image/webp.
 
     Raises:
         404: If the upload does not exist or has no thumbnail.
@@ -277,10 +270,11 @@ async def get_upload_thumbnail(
             detail=f'Upload {upload_id!r} has no thumbnail',
         )
 
-    url = await storage.presigned_url(upload.thumbnail_s3_key)
-    return fastapi.responses.RedirectResponse(
-        url=url,
-        status_code=307,
+    data = await storage.download(upload.thumbnail_s3_key)
+    return fastapi.responses.Response(
+        content=data,
+        media_type='image/webp',
+        headers={'Cache-Control': 'public, max-age=3600'},
     )
 
 
