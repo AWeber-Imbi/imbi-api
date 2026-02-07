@@ -281,18 +281,42 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['name'], 'Backend Services')
         mock_upsert.assert_called_once()
 
-    def test_update_team_slug_mismatch(self) -> None:
-        """Test updating with mismatched slugs."""
-        response = self.client.put(
-            '/teams/backend',
-            json={
+    def test_update_team_slug_rename(self) -> None:
+        """Test updating with different slug renames it."""
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.fetch_node',
+            ) as mock_fetch,
+            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+        ):
+            mock_model = mock.MagicMock()
+            mock_model.return_value = mock_model
+            mock_model.model_dump.return_value = {
                 'name': 'Backend',
-                'slug': 'different-slug',
-            },
-        )
+                'slug': 'new-slug',
+                'organization': 'default',
+            }
+            mock_model.organization = 'default'
+            mock_get_model.return_value = mock_model
+            mock_fetch.return_value = mock_model
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('must match', response.json()['detail'])
+            response = self.client.put(
+                '/teams/backend',
+                json={
+                    'name': 'Backend',
+                    'slug': 'new-slug',
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            mock_upsert.assert_called_once()
+            self.assertEqual(
+                mock_upsert.call_args[0][1],
+                {'slug': 'backend'},
+            )
 
     def test_update_team_not_found(self) -> None:
         """Test updating nonexistent team."""

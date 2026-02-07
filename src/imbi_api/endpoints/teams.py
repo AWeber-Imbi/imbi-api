@@ -181,15 +181,9 @@ async def update_team(
         404: Team not found
 
     """
-    if 'slug' in data and data['slug'] != slug:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Slug in URL ({slug!r}) must match slug '
-                f'in body ({data["slug"]!r})'
-            ),
-        )
-    data['slug'] = slug
+    # If no slug in body, default to the URL slug (no rename)
+    if 'slug' not in data:
+        data['slug'] = slug
 
     # Remove organization_slug if present (not updatable)
     data.pop('organization_slug', None)
