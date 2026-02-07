@@ -249,6 +249,12 @@ async def update_team(
             detail=(f'Team with slug {data["slug"]!r} already exists'),
         ) from e
 
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Team with slug {slug!r} not found',
+        )
+
     return typing.cast(
         dict[str, typing.Any],
         updated[0]['team'],

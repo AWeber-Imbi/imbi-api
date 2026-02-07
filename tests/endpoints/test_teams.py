@@ -424,6 +424,42 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn('already exists', response.json()['detail'])
 
+    def test_update_team_concurrent_delete(self) -> None:
+        """Test updating a team that is deleted between fetch and update."""
+        team_data = {
+            'name': 'Backend',
+            'slug': 'backend',
+            'description': 'Backend team',
+            'organization': {
+                'name': 'Engineering',
+                'slug': 'engineering',
+            },
+        }
+        fetch_result = self._mock_team_run(team_data)
+        empty_result = self._mock_team_run(None)
+
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=[fetch_result, empty_result],
+            ),
+        ):
+            mock_get_model.return_value = models.Team
+
+            response = self.client.put(
+                '/teams/backend',
+                json={
+                    'name': 'Backend Updated',
+                    'slug': 'backend',
+                },
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('not found', response.json()['detail'])
+
     def test_update_team_not_found(self) -> None:
         """Test updating nonexistent team."""
         mock_run = self._mock_team_run(None)
