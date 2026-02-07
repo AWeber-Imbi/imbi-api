@@ -6,6 +6,7 @@ import typing
 import uuid
 
 import fastapi
+from botocore import exceptions as botocore_exceptions
 from imbi_common import models, neo4j, settings
 
 from imbi_api import storage
@@ -210,7 +211,15 @@ async def get_upload(
             detail=f'Upload {upload_id!r} not found',
         )
 
-    data = await storage.download(upload.s3_key)
+    try:
+        data = await storage.download(upload.s3_key)
+    except botocore_exceptions.ClientError as err:
+        if err.response.get('Error', {}).get('Code') == 'NoSuchKey':
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail=f'Upload {upload_id!r} content not found',
+            ) from err
+        raise
     return fastapi.responses.Response(
         content=data,
         media_type=upload.content_type,
@@ -270,7 +279,15 @@ async def get_upload_thumbnail(
             detail=f'Upload {upload_id!r} has no thumbnail',
         )
 
-    data = await storage.download(upload.thumbnail_s3_key)
+    try:
+        data = await storage.download(upload.thumbnail_s3_key)
+    except botocore_exceptions.ClientError as err:
+        if err.response.get('Error', {}).get('Code') == 'NoSuchKey':
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail=(f'Upload {upload_id!r} thumbnail not found'),
+            ) from err
+        raise
     return fastapi.responses.Response(
         content=data,
         media_type='image/webp',

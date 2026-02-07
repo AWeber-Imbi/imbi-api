@@ -19,7 +19,7 @@ organizations_router = fastapi.APIRouter(
 @organizations_router.post('/', status_code=201)
 async def create_organization(
     org: models.Organization,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
             permissions.require_permission('organization:create'),
@@ -50,7 +50,7 @@ async def create_organization(
 
 @organizations_router.get('/')
 async def list_organizations(
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
             permissions.require_permission('organization:read'),
@@ -75,7 +75,7 @@ async def list_organizations(
 @organizations_router.get('/{slug}')
 async def get_organization(
     slug: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
             permissions.require_permission('organization:read'),
@@ -110,7 +110,7 @@ async def get_organization(
 async def update_organization(
     slug: str,
     org: models.Organization,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
             permissions.require_permission('organization:update'),
@@ -128,6 +128,7 @@ async def update_organization(
 
     Raises:
         404: Organization not found.
+        409: Slug rename conflicts with existing organization.
 
     """
     existing = await neo4j.fetch_node(
@@ -140,7 +141,13 @@ async def update_organization(
             detail=f'Organization with slug {slug!r} not found',
         )
 
-    await neo4j.upsert(org, {'slug': slug})
+    try:
+        await neo4j.upsert(org, {'slug': slug})
+    except exceptions.ConstraintError as e:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(f'Organization with slug {org.slug!r} already exists'),
+        ) from e
     return org
 
 
@@ -189,7 +196,7 @@ async def list_organization_members(
 @organizations_router.delete('/{slug}', status_code=204)
 async def delete_organization(
     slug: str,
-    auth: typing.Annotated[
+    _auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
             permissions.require_permission('organization:delete'),

@@ -221,6 +221,36 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
                 {'slug': 'engineering'},
             )
 
+    def test_update_organization_slug_conflict(self) -> None:
+        """Test slug rename conflict returns 409."""
+        with (
+            mock.patch(
+                'imbi_common.neo4j.fetch_node',
+            ) as mock_fetch,
+            mock.patch(
+                'imbi_common.neo4j.upsert',
+            ) as mock_upsert,
+        ):
+            mock_fetch.return_value = self.test_org
+            mock_upsert.side_effect = exceptions.ConstraintError(
+                'Duplicate',
+            )
+
+            response = self.client.put(
+                '/organizations/engineering',
+                json={
+                    'name': 'Engineering',
+                    'slug': 'existing-slug',
+                    'description': 'Test',
+                },
+            )
+
+            self.assertEqual(response.status_code, 409)
+            self.assertIn(
+                'already exists',
+                response.json()['detail'],
+            )
+
     def test_update_organization_not_found(self) -> None:
         """Test updating non-existent organization."""
         with mock.patch(

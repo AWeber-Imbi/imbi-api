@@ -236,6 +236,35 @@ class UploadEndpointsTestCase(unittest.TestCase):
             response.headers['cache-control'],
         )
 
+    @mock.patch('imbi_api.endpoints.uploads.storage')
+    def test_get_upload_s3_missing(self, mock_storage) -> None:
+        """Test getting upload when S3 object is missing returns 404."""
+        from botocore import exceptions as botocore_exceptions
+
+        mock_storage.download = mock.AsyncMock(
+            side_effect=botocore_exceptions.ClientError(
+                {
+                    'Error': {
+                        'Code': 'NoSuchKey',
+                        'Message': 'Not found',
+                    },
+                },
+                'GetObject',
+            ),
+        )
+
+        with mock.patch(
+            'imbi_common.neo4j.fetch_node',
+            return_value=self.test_upload,
+        ):
+            response = self.client.get('/uploads/test-uuid-1234')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(
+            'content not found',
+            response.json()['detail'],
+        )
+
     def test_get_upload_not_found(self) -> None:
         """Test getting non-existent upload returns 404."""
         with mock.patch(
@@ -286,6 +315,37 @@ class UploadEndpointsTestCase(unittest.TestCase):
         self.assertIn(
             'max-age=3600',
             response.headers['cache-control'],
+        )
+
+    @mock.patch('imbi_api.endpoints.uploads.storage')
+    def test_get_thumbnail_s3_missing(self, mock_storage) -> None:
+        """Test getting thumbnail when S3 object is missing."""
+        from botocore import exceptions as botocore_exceptions
+
+        mock_storage.download = mock.AsyncMock(
+            side_effect=botocore_exceptions.ClientError(
+                {
+                    'Error': {
+                        'Code': 'NoSuchKey',
+                        'Message': 'Not found',
+                    },
+                },
+                'GetObject',
+            ),
+        )
+
+        with mock.patch(
+            'imbi_common.neo4j.fetch_node',
+            return_value=self.test_upload,
+        ):
+            response = self.client.get(
+                '/uploads/test-uuid-1234/thumbnail',
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(
+            'thumbnail not found',
+            response.json()['detail'],
         )
 
     def test_get_thumbnail_no_thumbnail(self) -> None:
