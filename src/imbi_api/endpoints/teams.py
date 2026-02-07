@@ -190,20 +190,25 @@ async def update_team(
 
     dynamic_model = await blueprints.get_model(models.Team)
 
-    # First check the team exists
-    existing = await neo4j.fetch_node(
-        dynamic_model,
-        {'slug': slug},
-    )
-    if existing is None:
+    # Fetch team with its organization relationship
+    query: typing.LiteralString = """
+    MATCH (t:Team {slug: $slug})-[:BELONGS_TO]->(o:Organization)
+    RETURN t{.*, organization: o{.*}} AS team
+    """
+    async with neo4j.run(query, slug=slug) as result:
+        records = await result.data()
+
+    if not records:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Team with slug {slug!r} not found',
         )
 
+    existing = records[0]['team']
+
     try:
         team = dynamic_model(
-            organization=existing.organization,
+            organization=existing['organization'],
             **data,
         )
     except pydantic.ValidationError as e:
