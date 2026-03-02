@@ -43,12 +43,14 @@ async def create_project_type(
         409: Project type with slug already exists
 
     """
-    org_slug = data.pop('organization_slug', None)
+    payload = dict(data)
+    org_slug = payload.pop('organization_slug', None)
     if not org_slug:
         raise fastapi.HTTPException(
             status_code=400,
             detail='organization_slug is required',
         )
+    payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(
         models.ProjectType,
@@ -60,7 +62,7 @@ async def create_project_type(
                 name='',
                 slug=org_slug,
             ),
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -204,10 +206,12 @@ async def update_project_type(
         404: Project type not found
 
     """
-    if 'slug' not in data:
-        data['slug'] = slug
+    payload = dict(data)
+    if 'slug' not in payload:
+        payload['slug'] = slug
 
-    data.pop('organization_slug', None)
+    payload.pop('organization_slug', None)
+    payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(
         models.ProjectType,
@@ -232,7 +236,7 @@ async def update_project_type(
     try:
         project_type = dynamic_model(
             organization=existing['organization'],
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -264,7 +268,9 @@ async def update_project_type(
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=(f'Project type with slug {data["slug"]!r} already exists'),
+            detail=(
+                f'Project type with slug {payload["slug"]!r} already exists'
+            ),
         ) from e
 
     if not updated:

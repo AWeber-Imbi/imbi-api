@@ -43,12 +43,14 @@ async def create_environment(
         409: Environment with slug already exists
 
     """
-    org_slug = data.pop('organization_slug', None)
+    payload = dict(data)
+    org_slug = payload.pop('organization_slug', None)
     if not org_slug:
         raise fastapi.HTTPException(
             status_code=400,
             detail='organization_slug is required',
         )
+    payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(models.Environment)
 
@@ -58,7 +60,7 @@ async def create_environment(
                 name='',
                 slug=org_slug,
             ),
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -197,10 +199,12 @@ async def update_environment(
         404: Environment not found
 
     """
-    if 'slug' not in data:
-        data['slug'] = slug
+    payload = dict(data)
+    if 'slug' not in payload:
+        payload['slug'] = slug
 
-    data.pop('organization_slug', None)
+    payload.pop('organization_slug', None)
+    payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(models.Environment)
 
@@ -222,7 +226,7 @@ async def update_environment(
     try:
         environment = dynamic_model(
             organization=existing['organization'],
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -251,7 +255,9 @@ async def update_environment(
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=(f'Environment with slug {data["slug"]!r} already exists'),
+            detail=(
+                f'Environment with slug {payload["slug"]!r} already exists'
+            ),
         ) from e
 
     if not updated:
