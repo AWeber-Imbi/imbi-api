@@ -129,6 +129,7 @@ async def _handle_list_blueprints(
            b.type AS type, b.description AS description,
            b.enabled AS enabled
     ORDER BY b.type, b.name
+    LIMIT 100
     """
     async with neo4j.run(query, **query_params) as result:
         records = await result.data()
@@ -155,6 +156,7 @@ async def _handle_list_teams(
            t.description AS description,
            o.name AS organization
     ORDER BY o.name, t.name
+    LIMIT 100
     """
     async with neo4j.run(query) as result:
         records = await result.data()
@@ -321,43 +323,24 @@ TOOLS: dict[str, ToolDefinition] = {
 def get_tools_for_user(
     user_permissions: set[str],
     is_admin: bool,
-) -> list[dict[str, typing.Any]]:
-    """Get tool schemas available to a user.
+) -> tuple[list[dict[str, typing.Any]], list[str]]:
+    """Get tool schemas and names available to a user.
 
     Args:
         user_permissions: Set of permission names the user has.
         is_admin: Whether the user is an admin.
 
     Returns:
-        List of tool schema dicts for the Anthropic API.
+        Tuple of (tool schemas, tool names).
 
     """
-    tools = []
-    for tool_def in TOOLS.values():
-        if is_admin or tool_def.required_permission in user_permissions:
-            tools.append(tool_def.schema)
-    return tools
-
-
-def get_tool_names_for_user(
-    user_permissions: set[str],
-    is_admin: bool,
-) -> list[str]:
-    """Get tool names available to a user.
-
-    Args:
-        user_permissions: Set of permission names the user has.
-        is_admin: Whether the user is an admin.
-
-    Returns:
-        List of tool names.
-
-    """
-    names = []
+    schemas: list[dict[str, typing.Any]] = []
+    names: list[str] = []
     for name, tool_def in TOOLS.items():
         if is_admin or tool_def.required_permission in user_permissions:
+            schemas.append(tool_def.schema)
             names.append(name)
-    return names
+    return schemas, names
 
 
 async def execute_tool(

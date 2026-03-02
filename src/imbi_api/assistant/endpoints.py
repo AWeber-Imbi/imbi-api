@@ -1,5 +1,6 @@
 """FastAPI endpoints for the AI assistant."""
 
+import asyncio
 import json
 import logging
 import typing
@@ -324,8 +325,7 @@ async def _stream_response(
         # Handle tool use loop
         if state['stop_reason'] == 'tool_use' and tool_use_blocks:
             results = await _execute_tools(tool_use_blocks, auth)
-            for r in results:
-                tool_result_blocks.append(r)
+            tool_result_blocks.extend(results)
 
             _append_tool_messages(
                 api_messages,
@@ -333,10 +333,12 @@ async def _stream_response(
                 tool_use_blocks,
                 results,
             )
+            # Reset text for the next iteration
+            state['text'] = ''
             tool_use_blocks = []
             continue
 
-        # Done streaming; save and finish
+        # Done streaming; save assistant message
         msg = await neo4j_ops.add_message(
             conversation_id=conversation_id,
             role='assistant',
@@ -346,6 +348,16 @@ async def _stream_response(
             token_usage=(state['usage'] if state['usage'] else None),
         )
 
+        # Emit done event immediately (title gen is async)
+        yield _sse_event(
+            'done',
+            {
+                'message_id': msg.id,
+                'usage': state['usage'],
+            },
+        )
+
+        # Generate title after done event, non-blocking
         if is_first_exchange and state['text']:
             title = await _generate_title(
                 api_client,
@@ -356,14 +368,7 @@ async def _stream_response(
             await neo4j_ops.update_conversation_title(
                 conversation_id, auth.user.email, title
             )
-
-        yield _sse_event(
-            'done',
-            {
-                'message_id': msg.id,
-                'usage': state['usage'],
-            },
-        )
+            yield _sse_event('title_updated', {'title': title})
         return
 
 
@@ -371,20 +376,19 @@ async def _execute_tools(
     tool_blocks: list[dict[str, typing.Any]],
     auth: permissions.AuthContext,
 ) -> list[dict[str, typing.Any]]:
-    """Execute tool calls and return results."""
-    results: list[dict[str, typing.Any]] = []
-    for block in tool_blocks:
-        result_text = await tools.execute_tool(
-            block['name'], block['input'], auth
-        )
-        results.append(
-            {
-                'type': 'tool_result',
-                'tool_use_id': block['id'],
-                'content': result_text,
-            }
-        )
-    return results
+    """Execute tool calls concurrently and return results."""
+    tasks = [
+        tools.execute_tool(b['name'], b['input'], auth) for b in tool_blocks
+    ]
+    texts = await asyncio.gather(*tasks)
+    return [
+        {
+            'type': 'tool_result',
+            'tool_use_id': block['id'],
+            'content': text,
+        }
+        for block, text in zip(tool_blocks, texts, strict=True)
+    ]
 
 
 def _append_tool_messages(
@@ -443,11 +447,12 @@ async def send_message(
             status_code=404, detail='Conversation not found'
         )
 
-    # Check conversation turn limit
+    # Check turn limit using count query (avoids loading
+    # all messages just to count them)
     assistant_settings = settings.get_assistant_settings()
-    existing = await neo4j_ops.get_messages(conversation_id)
+    msg_count = await neo4j_ops.count_messages(conversation_id)
     max_turns = assistant_settings.max_conversation_turns
-    if len(existing) >= max_turns:
+    if msg_count >= max_turns:
         raise fastapi.HTTPException(
             status_code=400,
             detail=(
@@ -463,15 +468,15 @@ async def send_message(
         content=body.content,
     )
 
-    # Build API messages from conversation history
+    # Build API messages from conversation history (single
+    # fetch, includes the user message just saved)
     all_msgs = await neo4j_ops.get_messages(conversation_id)
     api_messages: list[dict[str, typing.Any]] = [
         {'role': m.role, 'content': m.content} for m in all_msgs
     ]
 
-    # Build tools and system prompt
-    user_tools = tools.get_tools_for_user(auth.permissions, auth.user.is_admin)
-    tool_names = tools.get_tool_names_for_user(
+    # Build tools and system prompt (single pass)
+    user_tools, tool_names = tools.get_tools_for_user(
         auth.permissions, auth.user.is_admin
     )
     system = system_prompt.build_system_prompt(auth, tool_names)

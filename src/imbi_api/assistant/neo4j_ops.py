@@ -1,6 +1,7 @@
 """Neo4j operations for AI assistant conversations and messages."""
 
 import datetime
+import json
 import logging
 import typing
 import uuid
@@ -167,18 +168,46 @@ async def add_message(
 
     """
     now = datetime.datetime.now(datetime.UTC)
+    msg_id = str(uuid.uuid4())
 
-    # Get next sequence number
-    seq_query = """
-    MATCH (m:Message {conversation_id: $conversation_id})
-    RETURN count(m) AS count
+    # Atomic: count existing messages and create new one in a
+    # single query to avoid sequence number race conditions
+    query = """
+    MATCH (c:Conversation {id: $conversation_id})
+    OPTIONAL MATCH (c)-[:CONTAINS]->(existing:Message)
+    WITH c, count(existing) AS seq
+    CREATE (m:Message {
+        id: $id,
+        conversation_id: $conversation_id,
+        role: $role,
+        content: $content,
+        tool_use: $tool_use,
+        tool_results: $tool_results,
+        created_at: datetime($created_at),
+        sequence: seq,
+        token_usage: $token_usage
+    })
+    CREATE (c)-[:CONTAINS]->(m)
+    SET c.updated_at = datetime($created_at)
+    RETURN m.sequence AS sequence
     """
-    async with neo4j.run(seq_query, conversation_id=conversation_id) as result:
+    async with neo4j.run(
+        query,
+        id=msg_id,
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        tool_use=json.dumps(tool_use) if tool_use else None,
+        tool_results=(json.dumps(tool_results) if tool_results else None),
+        created_at=now.isoformat(),
+        token_usage=(json.dumps(token_usage) if token_usage else None),
+    ) as result:
         records = await result.data()
-    sequence = records[0]['count'] if records else 0
 
-    message = models.Message(
-        id=str(uuid.uuid4()),
+    sequence = records[0]['sequence'] if records else 0
+
+    return models.Message(
+        id=msg_id,
         conversation_id=conversation_id,
         role=role,
         content=content,
@@ -188,42 +217,6 @@ async def add_message(
         sequence=sequence,
         token_usage=token_usage,
     )
-
-    # Create message node and link to conversation
-    query = """
-    MATCH (c:Conversation {id: $conversation_id})
-    CREATE (m:Message {
-        id: $id,
-        conversation_id: $conversation_id,
-        role: $role,
-        content: $content,
-        tool_use: $tool_use,
-        tool_results: $tool_results,
-        created_at: datetime($created_at),
-        sequence: $sequence,
-        token_usage: $token_usage
-    })
-    CREATE (c)-[:CONTAINS]->(m)
-    SET c.updated_at = datetime($created_at)
-    RETURN m
-    """
-    import json
-
-    async with neo4j.run(
-        query,
-        id=message.id,
-        conversation_id=conversation_id,
-        role=role,
-        content=content,
-        tool_use=json.dumps(tool_use) if tool_use else None,
-        tool_results=(json.dumps(tool_results) if tool_results else None),
-        created_at=now.isoformat(),
-        sequence=sequence,
-        token_usage=(json.dumps(token_usage) if token_usage else None),
-    ) as result:
-        await result.consume()
-
-    return message
 
 
 async def get_messages(
@@ -254,8 +247,6 @@ async def get_messages(
     ) as result:
         records = await result.data()
 
-    import json
-
     for record in records:
         data = neo4j.convert_neo4j_types(record['m'])
         # Deserialize JSON strings back to Python objects
@@ -264,6 +255,25 @@ async def get_messages(
                 data[field] = json.loads(data[field])
         messages.append(models.Message(**data))
     return messages
+
+
+async def count_messages(conversation_id: str) -> int:
+    """Count messages in a conversation.
+
+    Args:
+        conversation_id: UUID of the conversation.
+
+    Returns:
+        The number of messages.
+
+    """
+    query = """
+    MATCH (m:Message {conversation_id: $conversation_id})
+    RETURN count(m) AS count
+    """
+    async with neo4j.run(query, conversation_id=conversation_id) as result:
+        records = await result.data()
+    return records[0]['count'] if records else 0
 
 
 async def update_conversation_title(

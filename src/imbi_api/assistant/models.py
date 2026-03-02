@@ -19,7 +19,7 @@ class Conversation(pydantic.BaseModel):
     title: str | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
-    model: str = 'claude-sonnet-4-20250514'
+    model: str
     is_archived: bool = False
 
 
