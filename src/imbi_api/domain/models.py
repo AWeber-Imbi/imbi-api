@@ -241,7 +241,10 @@ class TOTPSecret(pydantic.BaseModel):
             encryptor: TokenEncryption instance for encrypting
 
         """
-        self.secret = encryptor.encrypt(plaintext_secret) or ''
+        encrypted = encryptor.encrypt(plaintext_secret)
+        if encrypted is None:
+            raise ValueError('Failed to encrypt TOTP secret')
+        self.secret = encrypted
 
     def get_decrypted_secret(
         self,

@@ -1,6 +1,8 @@
 """API-specific Neo4j indexes for auth and upload models."""
 
-INDEXES: list[str] = [
+import typing
+
+INDEXES: list[typing.LiteralString] = [
     # Users
     'CREATE CONSTRAINT user_username_unique IF NOT EXISTS '
     'FOR (n:User) REQUIRE n.username IS UNIQUE;',
