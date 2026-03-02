@@ -935,6 +935,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
     { name = "aiohttp" },
+    { name = "argon2-cffi" },
     { name = "authlib" },
     { name = "fastapi" },
     { name = "filetype" },
@@ -990,11 +991,12 @@ docs = [
 requires-dist = [
     { name = "aioboto3", specifier = ">=15.5.0" },
     { name = "aiohttp" },
+    { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "authlib", specifier = ">=1.6.6" },
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/aweber-imbi/imbi-common.git?rev=main" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fslim-shared-models" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'otel'" },
@@ -1039,9 +1041,8 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/aweber-imbi/imbi-common.git?rev=main#e8bab790f63eedfb30324e22e94fe25001ec9f37" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fslim-shared-models#4ce0418c1483bc953a1ee7ea3b7a2ff0f660492b" }
 dependencies = [
-    { name = "argon2-cffi" },
     { name = "clickhouse-connect" },
     { name = "cryptography" },
     { name = "cypherantic" },
