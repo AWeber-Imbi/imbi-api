@@ -125,11 +125,21 @@ class OAuthIdentity(pydantic.BaseModel):
 
         Returns:
             Tuple of (access_token, refresh_token) in plaintext
+
+        Raises:
+            ValueError: If decryption fails for a non-None token.
         """
-        return (
-            encryptor.decrypt(self.access_token),
-            encryptor.decrypt(self.refresh_token),
-        )
+        access_token: str | None = None
+        refresh_token: str | None = None
+        if self.access_token is not None:
+            access_token = encryptor.decrypt(self.access_token)
+            if access_token is None:
+                raise ValueError('Failed to decrypt OAuth access token')
+        if self.refresh_token is not None:
+            refresh_token = encryptor.decrypt(self.refresh_token)
+            if refresh_token is None:
+                raise ValueError('Failed to decrypt OAuth refresh token')
+        return (access_token, refresh_token)
 
 
 class MembershipProperties(pydantic.BaseModel):
