@@ -3,6 +3,8 @@
 import datetime
 import unittest
 
+import pydantic
+
 from imbi_api.assistant import models
 
 
@@ -91,6 +93,18 @@ class MessageModelTestCase(unittest.TestCase):
             },
         )
 
+    def test_message_invalid_role(self) -> None:
+        """Test Message rejects invalid role."""
+        now = datetime.datetime.now(datetime.UTC)
+        with self.assertRaises(pydantic.ValidationError):
+            models.Message(
+                conversation_id='conv-123',
+                role='invalid_role',
+                content='Hello',
+                created_at=now,
+                sequence=0,
+            )
+
 
 class RequestModelTestCase(unittest.TestCase):
     """Test cases for request models."""
@@ -111,6 +125,16 @@ class RequestModelTestCase(unittest.TestCase):
         """Test SendMessageRequest validation."""
         req = models.SendMessageRequest(content='Hello assistant')
         self.assertEqual(req.content, 'Hello assistant')
+
+    def test_send_message_request_empty_content(self) -> None:
+        """Test SendMessageRequest rejects empty content."""
+        with self.assertRaises(pydantic.ValidationError):
+            models.SendMessageRequest(content='')
+
+    def test_send_message_request_content_too_long(self) -> None:
+        """Test SendMessageRequest rejects content over max length."""
+        with self.assertRaises(pydantic.ValidationError):
+            models.SendMessageRequest(content='x' * 32769)
 
     def test_update_conversation_request(self) -> None:
         """Test UpdateConversationRequest."""

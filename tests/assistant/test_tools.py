@@ -191,10 +191,11 @@ class HandleListProjectsTestCase(unittest.IsolatedAsyncioTestCase):
             await tools._handle_list_projects(
                 {'name_filter': 'test', 'limit': 10}, auth
             )
-            # Verify the query was called with name_filter param
+            # Verify keyword arguments passed to neo4j.run
             mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args
-            self.assertIn('name_filter', str(call_kwargs))
+            call_kwargs = mock_run.call_args.kwargs
+            self.assertEqual(call_kwargs['name_filter'], 'test')
+            self.assertEqual(call_kwargs['limit'], 10)
 
     async def test_limit_capped(self) -> None:
         """Test that limit is capped at 100."""
@@ -208,9 +209,8 @@ class HandleListProjectsTestCase(unittest.IsolatedAsyncioTestCase):
 
             await tools._handle_list_projects({'limit': 500}, auth)
             # The limit param should be capped at 100
-            call_kwargs = mock_run.call_args
-            # limit=100 should be in the kwargs
-            self.assertIn('limit', str(call_kwargs))
+            call_kwargs = mock_run.call_args.kwargs
+            self.assertEqual(call_kwargs['limit'], 100)
 
 
 class HandleGetProjectTestCase(unittest.IsolatedAsyncioTestCase):
@@ -319,6 +319,8 @@ class HandleListBlueprintsTestCase(unittest.IsolatedAsyncioTestCase):
 
             await tools._handle_list_blueprints({'type': 'Team'}, auth)
             mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            self.assertEqual(call_kwargs['type'], 'Team')
 
 
 class HandleListTeamsTestCase(unittest.IsolatedAsyncioTestCase):

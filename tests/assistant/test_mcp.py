@@ -52,9 +52,7 @@ class CreateMCPManagerTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         settings._assistant_settings = None
-
-    def tearDown(self) -> None:
-        settings._assistant_settings = None
+        self.addCleanup(setattr, settings, '_assistant_settings', None)
 
     @mock.patch.dict(os.environ, {}, clear=True)
     def test_create_mcp_manager_default(self) -> None:

@@ -2,10 +2,36 @@
 
 import datetime
 import json
+import re
 import unittest
 from unittest import mock
 
 from imbi_api.assistant import models, neo4j_ops
+
+
+def _make_neo4j_ctx(
+    data: list | None = None,
+    consume: bool = False,
+) -> mock.AsyncMock:
+    """Create a mock async context manager for neo4j.run().
+
+    Args:
+        data: Value for ctx.data() if provided. If None and
+            consume is False, defaults to empty list.
+        consume: If True, set up ctx.consume() instead of data().
+
+    Returns:
+        A mock suitable for use as ``mock_run.return_value``.
+
+    """
+    ctx = mock.AsyncMock()
+    ctx.__aenter__.return_value = ctx
+    ctx.__aexit__.return_value = None
+    if consume:
+        ctx.consume.return_value = None
+    else:
+        ctx.data.return_value = data if data is not None else []
+    return ctx
 
 
 class CreateConversationTestCase(unittest.IsolatedAsyncioTestCase):
@@ -14,11 +40,7 @@ class CreateConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_create_conversation(self) -> None:
         """Test creating a new conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.consume.return_value = None
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx(consume=True)
 
             conv = await neo4j_ops.create_conversation(
                 user_email='test@example.com',
@@ -42,11 +64,7 @@ class GetConversationTestCase(unittest.IsolatedAsyncioTestCase):
             mock.patch('imbi_common.neo4j.run') as mock_run,
             mock.patch('imbi_common.neo4j.convert_neo4j_types') as mc,
         ):
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'c': {'raw': 'data'}}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'c': {'raw': 'data'}}])
             mc.return_value = {
                 'id': 'conv-123',
                 'user_email': 'test@example.com',
@@ -66,11 +84,7 @@ class GetConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_conversation_not_found(self) -> None:
         """Test getting a nonexistent conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             conv = await neo4j_ops.get_conversation(
                 'missing', 'test@example.com'
@@ -84,11 +98,7 @@ class ListConversationsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_list_empty(self) -> None:
         """Test listing with no conversations."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             convs = await neo4j_ops.list_conversations('test@example.com')
             self.assertEqual(convs, [])
@@ -100,14 +110,12 @@ class ListConversationsTestCase(unittest.IsolatedAsyncioTestCase):
             mock.patch('imbi_common.neo4j.run') as mock_run,
             mock.patch('imbi_common.neo4j.convert_neo4j_types') as mc,
         ):
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [
-                {'c': {'raw': 'data1'}},
-                {'c': {'raw': 'data2'}},
-            ]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx(
+                [
+                    {'c': {'raw': 'data1'}},
+                    {'c': {'raw': 'data2'}},
+                ]
+            )
             mc.side_effect = [
                 {
                     'id': 'conv-1',
@@ -135,11 +143,7 @@ class ListConversationsTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_include_archived(self) -> None:
         """Test listing with archived conversations."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             await neo4j_ops.list_conversations(
                 'test@example.com', include_archived=True
@@ -147,7 +151,11 @@ class ListConversationsTestCase(unittest.IsolatedAsyncioTestCase):
             # Check the query does not filter archived
             call_args = mock_run.call_args
             query = call_args[0][0]
-            self.assertNotIn('is_archived = false', query)
+            self.assertIsNone(
+                re.search(r'is_archived\s*=\s*false', query, re.IGNORECASE),
+                'Query should not filter on is_archived when '
+                'include_archived=True',
+            )
 
 
 class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
@@ -156,11 +164,7 @@ class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_add_user_message(self) -> None:
         """Test adding a user message."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'sequence': 0}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'sequence': 0}])
 
             msg = await neo4j_ops.add_message(
                 conversation_id='conv-123',
@@ -179,11 +183,7 @@ class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
         token_usage = {'input_tokens': 100, 'output_tokens': 50}
 
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'sequence': 1}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'sequence': 1}])
 
             msg = await neo4j_ops.add_message(
                 conversation_id='conv-123',
@@ -200,15 +200,17 @@ class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
             # Verify JSON serialization was used for neo4j params
             call_kwargs = mock_run.call_args[1]
             self.assertEqual(call_kwargs['tool_use'], json.dumps(tool_use))
+            self.assertEqual(
+                call_kwargs['tool_results'], json.dumps(tool_results)
+            )
+            self.assertEqual(
+                call_kwargs['token_usage'], json.dumps(token_usage)
+            )
 
     async def test_add_message_missing_conversation(self) -> None:
         """Test add_message raises ValueError for missing conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             with self.assertRaises(ValueError) as ctx:
                 await neo4j_ops.add_message(
@@ -225,11 +227,7 @@ class GetMessagesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_get_empty_messages(self) -> None:
         """Test getting messages from empty conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             msgs = await neo4j_ops.get_messages('conv-123')
             self.assertEqual(msgs, [])
@@ -241,11 +239,7 @@ class GetMessagesTestCase(unittest.IsolatedAsyncioTestCase):
             mock.patch('imbi_common.neo4j.run') as mock_run,
             mock.patch('imbi_common.neo4j.convert_neo4j_types') as mc,
         ):
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'m': {'raw': 'data'}}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'m': {'raw': 'data'}}])
             mc.return_value = {
                 'id': 'msg-1',
                 'conversation_id': 'conv-123',
@@ -277,11 +271,7 @@ class CountMessagesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_count_messages(self) -> None:
         """Test counting messages."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'count': 5}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'count': 5}])
 
             count = await neo4j_ops.count_messages('conv-123')
             self.assertEqual(count, 5)
@@ -289,11 +279,7 @@ class CountMessagesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_count_messages_empty(self) -> None:
         """Test counting messages when no records."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             count = await neo4j_ops.count_messages('conv-123')
             self.assertEqual(count, 0)
@@ -305,11 +291,7 @@ class UpdateConversationTitleTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_update_title_success(self) -> None:
         """Test updating a conversation title."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'id': 'conv-123'}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'id': 'conv-123'}])
 
             result = await neo4j_ops.update_conversation_title(
                 'conv-123', 'test@example.com', 'New Title'
@@ -319,11 +301,7 @@ class UpdateConversationTitleTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_update_title_not_found(self) -> None:
         """Test updating title for nonexistent conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             result = await neo4j_ops.update_conversation_title(
                 'missing', 'test@example.com', 'New Title'
@@ -337,11 +315,7 @@ class ArchiveConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_archive_success(self) -> None:
         """Test archiving a conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'id': 'conv-123'}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'id': 'conv-123'}])
 
             result = await neo4j_ops.archive_conversation(
                 'conv-123', 'test@example.com'
@@ -351,11 +325,7 @@ class ArchiveConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_archive_not_found(self) -> None:
         """Test archiving nonexistent conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             result = await neo4j_ops.archive_conversation(
                 'missing', 'test@example.com'
@@ -369,11 +339,7 @@ class DeleteConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_delete_success(self) -> None:
         """Test deleting a conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'deleted': 1}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'deleted': 1}])
 
             result = await neo4j_ops.delete_conversation(
                 'conv-123', 'test@example.com'
@@ -383,11 +349,7 @@ class DeleteConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_delete_not_found(self) -> None:
         """Test deleting nonexistent conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = [{'deleted': 0}]
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx([{'deleted': 0}])
 
             result = await neo4j_ops.delete_conversation(
                 'missing', 'test@example.com'
@@ -397,11 +359,7 @@ class DeleteConversationTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_delete_empty_records(self) -> None:
         """Test delete with no records returned."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
-            mock_ctx = mock.AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_ctx
-            mock_ctx.__aexit__.return_value = None
-            mock_ctx.data.return_value = []
-            mock_run.return_value = mock_ctx
+            mock_run.return_value = _make_neo4j_ctx()
 
             result = await neo4j_ops.delete_conversation(
                 'missing', 'test@example.com'

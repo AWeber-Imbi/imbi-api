@@ -692,13 +692,7 @@ class SendMessageEndpointTestCase(unittest.IsolatedAsyncioTestCase):
         client._client = self._original_client
         settings._assistant_settings = None
 
-    @mock.patch(
-        'imbi_api.assistant.neo4j_ops.get_conversation',
-    )
-    async def test_send_message_assistant_unavailable(
-        self,
-        mock_get: mock.AsyncMock,
-    ) -> None:
+    async def test_send_message_assistant_unavailable(self) -> None:
         """Test sending message when assistant is unavailable."""
         client._client = None
         auth = _make_auth()
