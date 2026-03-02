@@ -996,7 +996,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fslim-shared-models" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'otel'" },
     { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'otel'" },
@@ -1041,7 +1041,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fslim-shared-models#4ce0418c1483bc953a1ee7ea3b7a2ff0f660492b" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main#481bcafba11b10c4483e0af336c3993e937a51a9" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "cryptography" },
