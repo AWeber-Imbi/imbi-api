@@ -42,7 +42,7 @@ class ClientInitializeTestCase(unittest.IsolatedAsyncioTestCase):
     @mock.patch('anthropic.AsyncAnthropic')
     @mock.patch.dict(
         os.environ,
-        {'IMBI_ASSISTANT_API_KEY': 'sk-test-key'},
+        {'ANTHROPIC_API_KEY': 'sk-test-key'},
         clear=True,
     )
     async def test_initialize_success(
@@ -57,7 +57,7 @@ class ClientInitializeTestCase(unittest.IsolatedAsyncioTestCase):
     @mock.patch('anthropic.AsyncAnthropic')
     @mock.patch.dict(
         os.environ,
-        {'IMBI_ASSISTANT_API_KEY': 'sk-test-key'},
+        {'ANTHROPIC_API_KEY': 'sk-test-key'},
         clear=True,
     )
     async def test_aclose(self, mock_anthropic: mock.MagicMock) -> None:
@@ -101,7 +101,7 @@ class GetClientTestCase(unittest.IsolatedAsyncioTestCase):
     @mock.patch('anthropic.AsyncAnthropic')
     @mock.patch.dict(
         os.environ,
-        {'IMBI_ASSISTANT_API_KEY': 'sk-test'},
+        {'ANTHROPIC_API_KEY': 'sk-test'},
         clear=True,
     )
     async def test_get_client_returns_client(

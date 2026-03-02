@@ -27,7 +27,7 @@ async def initialize() -> None:
     if not assistant_settings.api_key:
         LOGGER.warning(
             'AI assistant enabled but no API key configured '
-            '(set IMBI_ASSISTANT_API_KEY or ANTHROPIC_API_KEY)'
+            '(set ANTHROPIC_API_KEY)'
         )
         return
 
@@ -60,7 +60,7 @@ def get_client() -> anthropic.AsyncAnthropic:
         raise RuntimeError(
             'AI assistant client not initialized. '
             'Check that IMBI_ASSISTANT_ENABLED=true '
-            'and IMBI_ASSISTANT_API_KEY or ANTHROPIC_API_KEY is set.'
+            'and ANTHROPIC_API_KEY is set.'
         )
     return _client
 

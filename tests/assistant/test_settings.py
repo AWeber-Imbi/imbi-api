@@ -33,7 +33,7 @@ class AssistantSettingsTestCase(unittest.TestCase):
 
     @mock.patch.dict(
         os.environ,
-        {'IMBI_ASSISTANT_API_KEY': 'sk-test-123'},
+        {'ANTHROPIC_API_KEY': 'sk-test-123'},
         clear=True,
     )
     def test_auto_enable_with_api_key(self) -> None:
@@ -43,19 +43,6 @@ class AssistantSettingsTestCase(unittest.TestCase):
         )
         self.assertTrue(s.enabled)
         self.assertEqual(s.api_key, 'sk-test-123')
-
-    @mock.patch.dict(
-        os.environ,
-        {'ANTHROPIC_API_KEY': 'sk-fallback-456'},
-        clear=True,
-    )
-    def test_fallback_to_anthropic_api_key(self) -> None:
-        """Test fallback to ANTHROPIC_API_KEY env var."""
-        s = settings.Assistant(
-            _env_file=None,  # type: ignore[call-arg]
-        )
-        self.assertEqual(s.api_key, 'sk-fallback-456')
-        self.assertTrue(s.enabled)
 
     @mock.patch.dict(os.environ, {}, clear=True)
     def test_disabled_without_api_key(self) -> None:
@@ -69,7 +56,7 @@ class AssistantSettingsTestCase(unittest.TestCase):
     @mock.patch.dict(
         os.environ,
         {
-            'IMBI_ASSISTANT_API_KEY': 'sk-test',
+            'ANTHROPIC_API_KEY': 'sk-test',
             'IMBI_ASSISTANT_ENABLED': 'true',
         },
         clear=True,

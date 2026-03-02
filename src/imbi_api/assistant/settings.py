@@ -19,7 +19,6 @@ class Assistant(pydantic_settings.BaseSettings):
     )
 
     enabled: bool = False
-    api_key: str | None = None
     model: str = 'claude-sonnet-4-20250514'
     max_tokens: int = 4096
     max_conversation_turns: int = 100
@@ -28,12 +27,14 @@ class Assistant(pydantic_settings.BaseSettings):
         default_factory=list,
     )
 
+    @property
+    def api_key(self) -> str | None:
+        """Read the API key from ANTHROPIC_API_KEY."""
+        return os.environ.get('ANTHROPIC_API_KEY')
+
     @pydantic.model_validator(mode='after')
-    def resolve_api_key_and_enabled(self) -> 'Assistant':
-        """Fall back to ANTHROPIC_API_KEY and auto-enable."""
-        if not self.api_key:
-            self.api_key = os.environ.get('ANTHROPIC_API_KEY')
-        # Auto-enable when an API key is available
+    def auto_enable(self) -> 'Assistant':
+        """Auto-enable when an API key is available."""
         if self.api_key and not self.enabled:
             self.enabled = True
         return self
