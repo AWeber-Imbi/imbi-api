@@ -97,9 +97,22 @@ class OAuthIdentity(pydantic.BaseModel):
             access: Plaintext access token from OAuth provider
             refresh: Plaintext refresh token from OAuth provider
             encryptor: TokenEncryption instance for encrypting tokens
+
+        Raises:
+            ValueError: If encryption fails for a non-None token.
         """
-        self.access_token = encryptor.encrypt(access)
-        self.refresh_token = encryptor.encrypt(refresh)
+        encrypted_access = (
+            encryptor.encrypt(access) if access is not None else None
+        )
+        encrypted_refresh = (
+            encryptor.encrypt(refresh) if refresh is not None else None
+        )
+        if access is not None and encrypted_access is None:
+            raise ValueError('Failed to encrypt OAuth access token')
+        if refresh is not None and encrypted_refresh is None:
+            raise ValueError('Failed to encrypt OAuth refresh token')
+        self.access_token = encrypted_access
+        self.refresh_token = encrypted_refresh
 
     def get_decrypted_tokens(
         self,
