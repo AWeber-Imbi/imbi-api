@@ -15,6 +15,7 @@ from imbi_api import (
     storage,
     version,
 )
+from imbi_api.assistant import client as assistant_client
 from imbi_api.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
@@ -30,15 +31,23 @@ async def fastapi_lifespan(
         neo4j.initialize(),
         email.initialize(),
         storage.initialize(),
+        assistant_client.initialize(),
         return_exceptions=True,
     )
 
-    service_names = ['ClickHouse', 'Neo4j', 'Email', 'Storage']
+    service_names = [
+        'ClickHouse',
+        'Neo4j',
+        'Email',
+        'Storage',
+        'Assistant',
+    ]
     close_fns = [
         clickhouse.aclose,
         neo4j.aclose,
         email.aclose,
         storage.aclose,
+        assistant_client.aclose,
     ]
 
     # Check if ClickHouse init returned False (failure without exception)
@@ -54,9 +63,19 @@ async def fastapi_lifespan(
             await asyncio.gather(*cleanup_tasks, return_exceptions=True)
         raise RuntimeError('ClickHouse initialization failed')
 
+    # Services that are non-fatal on init failure
+    non_fatal_services = {'Assistant'}
+
     # Check for initialization failures (exceptions)
     for i, result in enumerate(init_results):
         if isinstance(result, Exception):
+            if service_names[i] in non_fatal_services:
+                LOGGER.warning(
+                    '%s initialization failed (non-fatal): %s',
+                    service_names[i],
+                    result,
+                )
+                continue
             LOGGER.error(
                 '%s initialization failed: %s',
                 service_names[i],
@@ -101,10 +120,17 @@ async def fastapi_lifespan(
         clickhouse.aclose(),
         email.aclose(),
         storage.aclose(),
+        assistant_client.aclose(),
         return_exceptions=True,
     )
     # Log any shutdown failures but don't raise
-    shutdown_names = ['Neo4j', 'ClickHouse', 'Email', 'Storage']
+    shutdown_names = [
+        'Neo4j',
+        'ClickHouse',
+        'Email',
+        'Storage',
+        'Assistant',
+    ]
     for i, result in enumerate(shutdown_results):
         if isinstance(result, Exception):
             LOGGER.warning(

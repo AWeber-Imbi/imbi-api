@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
   "aioboto3>=15.5.0",
   "aiohttp",
+  "anthropic>=0.49.0",
   "argon2-cffi>=25.1.0",
   "authlib>=1.6.6",
   "filetype",
