@@ -27,7 +27,7 @@ async def initialize() -> None:
     if not assistant_settings.api_key:
         LOGGER.warning(
             'AI assistant enabled but no API key configured '
-            '(set IMBI_ASSISTANT_API_KEY)'
+            '(set IMBI_ASSISTANT_API_KEY or ANTHROPIC_API_KEY)'
         )
         return
 

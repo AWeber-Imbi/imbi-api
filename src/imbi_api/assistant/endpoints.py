@@ -154,6 +154,29 @@ async def update_conversation(
 # --- SSE Streaming ---
 
 
+def _build_api_message(
+    msg: assistant_models.Message,
+) -> dict[str, typing.Any]:
+    """Reconstruct Anthropic API message format with tool blocks."""
+    if msg.role == 'assistant' and msg.tool_use:
+        content: list[dict[str, typing.Any]] = []
+        if msg.content:
+            content.append({'type': 'text', 'text': msg.content})
+        content.extend(
+            {
+                'type': 'tool_use',
+                'id': tb['id'],
+                'name': tb['name'],
+                'input': tb['input'],
+            }
+            for tb in msg.tool_use
+        )
+        return {'role': 'assistant', 'content': content}
+    if msg.role == 'user' and msg.tool_results:
+        return {'role': 'user', 'content': msg.tool_results}
+    return {'role': msg.role, 'content': msg.content}
+
+
 def _sse_event(event_type: str, data: typing.Any) -> str:
     """Format an SSE event string."""
     return f'event: {event_type}\ndata: {json.dumps(data)}\n\n'
@@ -474,7 +497,7 @@ async def send_message(
     # fetch, includes the user message just saved)
     all_msgs = await neo4j_ops.get_messages(conversation_id)
     api_messages: list[dict[str, typing.Any]] = [
-        {'role': m.role, 'content': m.content} for m in all_msgs
+        _build_api_message(m) for m in all_msgs
     ]
 
     # Build tools and system prompt (single pass)

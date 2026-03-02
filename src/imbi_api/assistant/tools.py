@@ -32,14 +32,13 @@ async def _handle_list_projects(
     limit = max(1, min(params.get('limit', 25), 100))
     name_filter = params.get('name_filter', '')
 
-    where_clause = ''
-    if name_filter:
-        where_clause = 'WHERE toLower(p.name) CONTAINS toLower($name_filter)'
-
-    query = f"""
+    query: typing.LiteralString = """
     MATCH (p:Project)-[:OWNED_BY]->(t:Team)
     OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
-    {where_clause}
+    WHERE (
+        $name_filter = '' OR
+        toLower(p.name) CONTAINS toLower($name_filter)
+    )
     RETURN p.name AS name, p.slug AS slug,
            p.description AS description,
            t.name AS team,
@@ -47,11 +46,9 @@ async def _handle_list_projects(
     ORDER BY p.name
     LIMIT $limit
     """
-    query_params: dict[str, typing.Any] = {'limit': limit}
-    if name_filter:
-        query_params['name_filter'] = name_filter
-
-    async with neo4j.run(query, **query_params) as result:
+    async with neo4j.run(
+        query, limit=limit, name_filter=name_filter
+    ) as result:
         records = await result.data()
 
     if not records:
@@ -116,22 +113,18 @@ async def _handle_list_blueprints(
     auth: permissions.AuthContext,
 ) -> str:
     """List blueprints."""
-    bp_type = params.get('type')
-    where = 'WHERE b.type = $type' if bp_type else ''
-    query_params: dict[str, typing.Any] = {}
-    if bp_type:
-        query_params['type'] = bp_type
+    bp_type = params.get('type', '')
 
-    query = f"""
+    query: typing.LiteralString = """
     MATCH (b:Blueprint)
-    {where}
+    WHERE ($type = '' OR b.type = $type)
     RETURN b.name AS name, b.slug AS slug,
            b.type AS type, b.description AS description,
            b.enabled AS enabled
     ORDER BY b.type, b.name
     LIMIT 100
     """
-    async with neo4j.run(query, **query_params) as result:
+    async with neo4j.run(query, type=bp_type) as result:
         records = await result.data()
 
     if not records:
@@ -179,16 +172,17 @@ async def _handle_list_users(
     limit = max(1, min(params.get('limit', 25), 100))
     active_only = params.get('active_only', True)
 
-    where = 'WHERE u.is_active = true' if active_only else ''
-    query = f"""
+    query: typing.LiteralString = """
     MATCH (u:User)
-    {where}
+    WHERE ($active_only = false OR u.is_active = true)
     RETURN u.email AS email, u.display_name AS display_name,
            u.is_admin AS is_admin, u.is_active AS is_active
     ORDER BY u.display_name
     LIMIT $limit
     """
-    async with neo4j.run(query, limit=limit) as result:
+    async with neo4j.run(
+        query, limit=limit, active_only=active_only
+    ) as result:
         records = await result.data()
 
     if not records:
