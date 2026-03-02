@@ -75,9 +75,11 @@ async def list_conversations(
     include_archived: bool = False,
 ) -> list[assistant_models.ConversationResponse]:
     """List the current user's conversations."""
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     convs = await neo4j_ops.list_conversations(
         user_email=auth.user.email,
-        limit=min(limit, 100),
+        limit=limit,
         offset=offset,
         include_archived=include_archived,
     )

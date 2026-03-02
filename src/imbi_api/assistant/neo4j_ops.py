@@ -170,12 +170,14 @@ async def add_message(
     now = datetime.datetime.now(datetime.UTC)
     msg_id = str(uuid.uuid4())
 
-    # Atomic: count existing messages and create new one in a
+    # Atomic: find max sequence and create new message in a
     # single query to avoid sequence number race conditions
     query = """
     MATCH (c:Conversation {id: $conversation_id})
+    SET c.updated_at = datetime($created_at)
+    WITH c
     OPTIONAL MATCH (c)-[:CONTAINS]->(existing:Message)
-    WITH c, count(existing) AS seq
+    WITH c, coalesce(max(existing.sequence), -1) + 1 AS seq
     CREATE (m:Message {
         id: $id,
         conversation_id: $conversation_id,
@@ -188,7 +190,6 @@ async def add_message(
         token_usage: $token_usage
     })
     CREATE (c)-[:CONTAINS]->(m)
-    SET c.updated_at = datetime($created_at)
     RETURN m.sequence AS sequence
     """
     async with neo4j.run(
@@ -204,7 +205,9 @@ async def add_message(
     ) as result:
         records = await result.data()
 
-    sequence = records[0]['sequence'] if records else 0
+    if not records:
+        raise ValueError(f'Conversation not found: {conversation_id}')
+    sequence = records[0]['sequence']
 
     return models.Message(
         id=msg_id,

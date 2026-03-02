@@ -29,7 +29,7 @@ async def _handle_list_projects(
     auth: permissions.AuthContext,
 ) -> str:
     """List projects the user can see."""
-    limit = min(params.get('limit', 25), 100)
+    limit = max(1, min(params.get('limit', 25), 100))
     name_filter = params.get('name_filter', '')
 
     where_clause = ''
@@ -176,7 +176,7 @@ async def _handle_list_users(
     auth: permissions.AuthContext,
 ) -> str:
     """List users."""
-    limit = min(params.get('limit', 25), 100)
+    limit = max(1, min(params.get('limit', 25), 100))
     active_only = params.get('active_only', True)
 
     where = 'WHERE u.is_active = true' if active_only else ''

@@ -60,7 +60,7 @@ def get_client() -> anthropic.AsyncAnthropic:
         raise RuntimeError(
             'AI assistant client not initialized. '
             'Check that IMBI_ASSISTANT_ENABLED=true '
-            'and IMBI_ASSISTANT_API_KEY is set.'
+            'and IMBI_ASSISTANT_API_KEY or ANTHROPIC_API_KEY is set.'
         )
     return _client
 

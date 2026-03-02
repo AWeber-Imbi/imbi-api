@@ -96,6 +96,7 @@ class GetClientTestCase(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError) as ctx:
             client.get_client()
         self.assertIn('not initialized', str(ctx.exception))
+        self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
 
     @mock.patch('anthropic.AsyncAnthropic')
     @mock.patch.dict(

@@ -201,8 +201,8 @@ class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
             call_kwargs = mock_run.call_args[1]
             self.assertEqual(call_kwargs['tool_use'], json.dumps(tool_use))
 
-    async def test_add_message_empty_records(self) -> None:
-        """Test add_message with no records returned."""
+    async def test_add_message_missing_conversation(self) -> None:
+        """Test add_message raises ValueError for missing conversation."""
         with mock.patch('imbi_common.neo4j.run') as mock_run:
             mock_ctx = mock.AsyncMock()
             mock_ctx.__aenter__.return_value = mock_ctx
@@ -210,12 +210,13 @@ class AddMessageTestCase(unittest.IsolatedAsyncioTestCase):
             mock_ctx.data.return_value = []
             mock_run.return_value = mock_ctx
 
-            msg = await neo4j_ops.add_message(
-                conversation_id='conv-123',
-                role='user',
-                content='Hello',
-            )
-            self.assertEqual(msg.sequence, 0)
+            with self.assertRaises(ValueError) as ctx:
+                await neo4j_ops.add_message(
+                    conversation_id='conv-123',
+                    role='user',
+                    content='Hello',
+                )
+            self.assertIn('not found', str(ctx.exception))
 
 
 class GetMessagesTestCase(unittest.IsolatedAsyncioTestCase):

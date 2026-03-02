@@ -500,6 +500,25 @@ class ListConversationsEndpointTestCase(
             include_archived=False,
         )
 
+    @mock.patch(
+        'imbi_api.assistant.neo4j_ops.list_conversations',
+    )
+    async def test_list_conversations_negative_values(
+        self,
+        mock_list: mock.AsyncMock,
+    ) -> None:
+        """Test that negative limit/offset are clamped."""
+        auth = _make_auth()
+        mock_list.return_value = []
+
+        await endpoints.list_conversations(auth=auth, limit=-5, offset=-10)
+        mock_list.assert_called_once_with(
+            user_email='test@example.com',
+            limit=1,
+            offset=0,
+            include_archived=False,
+        )
+
 
 class GetConversationEndpointTestCase(
     unittest.IsolatedAsyncioTestCase,
