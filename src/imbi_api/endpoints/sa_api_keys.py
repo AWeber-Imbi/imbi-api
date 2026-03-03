@@ -50,7 +50,8 @@ async def _get_service_account(slug: str) -> dict[str, typing.Any]:
             status_code=404,
             detail='Service account not found',
         )
-    return records[0]['s']
+    sa_data: dict[str, typing.Any] = records[0]['s']
+    return sa_data
 
 
 @sa_api_keys_router.post(
@@ -259,7 +260,7 @@ async def revoke_sa_api_key(
         'API key %s revoked for service account %s by user %s',
         key_id,
         slug,
-        auth.user.email,
+        auth.require_user.email,
     )
 
 
@@ -339,7 +340,7 @@ async def rotate_sa_api_key(
         'API key %s rotated for service account %s by user %s',
         key_id,
         slug,
-        auth.user.email,
+        auth.require_user.email,
     )
 
     return api_keys.APIKeyCreateResponse(

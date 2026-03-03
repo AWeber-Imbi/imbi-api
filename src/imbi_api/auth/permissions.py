@@ -43,6 +43,19 @@ class AuthContext(pydantic.BaseModel):
         """Return whether the principal is an admin."""
         return self.user.is_admin if self.user else False
 
+    @property
+    def require_user(self) -> 'models.User':
+        """Return the authenticated user, raising 403 if absent.
+
+        Use this in endpoints that require a human user (not a
+        service account).
+        """
+        if self.user is None:
+            raise fastapi.HTTPException(
+                403, 'This endpoint requires user authentication'
+            )
+        return self.user
+
 
 async def load_user_permissions(email: str) -> set[str]:
     """

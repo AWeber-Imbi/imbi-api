@@ -45,7 +45,7 @@ async def create_user(
         password_hash = password.hash_password(user_create.password)
 
     # Prevent non-admins from creating admin users
-    if user_create.is_admin and not auth.user.is_admin:
+    if user_create.is_admin and not auth.require_user.is_admin:
         raise fastapi.HTTPException(
             status_code=403,
             detail='Only admins can create admin users',
@@ -249,21 +249,21 @@ async def update_user(
         )
 
     # Prevent non-admins from modifying admin users
-    if existing_user.is_admin and not auth.user.is_admin:
+    if existing_user.is_admin and not auth.require_user.is_admin:
         raise fastapi.HTTPException(
             status_code=403,
             detail='Only admins can modify admin users',
         )
 
     # Prevent non-admins from setting is_admin
-    if user_update.is_admin and not auth.user.is_admin:
+    if user_update.is_admin and not auth.require_user.is_admin:
         raise fastapi.HTTPException(
             status_code=403,
             detail='Only admins can grant admin privileges',
         )
 
     # Prevent users from deactivating themselves
-    if email == auth.user.email and not user_update.is_active:
+    if email == auth.require_user.email and not user_update.is_active:
         raise fastapi.HTTPException(
             status_code=400,
             detail='Cannot deactivate your own account',
@@ -337,7 +337,7 @@ async def delete_user(
     email = urlparse.unquote(email)
 
     # Prevent self-deletion
-    if email == auth.user.email:
+    if email == auth.require_user.email:
         raise fastapi.HTTPException(
             status_code=400,
             detail='Cannot delete your own account',
@@ -376,8 +376,10 @@ async def change_password(
     email = urlparse.unquote(email)
 
     # Check permission: must be self or have user:update permission
-    is_self = email == auth.user.email
-    has_permission = 'user:update' in auth.permissions or auth.user.is_admin
+    is_self = email == auth.require_user.email
+    has_permission = (
+        'user:update' in auth.permissions or auth.require_user.is_admin
+    )
 
     if not is_self and not has_permission:
         raise fastapi.HTTPException(

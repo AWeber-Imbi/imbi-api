@@ -49,7 +49,8 @@ async def _get_service_account(slug: str) -> dict[str, typing.Any]:
             status_code=404,
             detail='Service account not found',
         )
-    return records[0]['s']
+    sa_data: dict[str, typing.Any] = records[0]['s']
+    return sa_data
 
 
 @client_credentials_router.post(
@@ -259,7 +260,7 @@ async def revoke_client_credential(
         'Client credential %s revoked for service account %s by user %s',
         client_id,
         slug,
-        auth.user.email,
+        auth.require_user.email,
     )
 
 
@@ -341,7 +342,7 @@ async def rotate_client_credential(
         'Client credential %s rotated for service account %s by user %s',
         client_id,
         slug,
-        auth.user.email,
+        auth.require_user.email,
     )
 
     return models.ClientCredentialCreateResponse(
