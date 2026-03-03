@@ -362,11 +362,11 @@ class Upload(pydantic.BaseModel):
     @pydantic.model_validator(mode='after')
     def validate_thumbnail_consistency(self) -> typing.Self:
         """Validate has_thumbnail and thumbnail_s3_key."""
-        if self.has_thumbnail and self.thumbnail_s3_key is None:
+        if self.has_thumbnail and not self.thumbnail_s3_key:
             raise ValueError(
                 'thumbnail_s3_key is required when has_thumbnail is True'
             )
-        if not self.has_thumbnail and self.thumbnail_s3_key:
+        if not self.has_thumbnail and self.thumbnail_s3_key is not None:
             raise ValueError(
                 'thumbnail_s3_key must be empty when has_thumbnail is False'
             )
