@@ -51,6 +51,20 @@ async def create_user(
             detail='Only admins can create admin users',
         )
 
+    # Prevent service accounts from having passwords
+    if user_create.is_service_account and user_create.password:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Service accounts cannot have passwords',
+        )
+
+    # Prevent service accounts from being admins
+    if user_create.is_service_account and user_create.is_admin:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Service accounts cannot be admins',
+        )
+
     # Create user model
     user = models.User(
         email=user_create.email,
@@ -255,6 +269,20 @@ async def update_user(
             detail='Cannot deactivate your own account',
         )
 
+    # Prevent service accounts from having passwords
+    if existing_user.is_service_account and user_update.password:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Service accounts cannot have passwords',
+        )
+
+    # Prevent service accounts from being admins
+    if existing_user.is_service_account and user_update.is_admin:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Service accounts cannot be admins',
+        )
+
     # Update password hash if password provided
     password_hash = existing_user.password_hash
     if user_update.password:
@@ -363,6 +391,13 @@ async def change_password(
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'User with email {email!r} not found',
+        )
+
+    # Prevent password changes for service accounts
+    if user.is_service_account:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Service accounts cannot have passwords',
         )
 
     # Verify current password if user is changing their own password
