@@ -1,4 +1,4 @@
-"""Service account management endpoints."""
+"""Service account management endpoints"""
 
 import datetime
 import logging
