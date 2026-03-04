@@ -197,7 +197,9 @@ async def token(
     access_claims = core.verify_token(access_token, auth_settings)
 
     refresh_token = core.create_refresh_token(
-        sa.slug, auth_settings=auth_settings
+        sa.slug,
+        extra_claims=extra_claims,
+        auth_settings=auth_settings,
     )
     refresh_claims = core.verify_token(refresh_token, auth_settings)
 
@@ -605,7 +607,9 @@ async def refresh_token(
 
     # Create NEW refresh token (token rotation)
     new_refresh_token = core.create_refresh_token(
-        principal_id, auth_settings=auth_settings
+        principal_id,
+        extra_claims=extra_claims or None,
+        auth_settings=auth_settings,
     )
     new_refresh_claims = core.verify_token(new_refresh_token, auth_settings)
     new_refresh_jti = new_refresh_claims['jti']

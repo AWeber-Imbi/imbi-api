@@ -206,9 +206,8 @@ async def delete_service_account(
     # Delete related client credentials and API keys first
     cleanup_query = """
     MATCH (s:ServiceAccount {slug: $slug})
-    OPTIONAL MATCH (s)<-[:OWNED_BY]-(c:ClientCredential)
-    OPTIONAL MATCH (s)<-[:OWNED_BY]-(k:APIKey)
-    DETACH DELETE c, k
+    OPTIONAL MATCH (s)<-[:OWNED_BY]-(owned)
+    DETACH DELETE owned
     """
     async with neo4j.run(cleanup_query, slug=slug) as result:
         await result.consume()

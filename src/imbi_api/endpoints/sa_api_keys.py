@@ -93,7 +93,7 @@ async def create_sa_api_key(
     auth_settings = settings.get_auth_settings()
 
     # Generate key: format ik_<16chars>_<32chars>
-    key_id = f'ik_{secrets.token_urlsafe(16)}'
+    key_id = f'ik_{secrets.token_hex(16)}'
     key_secret = secrets.token_urlsafe(32)
     key_hash = password.hash_password(key_secret)
 
@@ -257,10 +257,10 @@ async def revoke_sa_api_key(
         await result.consume()
 
     LOGGER.info(
-        'API key %s revoked for service account %s by user %s',
+        'API key %s revoked for service account %s by %s',
         key_id,
         slug,
-        auth.require_user.email,
+        auth.principal_name,
     )
 
 
@@ -337,10 +337,10 @@ async def rotate_sa_api_key(
         await result.consume()
 
     LOGGER.info(
-        'API key %s rotated for service account %s by user %s',
+        'API key %s rotated for service account %s by %s',
         key_id,
         slug,
-        auth.require_user.email,
+        auth.principal_name,
     )
 
     return api_keys.APIKeyCreateResponse(

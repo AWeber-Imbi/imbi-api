@@ -46,7 +46,10 @@ async def create_blueprint(
             detail=f'Blueprint with name {blueprint.name!r} and type '
             f'{blueprint.type!r} already exists',
         ) from e
-    await openapi.refresh_blueprint_models()
+    try:
+        await openapi.refresh_blueprint_models()
+    except Exception:
+        LOGGER.exception('Failed to refresh blueprint models')
     return result
 
 
@@ -191,7 +194,10 @@ async def update_blueprint(
         {'slug': slug, 'type': blueprint_type},
         auto_increment=['version'],
     )
-    await openapi.refresh_blueprint_models()
+    try:
+        await openapi.refresh_blueprint_models()
+    except Exception:
+        LOGGER.exception('Failed to refresh blueprint models')
     return blueprint
 
 
@@ -227,4 +233,7 @@ async def delete_blueprint(
             detail=f'Blueprint with slug {slug!r} and type '
             f'{blueprint_type!r} not found',
         )
-    await openapi.refresh_blueprint_models()
+    try:
+        await openapi.refresh_blueprint_models()
+    except Exception:
+        LOGGER.exception('Failed to refresh blueprint models')

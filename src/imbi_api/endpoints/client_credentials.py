@@ -127,17 +127,20 @@ async def create_client_credential(
         revoked_at=None,
     )
 
-    # Store in Neo4j with relationship to ServiceAccount
-    await neo4j.create_node(credential)
-
-    # Create OWNED_BY relationship from credential to service account
+    # Store in Neo4j with relationship to ServiceAccount (atomic)
     query = """
-    MATCH (c:ClientCredential {client_id: $client_id})
     MATCH (s:ServiceAccount {slug: $slug})
-    CREATE (c)-[:OWNED_BY]->(s)
+    CREATE (c:ClientCredential $props)-[:OWNED_BY]->(s)
+    RETURN elementId(c) AS element_id
     """
-    async with neo4j.run(query, client_id=client_id, slug=slug) as result:
-        await result.consume()
+    props = credential.model_dump(mode='json')
+    async with neo4j.run(query, slug=slug, props=props) as result:
+        record = await result.single()
+        if not record:
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail=f'Service account {slug!r} not found',
+            )
 
     LOGGER.info(
         'Client credential %s created for service account %s (expires: %s)',
@@ -257,10 +260,10 @@ async def revoke_client_credential(
         await result.consume()
 
     LOGGER.info(
-        'Client credential %s revoked for service account %s by user %s',
+        'Client credential %s revoked for service account %s by %s',
         client_id,
         slug,
-        auth.require_user.email,
+        auth.principal_name,
     )
 
 
@@ -342,7 +345,7 @@ async def rotate_client_credential(
         'Client credential %s rotated for service account %s by user %s',
         client_id,
         slug,
-        auth.require_user.email,
+        auth.principal_name,
     )
 
     return models.ClientCredentialCreateResponse(

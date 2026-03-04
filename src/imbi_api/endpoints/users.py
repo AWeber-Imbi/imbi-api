@@ -270,14 +270,19 @@ async def update_user(
         )
 
     # Prevent service accounts from having passwords
-    if existing_user.is_service_account and user_update.password:
+    will_be_sa = (
+        user_update.is_service_account
+        if user_update.is_service_account is not None
+        else existing_user.is_service_account
+    )
+    if will_be_sa and user_update.password:
         raise fastapi.HTTPException(
             status_code=400,
             detail='Service accounts cannot have passwords',
         )
 
     # Prevent service accounts from being admins
-    if existing_user.is_service_account and user_update.is_admin:
+    if will_be_sa and user_update.is_admin:
         raise fastapi.HTTPException(
             status_code=400,
             detail='Service accounts cannot be admins',
