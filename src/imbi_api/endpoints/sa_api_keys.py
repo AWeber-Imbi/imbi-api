@@ -233,10 +233,11 @@ async def revoke_sa_api_key(
             service account
 
     """
-    # Verify ownership
+    # Verify ownership and revoke atomically
     query = """
     MATCH (s:ServiceAccount {slug: $slug})
           <-[:OWNED_BY]-(k:APIKey {key_id: $key_id})
+    SET k.revoked = true, k.revoked_at = datetime()
     RETURN k
     """
     async with neo4j.run(query, slug=slug, key_id=key_id) as result:
@@ -247,14 +248,6 @@ async def revoke_sa_api_key(
             status_code=404,
             detail='API key not found or not owned by this service account',
         )
-
-    # Revoke key
-    query = """
-    MATCH (k:APIKey {key_id: $key_id})
-    SET k.revoked = true, k.revoked_at = datetime()
-    """
-    async with neo4j.run(query, key_id=key_id) as result:
-        await result.consume()
 
     LOGGER.info(
         'API key %s revoked for service account %s by %s',
@@ -321,18 +314,19 @@ async def rotate_sa_api_key(
             detail='Cannot rotate revoked API key',
         )
 
-    # Generate new secret
+    # Generate new secret and update atomically with ownership check
     new_secret = secrets.token_urlsafe(32)
     new_key_hash = password.hash_password(new_secret)
 
-    # Update key in Neo4j
     query = """
-    MATCH (k:APIKey {key_id: $key_id})
+    MATCH (s:ServiceAccount {slug: $slug})
+          <-[:OWNED_BY]-(k:APIKey {key_id: $key_id})
+    WHERE k.revoked = false
     SET k.key_hash = $key_hash, k.last_rotated = datetime()
     RETURN k
     """
     async with neo4j.run(
-        query, key_id=key_id, key_hash=new_key_hash
+        query, slug=slug, key_id=key_id, key_hash=new_key_hash
     ) as result:
         await result.consume()
 

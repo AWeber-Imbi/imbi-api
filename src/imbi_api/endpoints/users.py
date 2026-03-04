@@ -288,9 +288,11 @@ async def update_user(
             detail='Service accounts cannot be admins',
         )
 
-    # Update password hash if password provided
+    # Update password hash if password provided, clear if becoming SA
     password_hash = existing_user.password_hash
-    if user_update.password:
+    if will_be_sa:
+        password_hash = None
+    elif user_update.password:
         password_hash = password.hash_password(user_update.password)
 
     # Create updated user model

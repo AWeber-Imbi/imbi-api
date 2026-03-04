@@ -235,10 +235,11 @@ async def revoke_client_credential(
             the service account
 
     """
-    # Verify ownership
+    # Verify ownership and revoke atomically
     query = """
     MATCH (s:ServiceAccount {slug: $slug})
           <-[:OWNED_BY]-(c:ClientCredential {client_id: $client_id})
+    SET c.revoked = true, c.revoked_at = datetime()
     RETURN c
     """
     async with neo4j.run(query, slug=slug, client_id=client_id) as result:
@@ -250,14 +251,6 @@ async def revoke_client_credential(
             detail='Client credential not found or not owned'
             ' by this service account',
         )
-
-    # Revoke credential
-    query = """
-    MATCH (c:ClientCredential {client_id: $client_id})
-    SET c.revoked = true, c.revoked_at = datetime()
-    """
-    async with neo4j.run(query, client_id=client_id) as result:
-        await result.consume()
 
     LOGGER.info(
         'Client credential %s revoked for service account %s by %s',
@@ -325,19 +318,23 @@ async def rotate_client_credential(
             detail='Cannot rotate revoked client credential',
         )
 
-    # Generate new secret
+    # Generate new secret and update atomically with ownership check
     new_secret = secrets.token_urlsafe(32)
     new_hash = password.hash_password(new_secret)
 
-    # Update credential in Neo4j
     query = """
-    MATCH (c:ClientCredential {client_id: $client_id})
+    MATCH (s:ServiceAccount {slug: $slug})
+          <-[:OWNED_BY]-(c:ClientCredential {client_id: $client_id})
+    WHERE c.revoked = false
     SET c.client_secret_hash = $secret_hash,
         c.last_rotated = datetime()
     RETURN c
     """
     async with neo4j.run(
-        query, client_id=client_id, secret_hash=new_hash
+        query,
+        slug=slug,
+        client_id=client_id,
+        secret_hash=new_hash,
     ) as result:
         await result.consume()
 

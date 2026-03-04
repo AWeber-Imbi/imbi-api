@@ -188,7 +188,11 @@ async def token(
 
     # Create tokens
     auth_settings = settings.get_auth_settings()
-    extra_claims = {'auth_method': 'client_credentials'}
+    extra_claims: dict[str, typing.Any] = {
+        'auth_method': 'client_credentials',
+    }
+    if granted_scopes:
+        extra_claims['scope'] = ' '.join(sorted(granted_scopes))
     access_token = core.create_access_token(
         sa.slug,
         extra_claims=extra_claims,
@@ -207,16 +211,14 @@ async def token(
     now = datetime.datetime.now(datetime.UTC)
 
     access_meta_query = """
+    MATCH (s:ServiceAccount {slug: $slug})
     CREATE (t:TokenMetadata {
         jti: $jti,
         token_type: 'access',
         issued_at: datetime(),
         expires_at: datetime($expires_at),
         revoked: false
-    })
-    WITH t
-    MATCH (s:ServiceAccount {slug: $slug})
-    CREATE (t)-[:ISSUED_TO]->(s)
+    })-[:ISSUED_TO]->(s)
     """
     async with neo4j.run(
         access_meta_query,
@@ -232,16 +234,14 @@ async def token(
         await result.consume()
 
     refresh_meta_query = """
+    MATCH (s:ServiceAccount {slug: $slug})
     CREATE (t:TokenMetadata {
         jti: $jti,
         token_type: 'refresh',
         issued_at: datetime(),
         expires_at: datetime($expires_at),
         revoked: false
-    })
-    WITH t
-    MATCH (s:ServiceAccount {slug: $slug})
-    CREATE (t)-[:ISSUED_TO]->(s)
+    })-[:ISSUED_TO]->(s)
     """
     async with neo4j.run(
         refresh_meta_query,

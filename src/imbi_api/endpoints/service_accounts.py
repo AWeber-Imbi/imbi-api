@@ -203,17 +203,16 @@ async def delete_service_account(
     ],
 ) -> None:
     """Delete a service account and all related credentials."""
-    # Delete related client credentials and API keys first
-    cleanup_query = """
+    query = """
     MATCH (s:ServiceAccount {slug: $slug})
     OPTIONAL MATCH (s)<-[:OWNED_BY]-(owned)
-    DETACH DELETE owned
+    DETACH DELETE owned, s
+    RETURN count(s) AS deleted
     """
-    async with neo4j.run(cleanup_query, slug=slug) as result:
-        await result.consume()
+    async with neo4j.run(query, slug=slug) as result:
+        records = await result.data()
 
-    deleted = await neo4j.delete_node(models.ServiceAccount, {'slug': slug})
-    if not deleted:
+    if not records or records[0]['deleted'] == 0:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Service account {slug!r} not found',
