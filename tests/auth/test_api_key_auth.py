@@ -143,7 +143,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(cm.exception.status_code, 401)
-        self.assertEqual(cm.exception.detail, 'API key user not found')
+        self.assertEqual(cm.exception.detail, 'API key owner not found')
 
     async def test_authenticate_api_key_revoked(self) -> None:
         """Test authentication with revoked API key."""
