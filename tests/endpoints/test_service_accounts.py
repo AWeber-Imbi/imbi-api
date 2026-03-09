@@ -88,7 +88,9 @@ class ServiceAccountsEndpointsTestCase(unittest.TestCase):
                     )
             # Cleanup query for delete
             elif 'DETACH DELETE' in query:
-                mock_result.data = mock.AsyncMock(return_value=[])
+                mock_result.data = mock.AsyncMock(
+                    return_value=[{'deleted': 1}],
+                )
             # Auth: token revocation check
             elif 'TokenMetadata' in query and 'revoked' in query:
                 mock_result.data = mock.AsyncMock(
