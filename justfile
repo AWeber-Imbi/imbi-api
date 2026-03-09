@@ -25,7 +25,7 @@ docker:
         return 1
     }
     docker compose up -d --wait --wait-timeout 120 || (docker compose logs && false)
-    docker compose exec clickhouse clickhouse client -q "CREATE DATABASE IF NOT EXISTS imbi"
+    docker compose exec -T clickhouse clickhouse client -q "CREATE DATABASE IF NOT EXISTS imbi"
     test_host="${TEST_HOST:-127.0.0.1}"
     if test -f .env && grep -q '^IMBI_AUTH_JWT_SECRET=' .env; then
         jwt_secret=$(grep -m1 '^IMBI_AUTH_JWT_SECRET=' .env | cut -d= -f2- | tr -d '\r')
