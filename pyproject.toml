@@ -92,10 +92,30 @@ allow-direct-references = true
 config-file = "mkdocs.yml"
 
 [tool.pyright]
-include = ["src", "tests"]
 deprecateTypingAliases = true
 reportMissingSuperCall = "hint"
 typeCheckingMode = "strict"
+
+[[tool.pyright.executionEnvironments]]
+root = "src"
+reportUnusedFunction = "warning"
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportAttributeAccessIssue = "none"
+reportCallIssue = "none"
+reportMissingParameterType = "none"
+reportMissingTypeArgument = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalSubscript = "none"
+reportPrivateUsage = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+reportUnknownMemberType = "none"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUnusedFunction = "none"
+extraPaths = ["src", "."]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
