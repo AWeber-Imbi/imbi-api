@@ -246,7 +246,7 @@ async def verify_and_enable_mfa(
 
     is_valid = False
     used_backup_code = False
-    backup_codes: list[typing.Any] = totp_data.get('backup_codes', [])
+    backup_codes = typing.cast(list[str], totp_data.get('backup_codes', []))
 
     # First try TOTP verification (allow 1 time step before/after for skew)
     if totp.verify(verify_request.code, valid_window=1):

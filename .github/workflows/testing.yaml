@@ -23,6 +23,8 @@ jobs:
         with:
           enable-cache: true
       - name: Run lint checks
+        env:
+          UV_FROZEN: "1"
         run: just lint
 
   test:
