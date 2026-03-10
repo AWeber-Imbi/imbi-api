@@ -68,6 +68,7 @@ docker:
 [group("Testing")]
 test: setup docker
     uv run pytest
+    uv run mypy -p imbi_api
 
 [doc("Run linters")]
 [group("Testing")]
