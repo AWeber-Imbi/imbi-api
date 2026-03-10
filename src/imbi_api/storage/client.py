@@ -5,8 +5,8 @@ import logging
 import typing
 
 import aioboto3  # pyright: ignore[reportMissingTypeStubs]
-from botocore import (
-    exceptions as botocore_exceptions,  # pyright: ignore[reportMissingTypeStubs]
+from botocore import (  # pyright: ignore[reportMissingTypeStubs]
+    exceptions as botocore_exceptions,
 )
 
 from imbi_api import settings
