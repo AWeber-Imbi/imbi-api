@@ -1,3 +1,5 @@
+export UV_FROZEN := "1"
+
 [doc("Bootstrap the environment and run the service in the foreground")]
 [group("Testing")]
 serve *ARGS: setup docker
