@@ -50,11 +50,9 @@ async def neo4j_setup_hook() -> abc.AsyncIterator[None]:
                 await sess.run(index)
             except neo4j_exc.ConstraintError as err:
                 LOGGER.debug('Index already exists: %s', err)
-            except Exception:  # noqa: BLE001
-                LOGGER.warning(
-                    'Failed to create index: %s',
-                    index,
-                )
+            except Exception:
+                LOGGER.exception('Failed to create index: %s', index)
+                raise
     try:
         await openapi.refresh_blueprint_models()
     except Exception as err:  # noqa: BLE001

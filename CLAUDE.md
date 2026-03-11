@@ -470,7 +470,7 @@ gh pr create --base main --title "Add new feature" --body "..."
 **Current development status**: This is a v2 alpha rewrite. Core infrastructure and authentication complete (~30% test coverage):
 
 ✅ **Implemented**:
-- FastAPI application with lifespan management and DI (Neo4j, ClickHouse, Email, Storage)
+- FastAPI application with lifespan management (Email, Storage DI-managed via lifespan hooks; Neo4j, ClickHouse remain module-level singletons)
 - Status endpoint with health check (`GET /status`)
 - CLI with `serve` and `setup` commands (development and production modes)
 - Neo4j integration with singleton pattern, cypherantic wrappers, indexes, upsert operations

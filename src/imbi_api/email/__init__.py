@@ -6,9 +6,8 @@ This module provides email sending capabilities including:
 - Email verification
 - Security alerts
 
-The module uses SMTP for email delivery with retry logic and dead letter
-queue for failed emails. All emails are rendered using Jinja2 templates
-with both HTML and plain text versions.
+The module uses SMTP for email delivery with retry logic. All emails are
+rendered using Jinja2 templates with both HTML and plain text versions.
 """
 
 import logging

@@ -6,7 +6,7 @@ from fastapi import testclient
 from imbi_api import app, lifespans, neo4j_indexes
 
 
-class ApplicationLifespanTestCast(unittest.TestCase):
+class ApplicationLifespanTestCase(unittest.TestCase):
     """Test cases for the application lifespan."""
 
     def test_successful_lifespan_startup(self) -> None:
@@ -62,17 +62,16 @@ class ApplicationLifespanTestCast(unittest.TestCase):
             session_func.return_value = session_mgr
             session = session_mgr.__aenter__.return_value
             session.run.side_effect = failure
-            with self.assertLogs(lifespans.LOGGER, level='WARNING') as cm:
-                with testclient.TestClient(app.create_app()):
-                    pass  # nothing to do here
+            with self.assertLogs(lifespans.LOGGER, level='ERROR') as cm:
+                with self.assertRaises(RuntimeError):
+                    with testclient.TestClient(app.create_app()):
+                        pass  # nothing to do here
 
         session_func.assert_called()
-        for index in neo4j_indexes.INDEXES:
-            session.run.assert_any_call(index)
-            self.assertIn(
-                f'WARNING:imbi_api.lifespans:Failed to create index: {index}',
-                cm.output,
-            )
+        session.run.assert_called()
+        self.assertTrue(
+            any('Failed to create index:' in msg for msg in cm.output),
+        )
 
     def test_openapi_refresh_blueprint_failure(self) -> None:
         failure = RuntimeError()
