@@ -34,6 +34,7 @@ __all__ = [
     'ServiceAccountResponse',
     'Session',
     'TOTPSecret',
+    'ThirdPartyService',
     'TokenMetadata',
     'Upload',
     'User',
@@ -547,6 +548,39 @@ class ClientCredentialCreateResponse(pydantic.BaseModel):
     description: str | None = None
     scopes: list[str] = []
     expires_at: datetime.datetime | None = None
+
+
+class ThirdPartyService(models.Node):  # type: ignore[misc]
+    """An external SaaS platform or managed service.
+
+    Examples: Lob, FullStory, Stripe, Datadog, PagerDuty.
+    """
+
+    organization: typing.Annotated[
+        models.Organization,
+        cypherantic.Relationship(
+            rel_type='BELONGS_TO',
+            direction='OUTGOING',
+        ),
+    ]
+    team: typing.Annotated[
+        models.Team | None,
+        cypherantic.Relationship(
+            rel_type='MANAGED_BY',
+            direction='OUTGOING',
+        ),
+    ] = None
+    vendor: str
+    service_url: pydantic.HttpUrl | None = None
+    category: str | None = None
+    status: typing.Literal[
+        'active',
+        'deprecated',
+        'evaluating',
+        'inactive',
+    ] = 'active'
+    links: dict[str, pydantic.HttpUrl] = {}  # noqa: RUF012
+    identifiers: dict[str, int | str] = {}  # noqa: RUF012
 
 
 class OAuth2TokenResponse(pydantic.BaseModel):

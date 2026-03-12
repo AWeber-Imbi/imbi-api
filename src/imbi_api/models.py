@@ -30,6 +30,7 @@ Schema = _common.Schema
 Team = _common.Team
 
 # API-specific models from imbi_api.domain
+ThirdPartyService = _domain.ThirdPartyService
 APIKey = _domain.APIKey
 ClientCredential = _domain.ClientCredential
 ClientCredentialCreate = _domain.ClientCredentialCreate
