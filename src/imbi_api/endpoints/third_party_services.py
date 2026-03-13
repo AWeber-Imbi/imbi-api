@@ -467,7 +467,11 @@ def _deserialize_app(
 ) -> dict[str, typing.Any]:
     """Deserialize JSON string fields back to Python objects."""
     app = dict(record)
-    for key, default in (('scopes', []), ('settings', {})):
+    defaults: dict[str, list[str] | dict[str, typing.Any]] = {
+        'scopes': [],
+        'settings': {},
+    }
+    for key, default in defaults.items():
         val = app.get(key)
         if isinstance(val, str):
             try:
