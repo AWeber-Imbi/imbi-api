@@ -15,30 +15,80 @@ from imbi_api.domain import models
 LOGGER = logging.getLogger(__name__)
 
 
-def _serialize_props(props: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """Serialize dict fields to JSON strings for Neo4j storage."""
+_SERVICE_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
+    'links': {},
+    'identifiers': {},
+}
+_APP_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
+    'scopes': [],
+    'settings': {},
+}
+_VALID_SERVICE_STATUSES = {
+    'active',
+    'deprecated',
+    'evaluating',
+    'inactive',
+}
+_SECRET_FIELDS = (
+    'webhook_secret',
+    'private_key',
+    'signing_secret',
+)
+
+
+def _serialize_json_fields(
+    props: dict[str, typing.Any],
+    fields: dict[str, list[str] | dict[str, typing.Any]],
+) -> dict[str, typing.Any]:
+    """Serialize list/dict fields to JSON strings for Neo4j."""
     result = dict(props)
-    for key in ('links', 'identifiers'):
-        if key in result and isinstance(result[key], dict):
+    for key in fields:
+        if key in result and not isinstance(result[key], str):
             result[key] = json.dumps(result[key])
     return result
 
 
-def _deserialize_service(
+def _deserialize_json_fields(
     record: dict[str, typing.Any],
+    fields: dict[str, list[str] | dict[str, typing.Any]],
 ) -> dict[str, typing.Any]:
-    """Deserialize JSON string fields back to dicts."""
-    svc = dict(record)
-    for key in ('links', 'identifiers'):
-        val = svc.get(key)
+    """Deserialize JSON string fields back to Python objects."""
+    obj = dict(record)
+    for key, default in fields.items():
+        val = obj.get(key)
         if isinstance(val, str):
             try:
-                svc[key] = json.loads(val)
+                obj[key] = json.loads(val)
             except (json.JSONDecodeError, TypeError):
-                svc[key] = {}
+                obj[key] = default
         elif val is None:
-            svc[key] = {}
-    return svc
+            obj[key] = default
+    return obj
+
+
+def _validate_service_status(payload: dict[str, typing.Any]) -> str:
+    """Validate and return the service status from a payload."""
+    status = payload.get('status', 'active')
+    if status not in _VALID_SERVICE_STATUSES:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=(
+                f'Invalid status {status!r}. Must be one of: '
+                f'{", ".join(sorted(_VALID_SERVICE_STATUSES))}'
+            ),
+        )
+    return typing.cast(str, status)
+
+
+def _mask_app_secrets(
+    app: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """Replace secret values with the mask sentinel."""
+    app['client_secret'] = models.SECRET_MASK
+    for field in _SECRET_FIELDS:
+        if app.get(field) is not None:
+            app[field] = models.SECRET_MASK
+    return app
 
 
 third_party_services_router = fastapi.APIRouter(
@@ -104,17 +154,7 @@ async def create_third_party_service(
             detail='slug is required',
         )
 
-    # Validate status if provided
-    valid_statuses = {'active', 'deprecated', 'evaluating', 'inactive'}
-    status = payload.get('status', 'active')
-    if status not in valid_statuses:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Invalid status {status!r}. '
-                f'Must be one of: {", ".join(sorted(valid_statuses))}'
-            ),
-        )
+    status = _validate_service_status(payload)
 
     props = {
         'name': payload['name'],
@@ -131,7 +171,7 @@ async def create_third_party_service(
         'identifiers': payload.get('identifiers', {}),
     }
 
-    neo4j_props = _serialize_props(props)
+    neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
     if team_slug:
         query: typing.LiteralString = """
@@ -187,7 +227,9 @@ async def create_third_party_service(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return _deserialize_service(records[0]['service'])
+    return _deserialize_json_fields(
+        records[0]['service'], _SERVICE_JSON_FIELDS
+    )
 
 
 @third_party_services_router.get('/')
@@ -219,7 +261,11 @@ async def list_third_party_services(
     async with neo4j.run(query) as result:
         records = await result.data()
         for record in records:
-            services.append(_deserialize_service(record['service']))
+            services.append(
+                _deserialize_json_fields(
+                    record['service'], _SERVICE_JSON_FIELDS
+                )
+            )
     return services
 
 
@@ -262,7 +308,9 @@ async def get_third_party_service(
             status_code=404,
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
-    return _deserialize_service(records[0]['service'])
+    return _deserialize_json_fields(
+        records[0]['service'], _SERVICE_JSON_FIELDS
+    )
 
 
 @third_party_services_router.put('/{slug}')
@@ -319,19 +367,11 @@ async def update_third_party_service(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    existing = _deserialize_service(records[0]['service'])
+    existing = _deserialize_json_fields(
+        records[0]['service'], _SERVICE_JSON_FIELDS
+    )
 
-    # Validate status if provided
-    valid_statuses = {'active', 'deprecated', 'evaluating', 'inactive'}
-    status = payload.get('status', 'active')
-    if status not in valid_statuses:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Invalid status {status!r}. '
-                f'Must be one of: {", ".join(sorted(valid_statuses))}'
-            ),
-        )
+    status = _validate_service_status(payload)
 
     props = {
         'name': payload.get('name', existing['name']),
@@ -351,7 +391,7 @@ async def update_third_party_service(
         ),
     }
 
-    neo4j_props = _serialize_props(props)
+    neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
     if team_slug:
         update_query: typing.LiteralString = """
@@ -408,7 +448,9 @@ async def update_third_party_service(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    return _deserialize_service(updated[0]['service'])
+    return _deserialize_json_fields(
+        updated[0]['service'], _SERVICE_JSON_FIELDS
+    )
 
 
 @third_party_services_router.delete('/{slug}', status_code=204)
@@ -451,38 +493,6 @@ async def delete_third_party_service(
 # --- Service Application endpoints ---
 
 
-def _serialize_app_props(
-    props: dict[str, typing.Any],
-) -> dict[str, typing.Any]:
-    """Serialize list/dict fields to JSON strings for Neo4j."""
-    result = dict(props)
-    for key in ('scopes', 'settings'):
-        if key in result and not isinstance(result[key], str):
-            result[key] = json.dumps(result[key])
-    return result
-
-
-def _deserialize_app(
-    record: dict[str, typing.Any],
-) -> dict[str, typing.Any]:
-    """Deserialize JSON string fields back to Python objects."""
-    app = dict(record)
-    defaults: dict[str, list[str] | dict[str, typing.Any]] = {
-        'scopes': [],
-        'settings': {},
-    }
-    for key, default in defaults.items():
-        val = app.get(key)
-        if isinstance(val, str):
-            try:
-                app[key] = json.loads(val)
-            except (json.JSONDecodeError, TypeError):
-                app[key] = default
-        elif val is None:
-            app[key] = default
-    return app
-
-
 @third_party_services_router.get(
     '/{slug}/applications/',
 )
@@ -509,15 +519,8 @@ async def list_service_applications(
 
     apps: list[models.ServiceApplicationResponse] = []
     for record in records:
-        app = _deserialize_app(record['app'])
-        # Mask secrets
-        app['client_secret'] = models.SECRET_MASK
-        if app.get('webhook_secret') is not None:
-            app['webhook_secret'] = models.SECRET_MASK
-        if app.get('private_key') is not None:
-            app['private_key'] = models.SECRET_MASK
-        if app.get('signing_secret') is not None:
-            app['signing_secret'] = models.SECRET_MASK
+        app = _deserialize_json_fields(record['app'], _APP_JSON_FIELDS)
+        _mask_app_secrets(app)
         apps.append(models.ServiceApplicationResponse(**app))
     return apps
 
@@ -575,7 +578,7 @@ async def create_service_application(
             props['signing_secret'],
         )
 
-    neo4j_props = _serialize_app_props(props)
+    neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
     create_query: typing.LiteralString = """
     MATCH (s:ThirdPartyService {slug: $svc_slug})
@@ -596,14 +599,8 @@ async def create_service_application(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    app = _deserialize_app(records[0]['app'])
-    app['client_secret'] = models.SECRET_MASK
-    if app.get('webhook_secret') is not None:
-        app['webhook_secret'] = models.SECRET_MASK
-    if app.get('private_key') is not None:
-        app['private_key'] = models.SECRET_MASK
-    if app.get('signing_secret') is not None:
-        app['signing_secret'] = models.SECRET_MASK
+    app = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
+    _mask_app_secrets(app)
     return models.ServiceApplicationResponse(**app)
 
 
@@ -652,21 +649,18 @@ async def get_service_application(
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
 
-    app = _deserialize_app(records[0]['app'])
+    app = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
 
     if reveal_secrets:
         encryptor = encryption.TokenEncryption.get_instance()
         app['client_secret'] = encryptor.decrypt(
             app['client_secret'],
         )
-        for field in ('webhook_secret', 'private_key', 'signing_secret'):
+        for field in _SECRET_FIELDS:
             if app.get(field) is not None:
                 app[field] = encryptor.decrypt(app[field])
     else:
-        app['client_secret'] = models.SECRET_MASK
-        for field in ('webhook_secret', 'private_key', 'signing_secret'):
-            if app.get(field) is not None:
-                app[field] = models.SECRET_MASK
+        _mask_app_secrets(app)
 
     return models.ServiceApplicationResponse(**app)
 
@@ -707,7 +701,7 @@ async def update_service_application(
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
 
-    existing = _deserialize_app(records[0]['app'])
+    existing = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
     encryptor = encryption.TokenEncryption.get_instance()
     props = data.model_dump()
 
@@ -719,7 +713,7 @@ async def update_service_application(
             props['client_secret'],
         )
 
-    for field in ('webhook_secret', 'private_key', 'signing_secret'):
+    for field in _SECRET_FIELDS:
         val = props.get(field)
         if val is None:
             props[field] = None
@@ -728,7 +722,7 @@ async def update_service_application(
         else:
             props[field] = encryptor.encrypt(val)
 
-    neo4j_props = _serialize_app_props(props)
+    neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
     update_query: typing.LiteralString = """
     MATCH (a:ServiceApplication {slug: $app_slug})
@@ -750,14 +744,8 @@ async def update_service_application(
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
 
-    app = _deserialize_app(updated[0]['app'])
-    app['client_secret'] = models.SECRET_MASK
-    if app.get('webhook_secret') is not None:
-        app['webhook_secret'] = models.SECRET_MASK
-    if app.get('private_key') is not None:
-        app['private_key'] = models.SECRET_MASK
-    if app.get('signing_secret') is not None:
-        app['signing_secret'] = models.SECRET_MASK
+    app = _deserialize_json_fields(updated[0]['app'], _APP_JSON_FIELDS)
+    _mask_app_secrets(app)
     return models.ServiceApplicationResponse(**app)
 
 
