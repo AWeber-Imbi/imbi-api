@@ -200,37 +200,10 @@ def _rewrite_path_schemas(openapi_schema: dict[str, typing.Any]) -> None:
 
             op = typing.cast(dict[str, typing.Any], operation)
 
-            # Rewrite request body schema (for post/put/patch)
-            if method in ('post', 'put', 'patch'):
-                _rewrite_request_body(op, single_ref)
-
-            # Rewrite response schemas
+            # Only rewrite response schemas, not request bodies.
+            # Request bodies use dict[str, Any] with explicit
+            # validation in the endpoint (e.g. organization_slug).
             _rewrite_response_schemas(op, path, method, single_ref, array_ref)
-
-
-def _rewrite_request_body(
-    operation: dict[str, typing.Any],
-    schema_ref: dict[str, str],
-) -> None:
-    """Rewrite request body schema to reference blueprint model.
-
-    Args:
-        operation: The operation dictionary from OpenAPI paths.
-        schema_ref: The $ref schema to use.
-    """
-    request_body = operation.get('requestBody')
-    if not isinstance(request_body, dict):
-        return
-    rb = typing.cast(dict[str, typing.Any], request_body)
-
-    content = rb.get('content')
-    if not isinstance(content, dict):
-        return
-    ct = typing.cast(dict[str, typing.Any], content)
-
-    json_content = ct.get('application/json')
-    if isinstance(json_content, dict):
-        json_content['schema'] = schema_ref
 
 
 def _rewrite_response_schemas(
