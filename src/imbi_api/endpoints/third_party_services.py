@@ -292,27 +292,17 @@ async def update_third_party_service(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    existing = _deserialize_json_fields(
-        records[0]['service'], _SERVICE_JSON_FIELDS
-    )
-
     props = {
-        'name': data.name if data.name is not None else existing['name'],
-        'slug': data.slug if data.slug is not None else slug,
+        'name': data.name,
+        'slug': data.slug,
         'description': data.description,
         'icon': data.icon,
-        'vendor': data.vendor
-        if data.vendor is not None
-        else existing['vendor'],
+        'vendor': data.vendor,
         'service_url': (str(data.service_url) if data.service_url else None),
         'category': data.category,
         'status': data.status,
-        'links': data.links
-        if data.links is not None
-        else existing.get('links', {}),
-        'identifiers': data.identifiers
-        if data.identifiers is not None
-        else existing.get('identifiers', {}),
+        'links': data.links,
+        'identifiers': data.identifiers,
     }
 
     neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)

@@ -76,6 +76,16 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
             'team': None,
         }
 
+        self.service_update_json = {
+            'name': 'Stripe',
+            'slug': 'stripe',
+            'vendor': 'Stripe Inc',
+            'description': 'Payment processing',
+            'service_url': 'https://stripe.com',
+            'category': 'payments',
+            'status': 'active',
+        }
+
     # -- Create --
 
     def test_create_success(self) -> None:
@@ -338,17 +348,16 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
             [{'service': updated}],
         )
 
+        payload = dict(self.service_update_json)
+        payload['description'] = 'Updated description'
+
         with mock.patch(
             'imbi_common.neo4j.run',
             side_effect=[fetch_result, update_result],
         ):
             response = self.client.put(
                 '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe',
-                    'vendor': 'Stripe Inc',
-                    'description': 'Updated description',
-                },
+                json=payload,
             )
 
         self.assertEqual(response.status_code, 200)
@@ -368,17 +377,16 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
             [{'service': updated}],
         )
 
+        payload = dict(self.service_update_json)
+        payload['team_slug'] = 'backend'
+
         with mock.patch(
             'imbi_common.neo4j.run',
             side_effect=[fetch_result, update_result],
         ):
             response = self.client.put(
                 '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe',
-                    'vendor': 'Stripe Inc',
-                    'team_slug': 'backend',
-                },
+                json=payload,
             )
 
         self.assertEqual(response.status_code, 200)
@@ -387,34 +395,17 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
             'backend',
         )
 
-    def test_update_defaults_slug_from_url(self) -> None:
-        """Slug defaults to URL path slug when not in body."""
-        fetch_result = _mock_neo4j_result(
-            [{'service': self.service_data}],
+    def test_update_missing_required_field(self) -> None:
+        """Omitting a required field returns 422."""
+        response = self.client.put(
+            '/third-party-services/stripe',
+            json={
+                'name': 'Stripe',
+                'vendor': 'Stripe Inc',
+                # Missing slug, status
+            },
         )
-        update_result = _mock_neo4j_result(
-            [{'service': self.service_data}],
-        )
-
-        with mock.patch(
-            'imbi_common.neo4j.run',
-            side_effect=[fetch_result, update_result],
-        ) as mock_run:
-            response = self.client.put(
-                '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe',
-                    'vendor': 'Stripe Inc',
-                },
-            )
-
-        self.assertEqual(response.status_code, 200)
-        # The update call should include the slug in props
-        update_call = mock_run.call_args_list[1]
-        self.assertEqual(
-            update_call.kwargs['props']['slug'],
-            'stripe',
-        )
+        self.assertEqual(response.status_code, 422)
 
     def test_update_service_not_found(self) -> None:
         result = _mock_neo4j_result([])
@@ -424,32 +415,20 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         ):
             response = self.client.put(
                 '/third-party-services/nonexistent',
-                json={
-                    'name': 'Stripe',
-                    'vendor': 'Stripe Inc',
-                },
+                json=self.service_update_json,
             )
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
     def test_update_invalid_status(self) -> None:
-        fetch_result = _mock_neo4j_result(
-            [{'service': self.service_data}],
-        )
+        payload = dict(self.service_update_json)
+        payload['status'] = 'bogus'
 
-        with mock.patch(
-            'imbi_common.neo4j.run',
-            return_value=fetch_result,
-        ):
-            response = self.client.put(
-                '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe',
-                    'vendor': 'Stripe Inc',
-                    'status': 'bogus',
-                },
-            )
+        response = self.client.put(
+            '/third-party-services/stripe',
+            json=payload,
+        )
 
         self.assertEqual(response.status_code, 422)
 
@@ -457,6 +436,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         fetch_result = _mock_neo4j_result(
             [{'service': self.service_data}],
         )
+
+        payload = dict(self.service_update_json)
+        payload['slug'] = 'existing-slug'
 
         with mock.patch(
             'imbi_common.neo4j.run',
@@ -467,11 +449,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         ):
             response = self.client.put(
                 '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe',
-                    'slug': 'existing-slug',
-                    'vendor': 'Stripe Inc',
-                },
+                json=payload,
             )
 
         self.assertEqual(response.status_code, 409)
@@ -490,10 +468,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         ):
             response = self.client.put(
                 '/third-party-services/stripe',
-                json={
-                    'name': 'Stripe Updated',
-                    'vendor': 'Stripe Inc',
-                },
+                json=self.service_update_json,
             )
 
         self.assertEqual(response.status_code, 404)

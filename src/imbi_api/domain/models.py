@@ -627,32 +627,30 @@ class ThirdPartyServiceCreate(pydantic.BaseModel):
 
 
 class ThirdPartyServiceUpdate(pydantic.BaseModel):
-    """Request model for updating a third-party service."""
+    """Request model for updating a third-party service.
+
+    Designed for GET-modify-PUT: the client fetches the full resource,
+    modifies fields, and sends the complete object back. All fields
+    that exist on the response are required (no silent defaults).
+    """
 
     team_slug: str | None = None
-    name: str | None = pydantic.Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-    )
-    slug: str | None = pydantic.Field(
-        default=None,
+    name: str = pydantic.Field(min_length=1, max_length=128)
+    slug: str = pydantic.Field(
         pattern=r'^[a-z][a-z0-9-]*$',
         min_length=2,
         max_length=64,
     )
-    vendor: str | None = pydantic.Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-    )
+    vendor: str = pydantic.Field(min_length=1, max_length=128)
     description: str | None = None
     icon: str | None = None
     service_url: pydantic.HttpUrl | None = None
     category: str | None = None
-    status: _VALID_SERVICE_STATUSES = 'active'
-    links: dict[str, str] | None = None
-    identifiers: dict[str, int | str] | None = None
+    status: _VALID_SERVICE_STATUSES
+    links: dict[str, str] = pydantic.Field(default_factory=dict)
+    identifiers: dict[str, int | str] = pydantic.Field(
+        default_factory=dict,
+    )
 
 
 class ThirdPartyServiceResponse(pydantic.BaseModel):
