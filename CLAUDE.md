@@ -59,6 +59,7 @@ just setup              # Set up development environment (install deps + pre-com
 just serve              # Setup + docker + run the API server
 just serve --dev        # Run with auto-reload
 just test               # Setup + docker + run all tests with coverage
+just test <test>        # Run a single test using pytest syntax
 just lint               # Setup + run pre-commit, basedpyright, mypy
 just format             # Setup + reformat all files
 just format <file>      # Reformat a specific file
@@ -71,14 +72,14 @@ The server starts on `localhost:8000` by default (configurable via `IMBI_HOST` a
 ### Running Tests Directly
 ```bash
 # Run specific test file
-uv run pytest tests/neo4j/test_client.py
+just test tests/neo4j/test_client.py
 
 # Run specific test class or method
-uv run pytest tests/neo4j/test_client.py::Neo4jClientTestCase
-uv run pytest tests/neo4j/test_client.py::Neo4jClientTestCase::test_singleton
+just test tests/neo4j/test_client.py::Neo4jClientTestCase
+just test tests/neo4j/test_client.py::Neo4jClientTestCase::test_singleton
 
 # Run with verbose output
-uv run pytest -v
+just test -v
 ```
 
 **Coverage configuration** (`pyproject.toml`):
