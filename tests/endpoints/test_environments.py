@@ -63,6 +63,26 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
         return mock_result
 
+    def _mock_neo4j_run_with_count(
+        self,
+        data=None,
+        project_count=0,
+    ):
+        """Create a mock for neo4j.run with count."""
+        mock_result = mock.AsyncMock()
+        if data is not None:
+            mock_result.data.return_value = [
+                {
+                    'environment': data,
+                    'project_count': project_count,
+                },
+            ]
+        else:
+            mock_result.data.return_value = []
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
+        return mock_result
+
     def test_create_environment_success(self) -> None:
         """Test successful environment creation."""
         env_data = {
@@ -101,9 +121,15 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'production')
         self.assertEqual(data['name'], 'Production')
+        self.assertIn('relationships', data)
+        rels = data['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            0,
+        )
 
     def test_create_environment_missing_org_slug(self) -> None:
-        """Test creating environment without organization_slug."""
+        """Test creating environment without org_slug."""
         response = self.client.post(
             '/environments/',
             json={
@@ -156,7 +182,6 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
                 '/environments/',
                 json={
                     'organization_slug': 'engineering',
-                    # Missing required 'name' and 'slug'
                 },
             )
 
@@ -189,10 +214,13 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 409)
-        self.assertIn('already exists', response.json()['detail'])
+        self.assertIn(
+            'already exists',
+            response.json()['detail'],
+        )
 
     def test_list_environments(self) -> None:
-        """Test listing all environments."""
+        """Test listing all environments with relationships."""
         mock_result = mock.AsyncMock()
         mock_result.data.return_value = [
             {
@@ -204,6 +232,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
                         'slug': 'engineering',
                     },
                 },
+                'project_count': 20,
             },
             {
                 'environment': {
@@ -214,6 +243,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
                         'slug': 'engineering',
                     },
                 },
+                'project_count': 15,
             },
         ]
         mock_result.__aenter__.return_value = mock_result
@@ -230,6 +260,11 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]['slug'], 'production')
+        rels = data[0]['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            20,
+        )
 
     def test_get_environment(self) -> None:
         """Test retrieving a single environment."""
@@ -242,7 +277,10 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_result = self._mock_neo4j_run(env_data)
+        mock_result = self._mock_neo4j_run_with_count(
+            env_data,
+            project_count=30,
+        )
 
         with mock.patch(
             'imbi_common.neo4j.run',
@@ -256,10 +294,15 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'production')
         self.assertEqual(data['name'], 'Production')
+        rels = data['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            30,
+        )
 
     def test_get_environment_not_found(self) -> None:
         """Test retrieving nonexistent environment."""
-        mock_result = self._mock_neo4j_run(None)
+        mock_result = self._mock_neo4j_run_with_count(None)
 
         with mock.patch(
             'imbi_common.neo4j.run',
@@ -293,7 +336,10 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             },
         }
         fetch_result = self._mock_neo4j_run(existing_data)
-        update_result = self._mock_neo4j_run(updated_data)
+        update_result = self._mock_neo4j_run_with_count(
+            updated_data,
+            project_count=10,
+        )
 
         with (
             mock.patch(
@@ -318,6 +364,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['name'], 'Production US')
+        self.assertIn('relationships', data)
 
     def test_update_environment_not_found(self) -> None:
         """Test updating nonexistent environment."""
@@ -411,10 +458,14 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 409)
-        self.assertIn('already exists', response.json()['detail'])
+        self.assertIn(
+            'already exists',
+            response.json()['detail'],
+        )
 
     def test_update_environment_concurrent_delete(self) -> None:
-        """Test updating environment deleted between fetch and update."""
+        """Test updating environment deleted between fetch
+        and update."""
         existing_data = {
             'name': 'Production',
             'slug': 'production',
@@ -425,7 +476,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             },
         }
         fetch_result = self._mock_neo4j_run(existing_data)
-        empty_result = self._mock_neo4j_run(None)
+        empty_result = self._mock_neo4j_run_with_count(None)
 
         with (
             mock.patch(

@@ -107,6 +107,16 @@ class TeamEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'backend')
         self.assertEqual(data['name'], 'Backend')
+        self.assertIn('relationships', data)
+        rels = data['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            0,
+        )
+        self.assertEqual(
+            rels['members']['meta']['count'],
+            0,
+        )
 
     def test_create_team_missing_org_slug(self) -> None:
         """Test creating team without organization_slug."""
@@ -199,10 +209,13 @@ class TeamEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 409)
-        self.assertIn('already exists', response.json()['detail'])
+        self.assertIn(
+            'already exists',
+            response.json()['detail'],
+        )
 
     def test_list_teams(self) -> None:
-        """Test listing all teams."""
+        """Test listing all teams with relationships."""
         mock_result = mock.AsyncMock()
         mock_result.data.return_value = [
             {
@@ -214,6 +227,8 @@ class TeamEndpointsTestCase(unittest.TestCase):
                         'slug': 'engineering',
                     },
                 },
+                'project_count': 5,
+                'member_count': 3,
             }
         ]
         mock_result.__aenter__.return_value = mock_result
@@ -230,6 +245,15 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['slug'], 'backend')
+        rels = data[0]['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            5,
+        )
+        self.assertEqual(
+            rels['members']['meta']['count'],
+            3,
+        )
 
     def test_get_team(self) -> None:
         """Test retrieving a single team."""
@@ -245,6 +269,8 @@ class TeamEndpointsTestCase(unittest.TestCase):
                         'slug': 'engineering',
                     },
                 },
+                'project_count': 10,
+                'member_count': 4,
             }
         ]
         mock_result.__aenter__.return_value = mock_result
@@ -260,6 +286,11 @@ class TeamEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'backend')
         self.assertEqual(data['name'], 'Backend')
+        rels = data['relationships']
+        self.assertEqual(
+            rels['projects']['meta']['count'],
+            10,
+        )
 
     def test_get_team_not_found(self) -> None:
         """Test retrieving nonexistent team."""
@@ -290,6 +321,28 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
         return mock_result
 
+    def _mock_team_run_with_counts(
+        self,
+        team_data=None,
+        project_count=0,
+        member_count=0,
+    ):
+        """Create a mock for neo4j.run with counts."""
+        mock_result = mock.AsyncMock()
+        if team_data is not None:
+            mock_result.data.return_value = [
+                {
+                    'team': team_data,
+                    'project_count': project_count,
+                    'member_count': member_count,
+                },
+            ]
+        else:
+            mock_result.data.return_value = []
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
+        return mock_result
+
     def test_update_team(self) -> None:
         """Test updating a team."""
         team_data = {
@@ -311,7 +364,9 @@ class TeamEndpointsTestCase(unittest.TestCase):
             },
         }
         fetch_result = self._mock_team_run(team_data)
-        update_result = self._mock_team_run(updated_data)
+        update_result = self._mock_team_run_with_counts(
+            updated_data,
+        )
 
         with (
             mock.patch(
@@ -336,6 +391,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['name'], 'Backend Services')
+        self.assertIn('relationships', data)
 
     def test_update_team_slug_rename(self) -> None:
         """Test updating with different slug renames it."""
@@ -357,7 +413,9 @@ class TeamEndpointsTestCase(unittest.TestCase):
             },
         }
         fetch_result = self._mock_team_run(team_data)
-        update_result = self._mock_team_run(updated_data)
+        update_result = self._mock_team_run_with_counts(
+            updated_data,
+        )
 
         with (
             mock.patch(
@@ -379,7 +437,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 200)
-            # Second call is the update query with the old slug
+            # Second call is the update query with old slug
             update_call = mock_run.call_args_list[1]
             self.assertEqual(
                 update_call.kwargs['slug'],
@@ -422,10 +480,13 @@ class TeamEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 409)
-        self.assertIn('already exists', response.json()['detail'])
+        self.assertIn(
+            'already exists',
+            response.json()['detail'],
+        )
 
     def test_update_team_concurrent_delete(self) -> None:
-        """Test updating a team that is deleted between fetch and update."""
+        """Test updating a team deleted between fetch and update."""
         team_data = {
             'name': 'Backend',
             'slug': 'backend',
@@ -436,7 +497,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
             },
         }
         fetch_result = self._mock_team_run(team_data)
-        empty_result = self._mock_team_run(None)
+        empty_result = self._mock_team_run_with_counts(None)
 
         with (
             mock.patch(
@@ -591,9 +652,15 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result = mock.AsyncMock()
         mock_result.data.return_value = [
             {
-                't': {'name': 'Backend', 'slug': 'backend'},
+                't': {
+                    'name': 'Backend',
+                    'slug': 'backend',
+                },
                 'members': [
-                    {'email': None, 'display_name': None},
+                    {
+                        'email': None,
+                        'display_name': None,
+                    },
                 ],
             }
         ]
@@ -616,7 +683,10 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result = mock.AsyncMock()
         mock_result.data.return_value = [
             {
-                't': {'name': 'Backend', 'slug': 'backend'},
+                't': {
+                    'name': 'Backend',
+                    'slug': 'backend',
+                },
                 'members': [
                     {
                         'email': 'dev@example.com',
@@ -664,7 +734,10 @@ class TeamMembershipTestCase(unittest.TestCase):
         """Test adding a user to a team."""
         mock_result = mock.AsyncMock()
         mock_result.data.return_value = [
-            {'u': {'email': 'dev@example.com'}, 't': {}},
+            {
+                'u': {'email': 'dev@example.com'},
+                't': {},
+            },
         ]
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None

@@ -9,6 +9,7 @@ from imbi_common import blueprints, models, neo4j
 from neo4j import exceptions
 
 from imbi_api.auth import permissions
+from imbi_api.relationships import relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,6 +17,20 @@ project_types_router = fastapi.APIRouter(
     prefix='/project-types',
     tags=['Project Types'],
 )
+
+
+def _add_relationships(
+    pt: dict[str, typing.Any],
+    project_count: int = 0,
+) -> dict[str, typing.Any]:
+    """Attach relationships sub-object to a project type dict."""
+    pt['relationships'] = {
+        'projects': relationship_link(
+            f'/projects?project_type={pt["slug"]}',
+            project_count,
+        ),
+    }
+    return pt
 
 
 @project_types_router.post('/', status_code=201)
@@ -105,10 +120,7 @@ async def create_project_type(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
-        records[0]['project_type'],
-    )
+    return _add_relationships(records[0]['project_type'])
 
 
 @project_types_router.get('/')
@@ -124,19 +136,24 @@ async def list_project_types(
 
     Returns:
         Project types ordered by name, each including their
-        organization.
+        organization and relationships.
 
     """
     query: typing.LiteralString = """
     MATCH (pt:ProjectType)-[:BELONGS_TO]->(o:Organization)
-    RETURN pt{.*, organization: o{.*}} AS project_type
+    OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
+    WITH pt, o, count(DISTINCT p) AS project_count
+    RETURN pt{.*, organization: o{.*}} AS project_type,
+           project_count
     ORDER BY pt.name
     """
     project_types: list[dict[str, typing.Any]] = []
     async with neo4j.run(query) as result:
         records = await result.data()
         for record in records:
-            project_types.append(record['project_type'])
+            pt = record['project_type']
+            _add_relationships(pt, record['project_count'])
+            project_types.append(pt)
     return project_types
 
 
@@ -156,7 +173,7 @@ async def get_project_type(
         slug: Project type slug identifier.
 
     Returns:
-        Project type with organization.
+        Project type with organization and relationships.
 
     Raises:
         404: Project type not found
@@ -165,7 +182,10 @@ async def get_project_type(
     query: typing.LiteralString = """
     MATCH (pt:ProjectType {slug: $slug})
           -[:BELONGS_TO]->(o:Organization)
-    RETURN pt{.*, organization: o{.*}} AS project_type
+    OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
+    WITH pt, o, count(DISTINCT p) AS project_count
+    RETURN pt{.*, organization: o{.*}} AS project_type,
+           project_count
     """
     async with neo4j.run(query, slug=slug) as result:
         records = await result.data()
@@ -175,9 +195,9 @@ async def get_project_type(
             status_code=404,
             detail=(f'Project type with slug {slug!r} not found'),
         )
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         records[0]['project_type'],
+        records[0]['project_count'],
     )
 
 
@@ -256,7 +276,11 @@ async def update_project_type(
     MATCH (pt:ProjectType {slug: $slug})
           -[:BELONGS_TO]->(o:Organization)
     SET pt = $props
-    RETURN pt{.*, organization: o{.*}} AS project_type
+    WITH pt, o
+    OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
+    WITH pt, o, count(DISTINCT p) AS project_count
+    RETURN pt{.*, organization: o{.*}} AS project_type,
+           project_count
     """
     try:
         async with neo4j.run(
@@ -279,9 +303,9 @@ async def update_project_type(
             detail=(f'Project type with slug {slug!r} not found'),
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         updated[0]['project_type'],
+        updated[0]['project_count'],
     )
 
 

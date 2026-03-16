@@ -9,6 +9,7 @@ from imbi_common import blueprints, models, neo4j
 from neo4j import exceptions
 
 from imbi_api.auth import permissions
+from imbi_api.relationships import relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,6 +17,20 @@ environments_router = fastapi.APIRouter(
     prefix='/environments',
     tags=['Environments'],
 )
+
+
+def _add_relationships(
+    env: dict[str, typing.Any],
+    project_count: int = 0,
+) -> dict[str, typing.Any]:
+    """Attach relationships sub-object to an environment dict."""
+    env['relationships'] = {
+        'projects': relationship_link(
+            f'/projects?environment={env["slug"]}',
+            project_count,
+        ),
+    }
+    return env
 
 
 @environments_router.post('/', status_code=201)
@@ -99,10 +114,7 @@ async def create_environment(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
-        records[0]['environment'],
-    )
+    return _add_relationships(records[0]['environment'])
 
 
 @environments_router.get('/')
@@ -118,19 +130,24 @@ async def list_environments(
 
     Returns:
         Environments ordered by name, each including their
-        organization.
+        organization and relationships.
 
     """
     query: typing.LiteralString = """
     MATCH (e:Environment)-[:BELONGS_TO]->(o:Organization)
-    RETURN e{.*, organization: o{.*}} AS environment
+    OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
+    WITH e, o, count(DISTINCT p) AS project_count
+    RETURN e{.*, organization: o{.*}} AS environment,
+           project_count
     ORDER BY e.name
     """
     environments: list[dict[str, typing.Any]] = []
     async with neo4j.run(query) as result:
         records = await result.data()
         for record in records:
-            environments.append(record['environment'])
+            env = record['environment']
+            _add_relationships(env, record['project_count'])
+            environments.append(env)
     return environments
 
 
@@ -150,7 +167,7 @@ async def get_environment(
         slug: Environment slug identifier.
 
     Returns:
-        Environment with organization.
+        Environment with organization and relationships.
 
     Raises:
         404: Environment not found
@@ -158,7 +175,10 @@ async def get_environment(
     """
     query: typing.LiteralString = """
     MATCH (e:Environment {slug: $slug})-[:BELONGS_TO]->(o:Organization)
-    RETURN e{.*, organization: o{.*}} AS environment
+    OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
+    WITH e, o, count(DISTINCT p) AS project_count
+    RETURN e{.*, organization: o{.*}} AS environment,
+           project_count
     """
     async with neo4j.run(query, slug=slug) as result:
         records = await result.data()
@@ -168,9 +188,9 @@ async def get_environment(
             status_code=404,
             detail=(f'Environment with slug {slug!r} not found'),
         )
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         records[0]['environment'],
+        records[0]['project_count'],
     )
 
 
@@ -243,7 +263,11 @@ async def update_environment(
     update_query: typing.LiteralString = """
     MATCH (e:Environment {slug: $slug})-[:BELONGS_TO]->(o:Organization)
     SET e = $props
-    RETURN e{.*, organization: o{.*}} AS environment
+    WITH e, o
+    OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
+    WITH e, o, count(DISTINCT p) AS project_count
+    RETURN e{.*, organization: o{.*}} AS environment,
+           project_count
     """
     try:
         async with neo4j.run(
@@ -266,9 +290,9 @@ async def update_environment(
             detail=(f'Environment with slug {slug!r} not found'),
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         updated[0]['environment'],
+        updated[0]['project_count'],
     )
 
 

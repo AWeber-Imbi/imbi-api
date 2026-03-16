@@ -9,10 +9,31 @@ from imbi_common import blueprints, models, neo4j
 from neo4j import exceptions
 
 from imbi_api.auth import permissions
+from imbi_api.relationships import relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
 teams_router = fastapi.APIRouter(prefix='/teams', tags=['Teams'])
+
+
+def _add_relationships(
+    team: dict[str, typing.Any],
+    project_count: int = 0,
+    member_count: int = 0,
+) -> dict[str, typing.Any]:
+    """Attach relationships sub-object to a team dict."""
+    slug = team['slug']
+    team['relationships'] = {
+        'projects': relationship_link(
+            f'/projects?team={slug}',
+            project_count,
+        ),
+        'members': relationship_link(
+            f'/teams/{slug}/members',
+            member_count,
+        ),
+    }
+    return team
 
 
 @teams_router.post('/', status_code=201)
@@ -94,10 +115,7 @@ async def create_team(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
-        records[0]['team'],
-    )
+    return _add_relationships(records[0]['team'])
 
 
 @teams_router.get('/')
@@ -111,19 +129,30 @@ async def list_teams(
 
     Returns:
         Teams ordered by name, each including their
-        organization.
+        organization and relationships.
 
     """
     query: typing.LiteralString = """
     MATCH (t:Team)-[:BELONGS_TO]->(o:Organization)
-    RETURN t{.*, organization: o{.*}} AS team
+    OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t)
+    OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
+    WITH t, o, count(DISTINCT p) AS project_count,
+                count(DISTINCT u) AS member_count
+    RETURN t{.*, organization: o{.*}} AS team,
+           project_count, member_count
     ORDER BY t.name
     """
     teams: list[dict[str, typing.Any]] = []
     async with neo4j.run(query) as result:
         records = await result.data()
         for record in records:
-            teams.append(record['team'])
+            team = record['team']
+            _add_relationships(
+                team,
+                record['project_count'],
+                record['member_count'],
+            )
+            teams.append(team)
     return teams
 
 
@@ -141,7 +170,7 @@ async def get_team(
         slug: Team slug identifier.
 
     Returns:
-        Team with organization.
+        Team with organization and relationships.
 
     Raises:
         404: Team not found
@@ -149,7 +178,12 @@ async def get_team(
     """
     query: typing.LiteralString = """
     MATCH (t:Team {slug: $slug})-[:BELONGS_TO]->(o:Organization)
-    RETURN t{.*, organization: o{.*}} AS team
+    OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t)
+    OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
+    WITH t, o, count(DISTINCT p) AS project_count,
+                count(DISTINCT u) AS member_count
+    RETURN t{.*, organization: o{.*}} AS team,
+           project_count, member_count
     """
     async with neo4j.run(query, slug=slug) as result:
         records = await result.data()
@@ -159,9 +193,10 @@ async def get_team(
             status_code=404,
             detail=f'Team with slug {slug!r} not found',
         )
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         records[0]['team'],
+        records[0]['project_count'],
+        records[0]['member_count'],
     )
 
 
@@ -234,7 +269,13 @@ async def update_team(
     update_query: typing.LiteralString = """
     MATCH (t:Team {slug: $slug})-[:BELONGS_TO]->(o:Organization)
     SET t = $props
-    RETURN t{.*, organization: o{.*}} AS team
+    WITH t, o
+    OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t)
+    OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
+    WITH t, o, count(DISTINCT p) AS project_count,
+                count(DISTINCT u) AS member_count
+    RETURN t{.*, organization: o{.*}} AS team,
+           project_count, member_count
     """
     try:
         async with neo4j.run(
@@ -255,9 +296,10 @@ async def update_team(
             detail=f'Team with slug {slug!r} not found',
         )
 
-    return typing.cast(
-        dict[str, typing.Any],
+    return _add_relationships(
         updated[0]['team'],
+        updated[0]['project_count'],
+        updated[0]['member_count'],
     )
 
 
