@@ -42,7 +42,7 @@ async def create_role(
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('role:create')),
     ],
-) -> models.Role:
+) -> dict[str, typing.Any]:
     """Create a new role.
 
     Parameters:
@@ -67,7 +67,7 @@ async def create_role(
         ) from e
     result = created.model_dump()
     result['relationships'] = _build_relationships(created.slug)
-    return result  # type: ignore[return-value]
+    return result
 
 
 @roles_router.get('/')
@@ -223,7 +223,7 @@ async def update_role(
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('role:update')),
     ],
-) -> models.Role:
+) -> dict[str, typing.Any]:
     """Update or create a role identified by slug.
 
     Parameters:
@@ -252,9 +252,28 @@ async def update_role(
         role.created_at = existing_role.created_at
     role.updated_at = datetime.datetime.now(datetime.UTC)
     await neo4j.upsert(role, {'slug': slug})
+
+    # Fetch actual relationship counts from the database
+    count_query: typing.LiteralString = """
+    MATCH (r:Role {slug: $slug})
+    OPTIONAL MATCH (r)-[:GRANTS]->(p:Permission)
+    WITH r, count(DISTINCT p) AS permission_count
+    OPTIONAL MATCH (u:User)-[m:MEMBER_OF]->(o:Organization)
+    WHERE m.role = r.slug
+    RETURN count(DISTINCT u) AS user_count,
+           permission_count
+    """
+    records = await neo4j.query(count_query, slug=role.slug)
+    permission_count = records[0]['permission_count'] if records else 0
+    user_count = records[0]['user_count'] if records else 0
+
     result = role.model_dump()
-    result['relationships'] = _build_relationships(role.slug)
-    return result  # type: ignore[return-value]
+    result['relationships'] = _build_relationships(
+        role.slug,
+        permission_count,
+        user_count,
+    )
+    return result
 
 
 @roles_router.delete('/{slug}', status_code=204)

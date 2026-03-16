@@ -64,6 +64,12 @@ async def create_team(
     """
     dynamic_model = await blueprints.get_model(models.Team)
 
+    # Defensive copy: remove organization fields to prevent
+    # duplicate keyword arguments when unpacking into model
+    payload = dict(data)
+    payload.pop('organization_slug', None)
+    payload.pop('organization', None)
+
     # Validate team fields (without organization relationship)
     try:
         team = dynamic_model(
@@ -71,7 +77,7 @@ async def create_team(
                 name='',
                 slug=org_slug,
             ),
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning('Validation error creating team: %s', e)
@@ -238,8 +244,9 @@ async def update_team(
     if 'slug' not in data:
         data['slug'] = slug
 
-    # Remove organization_slug if present (not updatable)
+    # Remove organization fields (not updatable)
     data.pop('organization_slug', None)
+    data.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(models.Team)
 

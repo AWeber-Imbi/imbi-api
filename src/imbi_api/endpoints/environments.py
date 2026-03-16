@@ -280,7 +280,7 @@ async def update_environment(
     SET e = $props
     WITH e, o
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
-    With e, o, count(DISTINCT p) AS project_count
+    WITH e, o, count(DISTINCT p) AS project_count
     RETURN e{.*, organization: o{.*}} AS environment,
            project_count
     """

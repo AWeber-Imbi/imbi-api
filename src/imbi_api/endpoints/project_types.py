@@ -185,7 +185,7 @@ async def get_project_type(
     MATCH (pt:ProjectType {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
-    With pt, o, count(DISTINCT p) AS project_count
+    WITH pt, o, count(DISTINCT p) AS project_count
     RETURN pt{.*, organization: o{.*}} AS project_type,
            project_count
     """
@@ -290,7 +290,7 @@ async def update_project_type(
     SET pt = $props
     WITH pt, o
     OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
-    With pt, o, count(DISTINCT p) AS project_count
+    WITH pt, o, count(DISTINCT p) AS project_count
     RETURN pt{.*, organization: o{.*}} AS project_type,
            project_count
     """
