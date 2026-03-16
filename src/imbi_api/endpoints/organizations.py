@@ -1,5 +1,6 @@
 """Organization management endpoints."""
 
+import datetime
 import logging
 import typing
 
@@ -81,6 +82,9 @@ async def create_organization(
         409: Organization with slug already exists.
 
     """
+    now = datetime.datetime.now(datetime.UTC)
+    org.created_at = now
+    org.updated_at = now
     try:
         created = await neo4j.create_node(org)
     except exceptions.ConstraintError as e:
@@ -122,17 +126,16 @@ async def list_organizations(
     ORDER BY o.name
     """
     organizations: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query) as result:
-        records = await result.data()
-        for record in records:
-            org = record['organization']
-            _add_relationships(
-                org,
-                record['team_count'],
-                record['member_count'],
-                record['project_count'],
-            )
-            organizations.append(org)
+    records = await neo4j.query(query)
+    for record in records:
+        org = record['organization']
+        _add_relationships(
+            org,
+            record['team_count'],
+            record['member_count'],
+            record['project_count'],
+        )
+        organizations.append(org)
     return organizations
 
 
@@ -171,8 +174,7 @@ async def get_organization(
     RETURN o{.*} AS organization,
            team_count, member_count, project_count
     """
-    async with neo4j.run(query, slug=slug) as result:
-        records = await result.data()
+    records = await neo4j.query(query, slug=slug)
 
     if not records:
         raise fastapi.HTTPException(
@@ -222,6 +224,8 @@ async def update_organization(
             detail=f'Organization with slug {slug!r} not found',
         )
 
+    org.created_at = existing.created_at
+    org.updated_at = datetime.datetime.now(datetime.UTC)
     try:
         await neo4j.upsert(org, {'slug': slug})
     except exceptions.ConstraintError as e:
@@ -243,11 +247,10 @@ async def update_organization(
          count(DISTINCT p) AS project_count
     RETURN team_count, member_count, project_count
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         count_query,
         slug=org.slug,
-    ) as result:
-        records = await result.data()
+    )
 
     counts = records[0] if records else {}
     org_dict = org.model_dump()
@@ -290,15 +293,14 @@ async def list_organization_members(
         role: m.role
     }) AS members
     """
-    async with neo4j.run(query, slug=slug) as result:
-        records = await result.data()
-        if not records or not records[0].get('o'):
-            raise fastapi.HTTPException(
-                status_code=404,
-                detail=(f'Organization with slug {slug!r} not found'),
-            )
-        members = records[0].get('members', [])
-        return [m for m in members if m.get('email')]
+    records = await neo4j.query(query, slug=slug)
+    if not records or not records[0].get('o'):
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(f'Organization with slug {slug!r} not found'),
+        )
+    members = records[0].get('members', [])
+    return [m for m in members if m.get('email')]
 
 
 @organizations_router.delete('/{slug}', status_code=204)

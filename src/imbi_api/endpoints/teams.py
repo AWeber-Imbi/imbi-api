@@ -1,5 +1,6 @@
 """Team management endpoints."""
 
+import datetime
 import logging
 import typing
 
@@ -81,6 +82,9 @@ async def create_team(
 
     # Build property SET clause from model fields (exclude
     # relationship fields)
+    now = datetime.datetime.now(datetime.UTC)
+    team.created_at = now
+    team.updated_at = now
     props = team.model_dump(
         exclude={'organization'},
     )
@@ -92,12 +96,11 @@ async def create_team(
     RETURN t{.*, organization: o{.*}} AS team
     """
     try:
-        async with neo4j.run(
+        records = await neo4j.query(
             query,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            records = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -142,17 +145,16 @@ async def list_teams(
     ORDER BY t.name
     """
     teams: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query, org_slug=org_slug) as result:
-        records = await result.data()
-        for record in records:
-            team = record['team']
-            _add_relationships(
-                team,
-                org_slug,
-                record['project_count'],
-                record['member_count'],
-            )
-            teams.append(team)
+    records = await neo4j.query(query, org_slug=org_slug)
+    for record in records:
+        team = record['team']
+        _add_relationships(
+            team,
+            org_slug,
+            record['project_count'],
+            record['member_count'],
+        )
+        teams.append(team)
     return teams
 
 
@@ -188,12 +190,11 @@ async def get_team(
     RETURN t{.*, organization: o{.*}} AS team,
            project_count, member_count
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -248,12 +249,11 @@ async def update_team(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     RETURN t{.*, organization: o{.*}} AS team
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -279,6 +279,8 @@ async def update_team(
         ) from e
 
     # Build property SET from model fields, excluding relationship
+    team.created_at = existing.get('created_at')
+    team.updated_at = datetime.datetime.now(datetime.UTC)
     props = team.model_dump(exclude={'organization'})
 
     update_query: typing.LiteralString = """
@@ -294,13 +296,12 @@ async def update_team(
            project_count, member_count
     """
     try:
-        async with neo4j.run(
+        updated = await neo4j.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            updated = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -346,12 +347,11 @@ async def delete_team(
     DETACH DELETE t
     RETURN count(t) AS deleted
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(
@@ -391,12 +391,11 @@ async def list_team_members(
         display_name: u.display_name
     }) AS members
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records or not records[0].get('t'):
         raise fastapi.HTTPException(
@@ -446,13 +445,12 @@ async def add_team_member(
     MERGE (u)-[:MEMBER_OF]->(t)
     RETURN u, t
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         email=email,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -492,13 +490,12 @@ async def remove_team_member(
     DELETE m
     RETURN count(m) AS deleted
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         email=email,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(

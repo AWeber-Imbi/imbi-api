@@ -1,5 +1,6 @@
 """Environment management endpoints."""
 
+import datetime
 import logging
 import typing
 
@@ -80,6 +81,9 @@ async def create_environment(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
+    now = datetime.datetime.now(datetime.UTC)
+    environment.created_at = now
+    environment.updated_at = now
     props = environment.model_dump(exclude={'organization'})
 
     query: typing.LiteralString = """
@@ -89,12 +93,11 @@ async def create_environment(
     RETURN e{.*, organization: o{.*}} AS environment
     """
     try:
-        async with neo4j.run(
+        records = await neo4j.query(
             query,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            records = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -140,12 +143,11 @@ async def list_environments(
     ORDER BY e.name
     """
     environments: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query, org_slug=org_slug) as result:
-        records = await result.data()
-        for record in records:
-            env = record['environment']
-            _add_relationships(env, record['project_count'])
-            environments.append(env)
+    records = await neo4j.query(query, org_slug=org_slug)
+    for record in records:
+        env = record['environment']
+        _add_relationships(env, record['project_count'])
+        environments.append(env)
     return environments
 
 
@@ -181,12 +183,11 @@ async def get_environment(
     RETURN e{.*, organization: o{.*}} AS environment,
            project_count
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -240,12 +241,11 @@ async def update_environment(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     RETURN e{.*, organization: o{.*}} AS environment
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -270,6 +270,8 @@ async def update_environment(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
+    environment.created_at = existing.get('created_at')
+    environment.updated_at = datetime.datetime.now(datetime.UTC)
     props = environment.model_dump(exclude={'organization'})
 
     update_query: typing.LiteralString = """
@@ -283,13 +285,12 @@ async def update_environment(
            project_count
     """
     try:
-        async with neo4j.run(
+        updated = await neo4j.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            updated = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -337,12 +338,11 @@ async def delete_environment(
     DETACH DELETE e
     RETURN count(e) AS deleted
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(

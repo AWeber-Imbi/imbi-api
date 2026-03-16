@@ -1,5 +1,6 @@
 """Role and permission management endpoints."""
 
+import datetime
 import logging
 import typing
 
@@ -54,6 +55,9 @@ async def create_role(
         409: If a role with the same slug already exists.
 
     """
+    now = datetime.datetime.now(datetime.UTC)
+    role.created_at = now
+    role.updated_at = now
     try:
         created = await neo4j.create_node(role)
     except exceptions.ConstraintError as e:
@@ -92,16 +96,15 @@ async def list_roles(
     ORDER BY r.priority DESC, r.name
     """
     roles: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query) as result:
-        records = await result.data()
-        for record in records:
-            role = record['role']
-            role['relationships'] = _build_relationships(
-                role['slug'],
-                record['permission_count'],
-                record['user_count'],
-            )
-            roles.append(role)
+    records = await neo4j.query(query)
+    for record in records:
+        role = record['role']
+        role['relationships'] = _build_relationships(
+            role['slug'],
+            record['permission_count'],
+            record['user_count'],
+        )
+        roles.append(role)
     return roles
 
 
@@ -139,12 +142,8 @@ async def get_role(
     RETURN p
     ORDER BY p.name
     """
-    async with neo4j.run(perm_query, slug=slug) as result:
-        records = await result.data()
-        role.permissions = [
-            models.Permission(**neo4j.convert_neo4j_types(r['p']))
-            for r in records
-        ]
+    records = await neo4j.query(perm_query, slug=slug)
+    role.permissions = [models.Permission(**r['p']) for r in records]
 
     permission_count = len(role.permissions)
 
@@ -153,12 +152,9 @@ async def get_role(
     MATCH (r:Role {slug: $slug})-[:INHERITS_FROM]->(parent:Role)
     RETURN parent
     """
-    async with neo4j.run(parent_query, slug=slug) as result:
-        records = await result.data()
-        if records:
-            role.parent_role = models.Role(
-                **neo4j.convert_neo4j_types(records[0]['parent'])
-            )
+    records = await neo4j.query(parent_query, slug=slug)
+    if records:
+        role.parent_role = models.Role(**records[0]['parent'])
 
     # Count users with this role
     user_count_query: typing.LiteralString = """
@@ -166,9 +162,8 @@ async def get_role(
     WHERE m.role = $slug
     RETURN count(DISTINCT u) AS user_count
     """
-    async with neo4j.run(user_count_query, slug=slug) as result:
-        records = await result.data()
-        user_count = records[0]['user_count'] if records else 0
+    records = await neo4j.query(user_count_query, slug=slug)
+    user_count = records[0]['user_count'] if records else 0
 
     role_dict = role.model_dump()
     role_dict['relationships'] = _build_relationships(
@@ -209,20 +204,15 @@ async def list_role_users(
     WHERE m.role = $slug
     RETURN r, collect(DISTINCT u) AS users
     """
-    async with neo4j.run(query, slug=slug) as result:
-        records = await result.data()
-        if not records or not records[0].get('r'):
-            raise fastapi.HTTPException(
-                status_code=404,
-                detail=f'Role with slug {slug!r} not found',
-            )
+    records = await neo4j.query(query, slug=slug)
+    if not records or not records[0].get('r'):
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Role with slug {slug!r} not found',
+        )
 
-        user_data = records[0].get('users', [])
-        return [
-            models.UserResponse(**neo4j.convert_neo4j_types(u))
-            for u in user_data
-            if u
-        ]
+    user_data = records[0].get('users', [])
+    return [models.UserResponse(**u) for u in user_data if u]
 
 
 @roles_router.put('/{slug}', response_model=models.Role)
@@ -258,6 +248,9 @@ async def update_role(
             detail='Cannot modify system role',
         )
 
+    if existing_role:
+        role.created_at = existing_role.created_at
+    role.updated_at = datetime.datetime.now(datetime.UTC)
     await neo4j.upsert(role, {'slug': slug})
     result = role.model_dump()
     result['relationships'] = _build_relationships(role.slug)
@@ -356,10 +349,7 @@ async def grant_permission(
     MATCH (perm:Permission {name: $permission_name})
     MERGE (role)-[:GRANTS]->(perm)
     """
-    async with neo4j.run(
-        query, slug=slug, permission_name=permission_name
-    ) as result:
-        await result.consume()
+    await neo4j.query(query, slug=slug, permission_name=permission_name)
 
     LOGGER.info(
         'Granted permission %s to role %s',
@@ -409,16 +399,15 @@ async def revoke_permission(
     DELETE r
     RETURN count(r) AS deleted
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query, slug=slug, permission_name=permission_name
-    ) as result:
-        records = await result.data()
-        if not records or records[0]['deleted'] == 0:
-            raise fastapi.HTTPException(
-                status_code=404,
-                detail=f'Permission {permission_name!r} not granted'
-                f' to role {slug!r}',
-            )
+    )
+    if not records or records[0]['deleted'] == 0:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Permission {permission_name!r} not granted'
+            f' to role {slug!r}',
+        )
 
     LOGGER.info(
         'Revoked permission %s from role %s',

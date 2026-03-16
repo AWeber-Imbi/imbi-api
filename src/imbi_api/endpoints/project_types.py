@@ -1,5 +1,6 @@
 """Project type management endpoints."""
 
+import datetime
 import logging
 import typing
 
@@ -82,6 +83,9 @@ async def create_project_type(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
+    now = datetime.datetime.now(datetime.UTC)
+    project_type.created_at = now
+    project_type.updated_at = now
     props = project_type.model_dump(
         exclude={'organization'},
     )
@@ -93,12 +97,11 @@ async def create_project_type(
     RETURN pt{.*, organization: o{.*}} AS project_type
     """
     try:
-        async with neo4j.run(
+        records = await neo4j.query(
             query,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            records = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -146,12 +149,11 @@ async def list_project_types(
     ORDER BY pt.name
     """
     project_types: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query, org_slug=org_slug) as result:
-        records = await result.data()
-        for record in records:
-            pt = record['project_type']
-            _add_relationships(pt, record['project_count'])
-            project_types.append(pt)
+    records = await neo4j.query(query, org_slug=org_slug)
+    for record in records:
+        pt = record['project_type']
+        _add_relationships(pt, record['project_count'])
+        project_types.append(pt)
     return project_types
 
 
@@ -187,12 +189,11 @@ async def get_project_type(
     RETURN pt{.*, organization: o{.*}} AS project_type,
            project_count
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -248,12 +249,11 @@ async def update_project_type(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     RETURN pt{.*, organization: o{.*}} AS project_type
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -278,6 +278,8 @@ async def update_project_type(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
+    project_type.created_at = existing.get('created_at')
+    project_type.updated_at = datetime.datetime.now(datetime.UTC)
     props = project_type.model_dump(
         exclude={'organization'},
     )
@@ -293,13 +295,12 @@ async def update_project_type(
            project_count
     """
     try:
-        async with neo4j.run(
+        updated = await neo4j.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
             props=props,
-        ) as result:
-            updated = await result.data()
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -349,12 +350,11 @@ async def delete_project_type(
     DETACH DELETE pt
     RETURN count(pt) AS deleted
     """
-    async with neo4j.run(
+    records = await neo4j.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(
