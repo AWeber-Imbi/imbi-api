@@ -248,9 +248,12 @@ async def update_role(
             detail='Cannot modify system role',
         )
 
+    now = datetime.datetime.now(datetime.UTC)
     if existing_role:
         role.created_at = existing_role.created_at
-    role.updated_at = datetime.datetime.now(datetime.UTC)
+    else:
+        role.created_at = now
+    role.updated_at = now
     await neo4j.upsert(role, {'slug': slug})
 
     # Fetch actual relationship counts from the database
@@ -263,13 +266,13 @@ async def update_role(
     RETURN count(DISTINCT u) AS user_count,
            permission_count
     """
-    records = await neo4j.query(count_query, slug=role.slug)
+    records = await neo4j.query(count_query, slug=slug)
     permission_count = records[0]['permission_count'] if records else 0
     user_count = records[0]['user_count'] if records else 0
 
     result = role.model_dump()
     result['relationships'] = _build_relationships(
-        role.slug,
+        slug,
         permission_count,
         user_count,
     )

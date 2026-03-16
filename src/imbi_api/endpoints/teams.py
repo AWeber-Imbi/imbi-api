@@ -240,13 +240,16 @@ async def update_team(
         404: Team not found
 
     """
+    # Defensive copy: avoid mutating the caller's input
+    payload = dict(data)
+
     # If no slug in body, default to the URL slug (no rename)
-    if 'slug' not in data:
-        data['slug'] = slug
+    if 'slug' not in payload:
+        payload['slug'] = slug
 
     # Remove organization fields (not updatable)
-    data.pop('organization_slug', None)
-    data.pop('organization', None)
+    payload.pop('organization_slug', None)
+    payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(models.Team)
 
@@ -273,7 +276,7 @@ async def update_team(
     try:
         team = dynamic_model(
             organization=existing['organization'],
-            **data,
+            **payload,
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -312,7 +315,7 @@ async def update_team(
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=(f'Team with slug {data["slug"]!r} already exists'),
+            detail=(f'Team with slug {payload["slug"]!r} already exists'),
         ) from e
 
     if not updated:
