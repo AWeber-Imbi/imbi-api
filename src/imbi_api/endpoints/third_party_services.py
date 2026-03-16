@@ -23,11 +23,6 @@ _APP_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
     'scopes': [],
     'settings': {},
 }
-_SECRET_FIELDS = (
-    'webhook_secret',
-    'private_key',
-    'signing_secret',
-)
 
 
 def _build_service_response(
@@ -71,14 +66,12 @@ def _deserialize_json_fields(
     return obj
 
 
-def _mask_app_secrets(
+def _strip_secrets(
     app: dict[str, typing.Any],
 ) -> dict[str, typing.Any]:
-    """Replace secret values with the mask sentinel."""
-    app['client_secret'] = models.SECRET_MASK
-    for field in _SECRET_FIELDS:
-        if app.get(field) is not None:
-            app[field] = models.SECRET_MASK
+    """Remove secret fields from an application dict."""
+    for field in models.SECRET_FIELDS:
+        app.pop(field, None)
     return app
 
 
@@ -449,7 +442,7 @@ async def list_service_applications(
     apps: list[models.ServiceApplicationResponse] = []
     for record in records:
         app = _deserialize_json_fields(record['app'], _APP_JSON_FIELDS)
-        _mask_app_secrets(app)
+        _strip_secrets(app)
         apps.append(models.ServiceApplicationResponse(**app))
     return apps
 
@@ -529,8 +522,38 @@ async def create_service_application(
         )
 
     app = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
-    _mask_app_secrets(app)
+    _strip_secrets(app)
     return models.ServiceApplicationResponse(**app)
+
+
+async def _fetch_application(
+    svc_slug: str,
+    app_slug: str,
+) -> dict[str, typing.Any]:
+    """Fetch a single application or raise 404."""
+    query: typing.LiteralString = """
+    MATCH (a:ServiceApplication {slug: $app_slug})
+          -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
+    RETURN a{.*} AS app
+    """
+    async with neo4j.run(
+        query,
+        app_slug=app_slug,
+        svc_slug=svc_slug,
+    ) as result:
+        records = await result.data()
+
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(
+                f'Application {app_slug!r} not found in service {svc_slug!r}'
+            ),
+        )
+    return _deserialize_json_fields(
+        records[0]['app'],
+        _APP_JSON_FIELDS,
+    )
 
 
 @third_party_services_router.get(
@@ -547,50 +570,14 @@ async def get_service_application(
             ),
         ),
     ],
-    reveal_secrets: bool = False,
 ) -> models.ServiceApplicationResponse:
     """Get a single application by slug.
 
-    Secrets are masked by default.  Pass ``?reveal_secrets=true``
-    with an admin-level token to return decrypted secret values.
+    Secret fields are not included in the response. Use the
+    ``/secrets`` sub-resource to retrieve or update secrets.
     """
-    if reveal_secrets and not auth.is_admin:
-        raise fastapi.HTTPException(
-            status_code=403,
-            detail='Admin privileges required to reveal secrets',
-        )
-
-    query: typing.LiteralString = """
-    MATCH (a:ServiceApplication {slug: $app_slug})
-          -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
-    RETURN a{.*} AS app
-    """
-    async with neo4j.run(
-        query,
-        app_slug=app_slug,
-        svc_slug=slug,
-    ) as result:
-        records = await result.data()
-
-    if not records:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=(f'Application {app_slug!r} not found in service {slug!r}'),
-        )
-
-    app = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
-
-    if reveal_secrets:
-        encryptor = encryption.TokenEncryption.get_instance()
-        app['client_secret'] = encryptor.decrypt(
-            app['client_secret'],
-        )
-        for field in _SECRET_FIELDS:
-            if app.get(field) is not None:
-                app[field] = encryptor.decrypt(app[field])
-    else:
-        _mask_app_secrets(app)
-
+    app = await _fetch_application(slug, app_slug)
+    _strip_secrets(app)
     return models.ServiceApplicationResponse(**app)
 
 
@@ -600,7 +587,7 @@ async def get_service_application(
 async def update_service_application(
     slug: str,
     app_slug: str,
-    data: models.ServiceApplicationCreate,
+    data: models.ServiceApplicationUpdate,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -610,46 +597,17 @@ async def update_service_application(
         ),
     ],
 ) -> models.ServiceApplicationResponse:
-    """Update an application. Fields equal to the mask are skipped."""
-    # Fetch existing to merge masked fields
-    fetch_query: typing.LiteralString = """
-    MATCH (a:ServiceApplication {slug: $app_slug})
-          -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
-    RETURN a{.*} AS app
+    """Update non-secret application fields.
+
+    Secret fields cannot be updated via this endpoint. Use
+    ``PUT /secrets`` instead.
     """
-    async with neo4j.run(
-        fetch_query,
-        app_slug=app_slug,
-        svc_slug=slug,
-    ) as result:
-        records = await result.data()
-
-    if not records:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=(f'Application {app_slug!r} not found in service {slug!r}'),
-        )
-
-    existing = _deserialize_json_fields(records[0]['app'], _APP_JSON_FIELDS)
-    encryptor = encryption.TokenEncryption.get_instance()
+    existing = await _fetch_application(slug, app_slug)
     props = data.model_dump()
 
-    # Handle secret fields: skip masked values, encrypt new values
-    if props['client_secret'] == models.SECRET_MASK:
-        props['client_secret'] = existing['client_secret']
-    else:
-        props['client_secret'] = encryptor.encrypt(
-            props['client_secret'],
-        )
-
-    for field in _SECRET_FIELDS:
-        val = props.get(field)
-        if val is None:
-            props[field] = None
-        elif val == models.SECRET_MASK:
-            props[field] = existing.get(field)
-        else:
-            props[field] = encryptor.encrypt(val)
+    # Preserve existing secret values unchanged
+    for field in models.SECRET_FIELDS:
+        props[field] = existing.get(field)
 
     neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
@@ -673,8 +631,11 @@ async def update_service_application(
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
 
-    app = _deserialize_json_fields(updated[0]['app'], _APP_JSON_FIELDS)
-    _mask_app_secrets(app)
+    app = _deserialize_json_fields(
+        updated[0]['app'],
+        _APP_JSON_FIELDS,
+    )
+    _strip_secrets(app)
     return models.ServiceApplicationResponse(**app)
 
 
@@ -713,3 +674,142 @@ async def delete_service_application(
             status_code=404,
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
+
+
+# --- Application Secrets sub-resource ---
+
+
+@third_party_services_router.get(
+    '/{slug}/applications/{app_slug}/secrets',
+)
+async def get_application_secrets(
+    slug: str,
+    app_slug: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission(
+                'third_party_service:read',
+            ),
+        ),
+    ],
+) -> models.ServiceApplicationSecrets:
+    """Retrieve decrypted application secrets.
+
+    Requires admin privileges.
+    """
+    if not auth.is_admin:
+        raise fastapi.HTTPException(
+            status_code=403,
+            detail='Admin privileges required to access secrets',
+        )
+
+    app = await _fetch_application(slug, app_slug)
+    encryptor = encryption.TokenEncryption.get_instance()
+    return models.ServiceApplicationSecrets(
+        client_secret=typing.cast(
+            str,
+            encryptor.decrypt(app['client_secret']),
+        ),
+        webhook_secret=(
+            encryptor.decrypt(app['webhook_secret'])
+            if app.get('webhook_secret') is not None
+            else None
+        ),
+        private_key=(
+            encryptor.decrypt(app['private_key'])
+            if app.get('private_key') is not None
+            else None
+        ),
+        signing_secret=(
+            encryptor.decrypt(app['signing_secret'])
+            if app.get('signing_secret') is not None
+            else None
+        ),
+    )
+
+
+@third_party_services_router.put(
+    '/{slug}/applications/{app_slug}/secrets',
+)
+async def update_application_secrets(
+    slug: str,
+    app_slug: str,
+    data: models.ServiceApplicationSecretsUpdate,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission(
+                'third_party_service:update',
+            ),
+        ),
+    ],
+) -> models.ServiceApplicationSecrets:
+    """Update one or more application secrets.
+
+    Only provided (non-null) fields are updated. Requires admin
+    privileges.
+    """
+    if not auth.is_admin:
+        raise fastapi.HTTPException(
+            status_code=403,
+            detail='Admin privileges required to update secrets',
+        )
+
+    existing = await _fetch_application(slug, app_slug)
+    encryptor = encryption.TokenEncryption.get_instance()
+
+    # Build updated secret values: encrypt new ones, keep existing
+    secret_params: dict[str, typing.Any] = {}
+    for field in models.SECRET_FIELDS:
+        new_val = getattr(data, field)
+        if new_val is not None:
+            secret_params[field] = encryptor.encrypt(new_val)
+        else:
+            secret_params[field] = existing.get(field)
+
+    update_query: typing.LiteralString = """
+    MATCH (a:ServiceApplication {slug: $app_slug})
+          -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
+    SET a.client_secret = $client_secret,
+        a.webhook_secret = $webhook_secret,
+        a.private_key = $private_key,
+        a.signing_secret = $signing_secret
+    RETURN a{.*} AS app
+    """
+    async with neo4j.run(
+        update_query,
+        app_slug=app_slug,
+        svc_slug=slug,
+        **secret_params,
+    ) as result:
+        records = await result.data()
+
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(f'Application {app_slug!r} not found in service {slug!r}'),
+        )
+
+    updated = records[0]['app']
+    return models.ServiceApplicationSecrets(
+        client_secret=typing.cast(
+            str,
+            encryptor.decrypt(updated['client_secret']),
+        ),
+        webhook_secret=(
+            encryptor.decrypt(updated['webhook_secret'])
+            if updated.get('webhook_secret') is not None
+            else None
+        ),
+        private_key=(
+            encryptor.decrypt(updated['private_key'])
+            if updated.get('private_key') is not None
+            else None
+        ),
+        signing_secret=(
+            encryptor.decrypt(updated['signing_secret'])
+            if updated.get('signing_secret') is not None
+            else None
+        ),
+    )

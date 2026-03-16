@@ -9,7 +9,6 @@ from fastapi import testclient
 from neo4j import exceptions
 
 from imbi_api import app, models
-from imbi_api.domain import models as domain_models
 
 
 def _mock_neo4j_result(data):
@@ -593,6 +592,15 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             'webhook_secret': 'wh-secret',
         }
 
+        self.app_update_json = {
+            'slug': 'my-app',
+            'name': 'My App',
+            'description': 'Test app',
+            'app_type': 'github_app',
+            'client_id': 'client-123',
+            'scopes': ['repo', 'user'],
+        }
+
         self.mock_encryptor = mock.MagicMock()
         self.mock_encryptor.encrypt.side_effect = lambda v: f'enc:{v}'
         self.mock_encryptor.decrypt.side_effect = lambda v: v.removeprefix(
@@ -624,15 +632,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['slug'], 'my-app')
-        # Secrets should be masked
-        self.assertEqual(
-            data[0]['client_secret'],
-            domain_models.SECRET_MASK,
-        )
-        self.assertEqual(
-            data[0]['webhook_secret'],
-            domain_models.SECRET_MASK,
-        )
+        # Secrets should be stripped from the response
+        self.assertNotIn('client_secret', data[0])
+        self.assertNotIn('webhook_secret', data[0])
 
     def test_list_applications_empty(self) -> None:
         result = _mock_neo4j_result([])
@@ -689,10 +691,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         data = response.json()
         self.assertEqual(data['slug'], 'my-app')
-        self.assertEqual(
-            data['client_secret'],
-            domain_models.SECRET_MASK,
-        )
+        self.assertNotIn('client_secret', data)
 
     def test_create_application_duplicate(self) -> None:
         check_result = _mock_neo4j_result([{'cnt': 1}])
@@ -786,19 +785,10 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         data = response.json()
-        # All secrets should be masked in response
-        self.assertEqual(
-            data['client_secret'],
-            domain_models.SECRET_MASK,
-        )
-        self.assertEqual(
-            data['private_key'],
-            domain_models.SECRET_MASK,
-        )
-        self.assertEqual(
-            data['signing_secret'],
-            domain_models.SECRET_MASK,
-        )
+        # All secrets should be stripped from the response
+        self.assertNotIn('client_secret', data)
+        self.assertNotIn('private_key', data)
+        self.assertNotIn('signing_secret', data)
 
     # -- Get application --
 
@@ -817,10 +807,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['slug'], 'my-app')
-        self.assertEqual(
-            data['client_secret'],
-            domain_models.SECRET_MASK,
-        )
+        self.assertNotIn('client_secret', data)
 
     def test_get_application_not_found(self) -> None:
         result = _mock_neo4j_result([])
@@ -835,7 +822,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
-    def test_get_application_reveal_secrets_admin(self) -> None:
+    def test_get_secrets_admin(self) -> None:
         app_data = dict(self.app_data)
         app_data['client_secret'] = 'enc:real-secret'
         app_data['webhook_secret'] = 'enc:real-webhook'
@@ -849,9 +836,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             self._patch_encryption(),
         ):
             response = self.client.get(
-                '/third-party-services/stripe'
-                '/applications/my-app'
-                '?reveal_secrets=true',
+                '/third-party-services/stripe/applications/my-app/secrets',
             )
 
         self.assertEqual(response.status_code, 200)
@@ -859,7 +844,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['client_secret'], 'real-secret')
         self.assertEqual(data['webhook_secret'], 'real-webhook')
 
-    def test_get_application_reveal_secrets_non_admin(self) -> None:
+    def test_get_secrets_non_admin(self) -> None:
         from imbi_api.auth import permissions
 
         non_admin = models.User(
@@ -885,11 +870,14 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             mock_get_current_user
         )
 
-        response = self.client.get(
-            '/third-party-services/stripe'
-            '/applications/my-app'
-            '?reveal_secrets=true',
-        )
+        result = _mock_neo4j_result([{'app': self.app_data}])
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=result,
+        ):
+            response = self.client.get(
+                '/third-party-services/stripe/applications/my-app/secrets',
+            )
 
         self.assertEqual(response.status_code, 403)
         self.assertIn('Admin', response.json()['detail'])
@@ -906,14 +894,11 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             [{'app': updated_app}],
         )
 
-        with (
-            mock.patch(
-                'imbi_common.neo4j.run',
-                side_effect=[fetch_result, update_result],
-            ),
-            self._patch_encryption(),
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            side_effect=[fetch_result, update_result],
         ):
-            payload = dict(self.app_create_json)
+            payload = dict(self.app_update_json)
             payload['name'] = 'Updated App'
             response = self.client.put(
                 '/third-party-services/stripe/applications/my-app',
@@ -923,15 +908,10 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['name'], 'Updated App')
-        self.assertEqual(
-            data['client_secret'],
-            domain_models.SECRET_MASK,
-        )
+        self.assertNotIn('client_secret', data)
 
-    def test_update_application_masked_secret_preserved(
-        self,
-    ) -> None:
-        """Sending SECRET_MASK preserves existing encrypted value."""
+    def test_update_preserves_existing_secrets(self) -> None:
+        """Update carries forward existing encrypted secret values."""
         fetch_result = _mock_neo4j_result(
             [{'app': self.app_data}],
         )
@@ -939,23 +919,17 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             [{'app': self.app_data}],
         )
 
-        with (
-            mock.patch(
-                'imbi_common.neo4j.run',
-                side_effect=[fetch_result, update_result],
-            ) as mock_run,
-            self._patch_encryption(),
-        ):
-            payload = dict(self.app_create_json)
-            payload['client_secret'] = domain_models.SECRET_MASK
-            payload['webhook_secret'] = domain_models.SECRET_MASK
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            side_effect=[fetch_result, update_result],
+        ) as mock_run:
             response = self.client.put(
                 '/third-party-services/stripe/applications/my-app',
-                json=payload,
+                json=self.app_update_json,
             )
 
         self.assertEqual(response.status_code, 200)
-        # Verify existing encrypted values were kept
+        # Verify existing encrypted values were preserved
         update_call = mock_run.call_args_list[1]
         props = update_call.kwargs['props']
         self.assertEqual(
@@ -969,16 +943,13 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
     def test_update_application_not_found(self) -> None:
         result = _mock_neo4j_result([])
-        with (
-            mock.patch(
-                'imbi_common.neo4j.run',
-                return_value=result,
-            ),
-            self._patch_encryption(),
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=result,
         ):
             response = self.client.put(
                 '/third-party-services/stripe/applications/nonexistent',
-                json=self.app_create_json,
+                json=self.app_update_json,
             )
 
         self.assertEqual(response.status_code, 404)
@@ -991,16 +962,13 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         )
         empty_result = _mock_neo4j_result([])
 
-        with (
-            mock.patch(
-                'imbi_common.neo4j.run',
-                side_effect=[fetch_result, empty_result],
-            ),
-            self._patch_encryption(),
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            side_effect=[fetch_result, empty_result],
         ):
             response = self.client.put(
                 '/third-party-services/stripe/applications/my-app',
-                json=self.app_create_json,
+                json=self.app_update_json,
             )
 
         self.assertEqual(response.status_code, 404)
