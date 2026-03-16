@@ -124,7 +124,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         self.assertIn('relationships', data)
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             0,
         )
 
@@ -262,11 +262,11 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['slug'], 'api-service')
         rels = data[0]['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             15,
         )
         self.assertEqual(
-            data[1]['relationships']['projects']['meta']['count'],
+            data[1]['relationships']['projects']['count'],
             8,
         )
 
@@ -300,7 +300,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['name'], 'API Service')
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             42,
         )
 

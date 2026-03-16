@@ -140,11 +140,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
             self.assertEqual(data[0]['slug'], 'test-role')
             rels = data[0]['relationships']
             self.assertEqual(
-                rels['permissions']['meta']['count'],
+                rels['permissions']['count'],
                 5,
             )
             self.assertEqual(
-                rels['users']['meta']['count'],
+                rels['users']['count'],
                 3,
             )
 
@@ -190,11 +190,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
             self.assertIn('relationships', data)
             rels = data['relationships']
             self.assertEqual(
-                rels['permissions']['meta']['count'],
+                rels['permissions']['count'],
                 0,
             )
             self.assertEqual(
-                rels['users']['meta']['count'],
+                rels['users']['count'],
                 2,
             )
 

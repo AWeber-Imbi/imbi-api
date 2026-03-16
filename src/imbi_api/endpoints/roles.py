@@ -25,11 +25,11 @@ def _add_relationships(
     slug = role['slug']
     role['relationships'] = {
         'permissions': relationship_link(
-            f'/roles/{slug}/permissions',
+            f'/api/roles/{slug}/permissions',
             permission_count,
         ),
         'users': relationship_link(
-            f'/roles/{slug}/users',
+            f'/api/roles/{slug}/users',
             user_count,
         ),
     }

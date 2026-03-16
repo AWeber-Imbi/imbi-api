@@ -110,11 +110,11 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertIn('relationships', data)
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             0,
         )
         self.assertEqual(
-            rels['members']['meta']['count'],
+            rels['members']['count'],
             0,
         )
 
@@ -247,11 +247,11 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['slug'], 'backend')
         rels = data[0]['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             5,
         )
         self.assertEqual(
-            rels['members']['meta']['count'],
+            rels['members']['count'],
             3,
         )
 
@@ -288,7 +288,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['name'], 'Backend')
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             10,
         )
 

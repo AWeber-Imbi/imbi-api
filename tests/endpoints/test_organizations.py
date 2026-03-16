@@ -82,15 +82,15 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             self.assertIn('members', rels)
             self.assertIn('projects', rels)
             self.assertEqual(
-                rels['teams']['meta']['count'],
+                rels['teams']['count'],
                 0,
             )
             self.assertEqual(
-                rels['members']['meta']['count'],
+                rels['members']['count'],
                 0,
             )
             self.assertEqual(
-                rels['projects']['meta']['count'],
+                rels['projects']['count'],
                 0,
             )
 
@@ -180,15 +180,15 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             self.assertEqual(data[0]['slug'], 'engineering')
             rels = data[0]['relationships']
             self.assertEqual(
-                rels['teams']['meta']['count'],
+                rels['teams']['count'],
                 3,
             )
             self.assertEqual(
-                rels['members']['meta']['count'],
+                rels['members']['count'],
                 10,
             )
             self.assertEqual(
-                rels['projects']['meta']['count'],
+                rels['projects']['count'],
                 25,
             )
 
@@ -219,7 +219,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             self.assertEqual(data['name'], 'Engineering')
             rels = data['relationships']
             self.assertEqual(
-                rels['teams']['meta']['count'],
+                rels['teams']['count'],
                 2,
             )
 

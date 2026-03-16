@@ -26,7 +26,7 @@ def _add_relationships(
     """Attach relationships sub-object to an environment dict."""
     env['relationships'] = {
         'projects': relationship_link(
-            f'/projects?environment={env["slug"]}',
+            f'/api/projects?environment={env["slug"]}',
             project_count,
         ),
     }

@@ -124,7 +124,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         self.assertIn('relationships', data)
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             0,
         )
 
@@ -262,7 +262,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['slug'], 'production')
         rels = data[0]['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             20,
         )
 
@@ -296,7 +296,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['name'], 'Production')
         rels = data['relationships']
         self.assertEqual(
-            rels['projects']['meta']['count'],
+            rels['projects']['count'],
             30,
         )
 

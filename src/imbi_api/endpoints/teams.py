@@ -25,11 +25,11 @@ def _add_relationships(
     slug = team['slug']
     team['relationships'] = {
         'projects': relationship_link(
-            f'/projects?team={slug}',
+            f'/api/projects?team={slug}',
             project_count,
         ),
         'members': relationship_link(
-            f'/teams/{slug}/members',
+            f'/api/teams/{slug}/members',
             member_count,
         ),
     }

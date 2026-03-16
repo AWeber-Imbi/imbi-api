@@ -26,7 +26,7 @@ def _add_relationships(
     """Attach relationships sub-object to a project type dict."""
     pt['relationships'] = {
         'projects': relationship_link(
-            f'/projects?project_type={pt["slug"]}',
+            f'/api/projects?project-type={pt["slug"]}',
             project_count,
         ),
     }
