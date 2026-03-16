@@ -56,14 +56,13 @@ class RoleEndpointsTestCase(unittest.TestCase):
         with mock.patch(
             'imbi_common.neo4j.create_node',
         ) as mock_create:
-            mock_node = {
-                'name': 'New Role',
-                'slug': 'new-role',
-                'description': 'A new role',
-                'priority': 100,
-                'is_system': False,
-            }
-            mock_create.return_value = mock_node
+            mock_create.return_value = models.Role(
+                name='New Role',
+                slug='new-role',
+                description='A new role',
+                priority=100,
+                is_system=False,
+            )
 
             response = self.client.post(
                 '/roles/',

@@ -16,14 +16,13 @@ LOGGER = logging.getLogger(__name__)
 roles_router = fastapi.APIRouter(prefix='/roles', tags=['Roles'])
 
 
-def _add_relationships(
-    role: dict[str, typing.Any],
+def _build_relationships(
+    slug: str,
     permission_count: int = 0,
     user_count: int = 0,
-) -> dict[str, typing.Any]:
-    """Attach relationships sub-object to a role dict."""
-    slug = role['slug']
-    role['relationships'] = {
+) -> dict[str, models.RelationshipLink]:
+    """Build relationships dict for a role."""
+    return {
         'permissions': relationship_link(
             f'/api/roles/{slug}/permissions',
             permission_count,
@@ -33,7 +32,6 @@ def _add_relationships(
             user_count,
         ),
     }
-    return role
 
 
 @roles_router.post('/', response_model=models.Role, status_code=201)
@@ -57,12 +55,14 @@ async def create_role(
 
     """
     try:
-        return await neo4j.create_node(role)  # type: ignore[no-any-return]
+        created = await neo4j.create_node(role)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=f'Role with slug {role.slug!r} already exists',
         ) from e
+    created.relationships = _build_relationships(created.slug)
+    return created  # type: ignore[return-value]
 
 
 @roles_router.get('/')
@@ -95,8 +95,8 @@ async def list_roles(
         records = await result.data()
         for record in records:
             role = record['role']
-            _add_relationships(
-                role,
+            role['relationships'] = _build_relationships(
+                role['slug'],
                 record['permission_count'],
                 record['user_count'],
             )
@@ -169,9 +169,12 @@ async def get_role(
         records = await result.data()
         user_count = records[0]['user_count'] if records else 0
 
-    role_dict = role.model_dump()
-    _add_relationships(role_dict, permission_count, user_count)
-    return role_dict
+    role.relationships = _build_relationships(
+        slug,
+        permission_count,
+        user_count,
+    )
+    return role.model_dump()
 
 
 @roles_router.get(
@@ -254,6 +257,7 @@ async def update_role(
         )
 
     await neo4j.upsert(role, {'slug': slug})
+    role.relationships = _build_relationships(role.slug)
     return role
 
 
