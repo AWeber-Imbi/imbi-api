@@ -108,12 +108,11 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.post(
-                '/environments/',
+                '/organizations/engineering/environments/',
                 json={
                     'name': 'Production',
                     'slug': 'production',
                     'description': 'Production environment',
-                    'organization_slug': 'engineering',
                 },
             )
 
@@ -128,21 +127,31 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             0,
         )
 
-    def test_create_environment_missing_org_slug(self) -> None:
-        """Test creating environment without org_slug."""
-        response = self.client.post(
-            '/environments/',
-            json={
-                'name': 'Production',
-                'slug': 'production',
-            },
-        )
+    def test_create_environment_org_not_found_in_url(self) -> None:
+        """Test creating environment with nonexistent org in URL."""
+        mock_result = self._mock_neo4j_run(None)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(
-            'organization_slug',
-            response.json()['detail'],
-        )
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.run',
+                return_value=mock_result,
+            ),
+        ):
+            mock_get_model.return_value = models.Environment
+
+            response = self.client.post(
+                '/organizations/nonexistent/environments/',
+                json={
+                    'name': 'Production',
+                    'slug': 'production',
+                },
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('not found', response.json()['detail'])
 
     def test_create_environment_org_not_found(self) -> None:
         """Test creating environment with nonexistent org."""
@@ -160,11 +169,10 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.post(
-                '/environments/',
+                '/organizations/nonexistent/environments/',
                 json={
                     'name': 'Production',
                     'slug': 'production',
-                    'organization_slug': 'nonexistent',
                 },
             )
 
@@ -179,10 +187,8 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.post(
-                '/environments/',
-                json={
-                    'organization_slug': 'engineering',
-                },
+                '/organizations/engineering/environments/',
+                json={},
             )
 
         self.assertEqual(response.status_code, 400)
@@ -205,11 +211,10 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.post(
-                '/environments/',
+                '/organizations/engineering/environments/',
                 json={
                     'name': 'Production',
                     'slug': 'production',
-                    'organization_slug': 'engineering',
                 },
             )
 
@@ -253,7 +258,9 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             'imbi_common.neo4j.run',
             return_value=mock_result,
         ):
-            response = self.client.get('/environments/')
+            response = self.client.get(
+                '/organizations/engineering/environments/'
+            )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -287,7 +294,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             return_value=mock_result,
         ):
             response = self.client.get(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
             )
 
         self.assertEqual(response.status_code, 200)
@@ -309,7 +316,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             return_value=mock_result,
         ):
             response = self.client.get(
-                '/environments/nonexistent',
+                '/organizations/engineering/environments/nonexistent',
             )
 
         self.assertEqual(response.status_code, 404)
@@ -353,7 +360,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.put(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
                 json={
                     'name': 'Production US',
                     'slug': 'production',
@@ -382,7 +389,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.put(
-                '/environments/nonexistent',
+                '/organizations/engineering/environments/nonexistent',
                 json={
                     'name': 'Test',
                     'slug': 'nonexistent',
@@ -416,7 +423,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.put(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
                 json={'name': 123},
             )
 
@@ -450,7 +457,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.put(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
                 json={
                     'name': 'Production',
                     'slug': 'existing-slug',
@@ -490,7 +497,7 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Environment
 
             response = self.client.put(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
                 json={
                     'name': 'Production Updated',
                     'slug': 'production',
@@ -502,30 +509,34 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
 
     def test_delete_environment(self) -> None:
         """Test deleting an environment."""
-        with mock.patch(
-            'imbi_common.neo4j.delete_node',
-        ) as mock_delete:
-            mock_delete.return_value = True
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = [{'deleted': 1}]
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
 
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=mock_result,
+        ):
             response = self.client.delete(
-                '/environments/production',
+                '/organizations/engineering/environments/production',
             )
 
         self.assertEqual(response.status_code, 204)
-        mock_delete.assert_called_once_with(
-            models.Environment,
-            {'slug': 'production'},
-        )
 
     def test_delete_environment_not_found(self) -> None:
         """Test deleting nonexistent environment."""
-        with mock.patch(
-            'imbi_common.neo4j.delete_node',
-        ) as mock_delete:
-            mock_delete.return_value = False
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = [{'deleted': 0}]
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
 
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=mock_result,
+        ):
             response = self.client.delete(
-                '/environments/nonexistent',
+                '/organizations/engineering/environments/nonexistent',
             )
 
         self.assertEqual(response.status_code, 404)

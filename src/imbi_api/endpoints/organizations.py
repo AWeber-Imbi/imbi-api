@@ -10,10 +10,27 @@ from neo4j import exceptions
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
 
+from .environments import environments_router
+from .project_types import project_types_router
+from .teams import teams_router
+
 LOGGER = logging.getLogger(__name__)
 
 organizations_router = fastapi.APIRouter(
     prefix='/organizations', tags=['Organizations']
+)
+
+organizations_router.include_router(
+    teams_router,
+    prefix='/{org_slug}/teams',
+)
+organizations_router.include_router(
+    environments_router,
+    prefix='/{org_slug}/environments',
+)
+organizations_router.include_router(
+    project_types_router,
+    prefix='/{org_slug}/project-types',
 )
 
 
@@ -27,7 +44,7 @@ def _add_relationships(
     slug = org['slug']
     org['relationships'] = {
         'teams': relationship_link(
-            f'/api/teams?organization={slug}',
+            f'/api/organizations/{slug}/teams',
             team_count,
         ),
         'members': relationship_link(
@@ -35,7 +52,7 @@ def _add_relationships(
             member_count,
         ),
         'projects': relationship_link(
-            f'/api/projects?organization={slug}',
+            f'/api/organizations/{slug}/projects',
             project_count,
         ),
     }

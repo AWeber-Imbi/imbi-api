@@ -13,10 +13,7 @@ from imbi_api.relationships import relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
-environments_router = fastapi.APIRouter(
-    prefix='/environments',
-    tags=['Environments'],
-)
+environments_router = fastapi.APIRouter(tags=['Environments'])
 
 
 def _add_relationships(
@@ -35,6 +32,7 @@ def _add_relationships(
 
 @environments_router.post('/', status_code=201)
 async def create_environment(
+    org_slug: str,
     data: dict[str, typing.Any],
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -46,25 +44,20 @@ async def create_environment(
     """Create a new environment linked to an organization.
 
     Parameters:
-        data: Environment data including base fields and
-            ``organization_slug``.
+        org_slug: Organization slug from URL path.
+        data: Environment data including base fields.
 
     Returns:
         The created environment.
 
     Raises:
-        400: Invalid data or missing organization_slug
+        400: Invalid data
         404: Organization not found
         409: Environment with slug already exists
 
     """
     payload = dict(data)
-    org_slug = payload.pop('organization_slug', None)
-    if not org_slug:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail='organization_slug is required',
-        )
+    payload.pop('organization_slug', None)
     payload.pop('organization', None)
 
     dynamic_model = await blueprints.get_model(models.Environment)
@@ -119,6 +112,7 @@ async def create_environment(
 
 @environments_router.get('/')
 async def list_environments(
+    org_slug: str,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -126,7 +120,10 @@ async def list_environments(
         ),
     ],
 ) -> list[dict[str, typing.Any]]:
-    """List all environments.
+    """List all environments in an organization.
+
+    Parameters:
+        org_slug: Organization slug from URL path.
 
     Returns:
         Environments ordered by name, each including their
@@ -134,7 +131,8 @@ async def list_environments(
 
     """
     query: typing.LiteralString = """
-    MATCH (e:Environment)-[:BELONGS_TO]->(o:Organization)
+    MATCH (e:Environment)
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
     RETURN e{.*, organization: o{.*}} AS environment,
@@ -142,7 +140,7 @@ async def list_environments(
     ORDER BY e.name
     """
     environments: list[dict[str, typing.Any]] = []
-    async with neo4j.run(query) as result:
+    async with neo4j.run(query, org_slug=org_slug) as result:
         records = await result.data()
         for record in records:
             env = record['environment']
@@ -153,6 +151,7 @@ async def list_environments(
 
 @environments_router.get('/{slug}')
 async def get_environment(
+    org_slug: str,
     slug: str,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -164,6 +163,7 @@ async def get_environment(
     """Get an environment by slug.
 
     Parameters:
+        org_slug: Organization slug from URL path.
         slug: Environment slug identifier.
 
     Returns:
@@ -174,13 +174,18 @@ async def get_environment(
 
     """
     query: typing.LiteralString = """
-    MATCH (e:Environment {slug: $slug})-[:BELONGS_TO]->(o:Organization)
+    MATCH (e:Environment {slug: $slug})
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
     RETURN e{.*, organization: o{.*}} AS environment,
            project_count
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with neo4j.run(
+        query,
+        slug=slug,
+        org_slug=org_slug,
+    ) as result:
         records = await result.data()
 
     if not records:
@@ -196,6 +201,7 @@ async def get_environment(
 
 @environments_router.put('/{slug}')
 async def update_environment(
+    org_slug: str,
     slug: str,
     data: dict[str, typing.Any],
     auth: typing.Annotated[
@@ -208,6 +214,7 @@ async def update_environment(
     """Update an environment.
 
     Parameters:
+        org_slug: Organization slug from URL path.
         slug: Environment slug from URL.
         data: Updated environment data.
 
@@ -229,10 +236,15 @@ async def update_environment(
     dynamic_model = await blueprints.get_model(models.Environment)
 
     query: typing.LiteralString = """
-    MATCH (e:Environment {slug: $slug})-[:BELONGS_TO]->(o:Organization)
+    MATCH (e:Environment {slug: $slug})
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     RETURN e{.*, organization: o{.*}} AS environment
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with neo4j.run(
+        query,
+        slug=slug,
+        org_slug=org_slug,
+    ) as result:
         records = await result.data()
 
     if not records:
@@ -261,11 +273,12 @@ async def update_environment(
     props = environment.model_dump(exclude={'organization'})
 
     update_query: typing.LiteralString = """
-    MATCH (e:Environment {slug: $slug})-[:BELONGS_TO]->(o:Organization)
+    MATCH (e:Environment {slug: $slug})
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     SET e = $props
     WITH e, o
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
-    WITH e, o, count(DISTINCT p) AS project_count
+    With e, o, count(DISTINCT p) AS project_count
     RETURN e{.*, organization: o{.*}} AS environment,
            project_count
     """
@@ -273,6 +286,7 @@ async def update_environment(
         async with neo4j.run(
             update_query,
             slug=slug,
+            org_slug=org_slug,
             props=props,
         ) as result:
             updated = await result.data()
@@ -298,6 +312,7 @@ async def update_environment(
 
 @environments_router.delete('/{slug}', status_code=204)
 async def delete_environment(
+    org_slug: str,
     slug: str,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -309,17 +324,27 @@ async def delete_environment(
     """Delete an environment.
 
     Parameters:
+        org_slug: Organization slug from URL path.
         slug: Environment slug to delete.
 
     Raises:
         404: Environment not found
 
     """
-    deleted = await neo4j.delete_node(
-        models.Environment,
-        {'slug': slug},
-    )
-    if not deleted:
+    query: typing.LiteralString = """
+    MATCH (e:Environment {slug: $slug})
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    DETACH DELETE e
+    RETURN count(e) AS deleted
+    """
+    async with neo4j.run(
+        query,
+        slug=slug,
+        org_slug=org_slug,
+    ) as result:
+        records = await result.data()
+
+    if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(
             status_code=404,
             detail=(f'Environment with slug {slug!r} not found'),

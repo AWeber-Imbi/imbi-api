@@ -184,12 +184,24 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
                 3,
             )
             self.assertEqual(
+                rels['teams']['href'],
+                '/api/organizations/engineering/teams',
+            )
+            self.assertEqual(
                 rels['members']['count'],
                 10,
             )
             self.assertEqual(
+                rels['members']['href'],
+                '/api/organizations/engineering/members',
+            )
+            self.assertEqual(
                 rels['projects']['count'],
                 25,
+            )
+            self.assertEqual(
+                rels['projects']['href'],
+                '/api/organizations/engineering/projects',
             )
 
     def test_get_organization(self) -> None:

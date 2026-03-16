@@ -108,12 +108,11 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.post(
-                '/project-types/',
+                '/organizations/engineering/project-types/',
                 json={
                     'name': 'API Service',
                     'slug': 'api-service',
                     'description': 'REST API service',
-                    'organization_slug': 'engineering',
                 },
             )
 
@@ -128,21 +127,31 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             0,
         )
 
-    def test_create_project_type_missing_org_slug(self) -> None:
-        """Test creating project type without org_slug."""
-        response = self.client.post(
-            '/project-types/',
-            json={
-                'name': 'API Service',
-                'slug': 'api-service',
-            },
-        )
+    def test_create_project_type_org_not_found_in_url(self) -> None:
+        """Test creating project type with nonexistent org in URL."""
+        mock_result = self._mock_neo4j_run(None)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(
-            'organization_slug',
-            response.json()['detail'],
-        )
+        with (
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+            ) as mock_get_model,
+            mock.patch(
+                'imbi_common.neo4j.run',
+                return_value=mock_result,
+            ),
+        ):
+            mock_get_model.return_value = models.ProjectType
+
+            response = self.client.post(
+                '/organizations/nonexistent/project-types/',
+                json={
+                    'name': 'API Service',
+                    'slug': 'api-service',
+                },
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('not found', response.json()['detail'])
 
     def test_create_project_type_org_not_found(self) -> None:
         """Test creating project type with nonexistent org."""
@@ -160,11 +169,10 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.post(
-                '/project-types/',
+                '/organizations/nonexistent/project-types/',
                 json={
                     'name': 'API Service',
                     'slug': 'api-service',
-                    'organization_slug': 'nonexistent',
                 },
             )
 
@@ -179,10 +187,8 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.post(
-                '/project-types/',
-                json={
-                    'organization_slug': 'engineering',
-                },
+                '/organizations/engineering/project-types/',
+                json={},
             )
 
         self.assertEqual(response.status_code, 400)
@@ -205,11 +211,10 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.post(
-                '/project-types/',
+                '/organizations/engineering/project-types/',
                 json={
                     'name': 'API Service',
                     'slug': 'api-service',
-                    'organization_slug': 'engineering',
                 },
             )
 
@@ -253,7 +258,9 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             'imbi_common.neo4j.run',
             return_value=mock_result,
         ):
-            response = self.client.get('/project-types/')
+            response = self.client.get(
+                '/organizations/engineering/project-types/',
+            )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -291,7 +298,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             return_value=mock_result,
         ):
             response = self.client.get(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
             )
 
         self.assertEqual(response.status_code, 200)
@@ -313,7 +320,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             return_value=mock_result,
         ):
             response = self.client.get(
-                '/project-types/nonexistent',
+                '/organizations/engineering/project-types/nonexistent',
             )
 
         self.assertEqual(response.status_code, 404)
@@ -357,7 +364,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.put(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
                 json={
                     'name': 'REST API Service',
                     'slug': 'api-service',
@@ -386,7 +393,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.put(
-                '/project-types/nonexistent',
+                '/organizations/engineering/project-types/nonexistent',
                 json={
                     'name': 'Test',
                     'slug': 'nonexistent',
@@ -420,7 +427,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.put(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
                 json={'name': 123},
             )
 
@@ -454,7 +461,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.put(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
                 json={
                     'name': 'API Service',
                     'slug': 'existing-slug',
@@ -494,7 +501,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.ProjectType
 
             response = self.client.put(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
                 json={
                     'name': 'API Service Updated',
                     'slug': 'api-service',
@@ -506,30 +513,34 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
     def test_delete_project_type(self) -> None:
         """Test deleting a project type."""
-        with mock.patch(
-            'imbi_common.neo4j.delete_node',
-        ) as mock_delete:
-            mock_delete.return_value = True
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = [{'deleted': 1}]
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
 
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=mock_result,
+        ):
             response = self.client.delete(
-                '/project-types/api-service',
+                '/organizations/engineering/project-types/api-service',
             )
 
         self.assertEqual(response.status_code, 204)
-        mock_delete.assert_called_once_with(
-            models.ProjectType,
-            {'slug': 'api-service'},
-        )
 
     def test_delete_project_type_not_found(self) -> None:
         """Test deleting nonexistent project type."""
-        with mock.patch(
-            'imbi_common.neo4j.delete_node',
-        ) as mock_delete:
-            mock_delete.return_value = False
+        mock_result = mock.AsyncMock()
+        mock_result.data.return_value = [{'deleted': 0}]
+        mock_result.__aenter__.return_value = mock_result
+        mock_result.__aexit__.return_value = None
 
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=mock_result,
+        ):
             response = self.client.delete(
-                '/project-types/nonexistent',
+                '/organizations/engineering/project-types/nonexistent',
             )
 
         self.assertEqual(response.status_code, 404)

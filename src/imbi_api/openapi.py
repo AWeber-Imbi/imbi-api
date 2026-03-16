@@ -37,12 +37,12 @@ _schema_cache: dict[str, typing.Any] | None = None
 
 # Mapping of API paths to their model types
 PATH_MODEL_MAPPING: dict[str, str] = {
-    '/teams/': 'Team',
-    '/teams/{slug}': 'Team',
-    '/environments/': 'Environment',
-    '/environments/{slug}': 'Environment',
-    '/project-types/': 'ProjectType',
-    '/project-types/{slug}': 'ProjectType',
+    '/organizations/{org_slug}/teams/': 'Team',
+    '/organizations/{org_slug}/teams/{slug}': 'Team',
+    '/organizations/{org_slug}/environments/': 'Environment',
+    '/organizations/{org_slug}/environments/{slug}': 'Environment',
+    '/organizations/{org_slug}/project-types/': 'ProjectType',
+    '/organizations/{org_slug}/project-types/{slug}': 'ProjectType',
     '/projects/': 'Project',
     '/projects/{slug}': 'Project',
 }
@@ -181,12 +181,35 @@ def create_custom_openapi(
                         model_name,
                     )
 
+            _hoist_defs_to_components(schemas)
             _rewrite_path_schemas(openapi_schema)
 
         _schema_cache = openapi_schema
         return openapi_schema
 
     return custom_openapi
+
+
+def _hoist_defs_to_components(
+    schemas: dict[str, typing.Any],
+) -> None:
+    """Move embedded ``$defs`` to top-level component schemas.
+
+    ``model_json_schema(ref_template='#/components/schemas/{model}')``
+    generates ``$ref`` values pointing to ``#/components/schemas/X``
+    but embeds the actual definitions in a local ``$defs`` block.
+    This hoists those definitions so the references resolve
+    correctly when consumers (e.g. fastmcp) extract individual
+    schemas.
+
+    """
+    for schema in list(schemas.values()):
+        defs = schema.pop('$defs', None)
+        if not defs:
+            continue
+        for def_name, def_schema in defs.items():
+            if def_name not in schemas:
+                schemas[def_name] = def_schema
 
 
 def _rewrite_path_schemas(

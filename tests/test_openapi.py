@@ -295,6 +295,73 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
         self.assertIn('items', json_schema)
 
 
+class HoistDefsToComponentsTestCase(unittest.TestCase):
+    """Test cases for _hoist_defs_to_components."""
+
+    def test_hoists_defs_to_top_level(self) -> None:
+        """Test that $defs are moved to component schemas."""
+        schemas: dict = {
+            'ProjectTypeResponse': {
+                'properties': {
+                    'relationships': {
+                        'additionalProperties': {
+                            '$ref': ('#/components/schemas/RelationshipLink'),
+                        },
+                    },
+                },
+                '$defs': {
+                    'Organization': {'type': 'object'},
+                    'RelationshipLink': {'type': 'object'},
+                },
+            },
+        }
+        openapi._hoist_defs_to_components(schemas)
+
+        self.assertIn('Organization', schemas)
+        self.assertIn('RelationshipLink', schemas)
+        self.assertNotIn(
+            '$defs',
+            schemas['ProjectTypeResponse'],
+        )
+
+    def test_does_not_overwrite_existing(self) -> None:
+        """Test that existing schemas are not overwritten."""
+        schemas: dict = {
+            'Organization': {'type': 'object', 'existing': True},
+            'MyResponse': {
+                '$defs': {
+                    'Organization': {
+                        'type': 'object',
+                        'existing': False,
+                    },
+                },
+            },
+        }
+        openapi._hoist_defs_to_components(schemas)
+
+        self.assertTrue(schemas['Organization']['existing'])
+
+    def test_response_schemas_have_no_embedded_defs(
+        self,
+    ) -> None:
+        """Test generated response schemas have $defs hoisted."""
+        resp_model = imbi_common.blueprints.make_response_model(
+            imbi_common.models.ProjectType,
+        )
+        schema = resp_model.model_json_schema(
+            ref_template='#/components/schemas/{model}',
+        )
+        schemas = {'ProjectTypeResponse': schema}
+        openapi._hoist_defs_to_components(schemas)
+
+        self.assertNotIn(
+            '$defs',
+            schemas['ProjectTypeResponse'],
+        )
+        self.assertIn('RelationshipLink', schemas)
+        self.assertIn('Organization', schemas)
+
+
 class ClearSchemaCacheTestCase(unittest.TestCase):
     """Test cases for clear_schema_cache function."""
 
