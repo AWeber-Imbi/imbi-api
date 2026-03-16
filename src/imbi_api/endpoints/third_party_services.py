@@ -23,17 +23,22 @@ _APP_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
     'scopes': [],
     'settings': {},
 }
-_VALID_SERVICE_STATUSES = {
-    'active',
-    'deprecated',
-    'evaluating',
-    'inactive',
-}
 _SECRET_FIELDS = (
     'webhook_secret',
     'private_key',
     'signing_secret',
 )
+
+
+def _build_service_response(
+    record: dict[str, typing.Any],
+) -> models.ThirdPartyServiceResponse:
+    """Build a ThirdPartyServiceResponse from a Neo4j record."""
+    service = _deserialize_json_fields(
+        record['service'],
+        _SERVICE_JSON_FIELDS,
+    )
+    return models.ThirdPartyServiceResponse(**service)
 
 
 def _serialize_json_fields(
@@ -66,20 +71,6 @@ def _deserialize_json_fields(
     return obj
 
 
-def _validate_service_status(payload: dict[str, typing.Any]) -> str:
-    """Validate and return the service status from a payload."""
-    status = payload.get('status', 'active')
-    if status not in _VALID_SERVICE_STATUSES:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Invalid status {status!r}. Must be one of: '
-                f'{", ".join(sorted(_VALID_SERVICE_STATUSES))}'
-            ),
-        )
-    return typing.cast(str, status)
-
-
 def _mask_app_secrets(
     app: dict[str, typing.Any],
 ) -> dict[str, typing.Any]:
@@ -99,7 +90,7 @@ third_party_services_router = fastapi.APIRouter(
 
 @third_party_services_router.post('/', status_code=201)
 async def create_third_party_service(
-    data: dict[str, typing.Any],
+    data: models.ThirdPartyServiceCreate,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -108,72 +99,33 @@ async def create_third_party_service(
             ),
         ),
     ],
-) -> dict[str, typing.Any]:
+) -> models.ThirdPartyServiceResponse:
     """Create a new third-party service linked to an organization.
-
-    Parameters:
-        data: Service data including ``organization_slug`` and
-            optionally ``team_slug``.
 
     Returns:
         The created third-party service.
 
     Raises:
-        400: Invalid data or missing organization_slug
         404: Organization or team not found
         409: Service with slug already exists
 
     """
-    payload = dict(data)
-    org_slug = payload.pop('organization_slug', None)
-    if not org_slug:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail='organization_slug is required',
-        )
-    payload.pop('organization', None)
-
-    team_slug = payload.pop('team_slug', None)
-    payload.pop('team', None)
-
-    vendor = payload.get('vendor')
-    if not vendor:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail='vendor is required',
-        )
-
-    if not payload.get('name'):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail='name is required',
-        )
-    if not payload.get('slug'):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail='slug is required',
-        )
-
-    status = _validate_service_status(payload)
-
     props = {
-        'name': payload['name'],
-        'slug': payload['slug'],
-        'description': payload.get('description'),
-        'icon': payload.get('icon'),
-        'vendor': vendor,
-        'service_url': (
-            str(payload['service_url']) if payload.get('service_url') else None
-        ),
-        'category': payload.get('category'),
-        'status': status,
-        'links': payload.get('links', {}),
-        'identifiers': payload.get('identifiers', {}),
+        'name': data.name,
+        'slug': data.slug,
+        'description': data.description,
+        'icon': data.icon,
+        'vendor': data.vendor,
+        'service_url': (str(data.service_url) if data.service_url else None),
+        'category': data.category,
+        'status': data.status,
+        'links': data.links,
+        'identifiers': data.identifiers,
     }
 
     neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
-    if team_slug:
+    if data.team_slug:
         query: typing.LiteralString = """
         MATCH (o:Organization {slug: $org_slug})
         MATCH (t:Team {slug: $team_slug})-[:BELONGS_TO]->(o)
@@ -184,8 +136,8 @@ async def create_third_party_service(
             AS service
         """
         params: dict[str, typing.Any] = {
-            'org_slug': org_slug,
-            'team_slug': team_slug,
+            'org_slug': data.organization_slug,
+            'team_slug': data.team_slug,
             'props': neo4j_props,
         }
     else:
@@ -197,7 +149,7 @@ async def create_third_party_service(
             AS service
         """
         params = {
-            'org_slug': org_slug,
+            'org_slug': data.organization_slug,
             'props': neo4j_props,
         }
 
@@ -208,28 +160,27 @@ async def create_third_party_service(
         raise fastapi.HTTPException(
             status_code=409,
             detail=(
-                f'Third-party service with slug '
-                f'{props["slug"]!r} already exists'
+                f'Third-party service with slug {data.slug!r} already exists'
             ),
         ) from e
 
     if not records:
-        if team_slug:
+        if data.team_slug:
             raise fastapi.HTTPException(
                 status_code=404,
                 detail=(
-                    f'Organization {org_slug!r} or team '
-                    f'{team_slug!r} not found'
+                    f'Organization {data.organization_slug!r} '
+                    f'or team {data.team_slug!r} not found'
                 ),
             )
         raise fastapi.HTTPException(
             status_code=404,
-            detail=(f'Organization with slug {org_slug!r} not found'),
+            detail=(
+                f'Organization with slug {data.organization_slug!r} not found'
+            ),
         )
 
-    return _deserialize_json_fields(
-        records[0]['service'], _SERVICE_JSON_FIELDS
-    )
+    return _build_service_response(records[0])
 
 
 @third_party_services_router.get('/')
@@ -242,7 +193,7 @@ async def list_third_party_services(
             ),
         ),
     ],
-) -> list[dict[str, typing.Any]]:
+) -> list[models.ThirdPartyServiceResponse]:
     """List all third-party services.
 
     Returns:
@@ -257,16 +208,9 @@ async def list_third_party_services(
         AS service
     ORDER BY s.name
     """
-    services: list[dict[str, typing.Any]] = []
     async with neo4j.run(query) as result:
         records = await result.data()
-        for record in records:
-            services.append(
-                _deserialize_json_fields(
-                    record['service'], _SERVICE_JSON_FIELDS
-                )
-            )
-    return services
+    return [_build_service_response(record) for record in records]
 
 
 @third_party_services_router.get('/{slug}')
@@ -280,7 +224,7 @@ async def get_third_party_service(
             ),
         ),
     ],
-) -> dict[str, typing.Any]:
+) -> models.ThirdPartyServiceResponse:
     """Get a third-party service by slug.
 
     Parameters:
@@ -308,15 +252,13 @@ async def get_third_party_service(
             status_code=404,
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
-    return _deserialize_json_fields(
-        records[0]['service'], _SERVICE_JSON_FIELDS
-    )
+    return _build_service_response(records[0])
 
 
 @third_party_services_router.put('/{slug}')
 async def update_third_party_service(
     slug: str,
-    data: dict[str, typing.Any],
+    data: models.ThirdPartyServiceUpdate,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -325,7 +267,7 @@ async def update_third_party_service(
             ),
         ),
     ],
-) -> dict[str, typing.Any]:
+) -> models.ThirdPartyServiceResponse:
     """Update a third-party service.
 
     Parameters:
@@ -336,20 +278,10 @@ async def update_third_party_service(
         The updated service.
 
     Raises:
-        400: Validation error
         404: Service not found
+        409: Slug conflict
 
     """
-    payload = dict(data)
-    if 'slug' not in payload:
-        payload['slug'] = slug
-
-    payload.pop('organization_slug', None)
-    payload.pop('organization', None)
-
-    team_slug = payload.pop('team_slug', None)
-    payload.pop('team', None)
-
     # Fetch existing to validate it exists
     fetch_query: typing.LiteralString = """
     MATCH (s:ThirdPartyService {slug: $slug})
@@ -371,29 +303,28 @@ async def update_third_party_service(
         records[0]['service'], _SERVICE_JSON_FIELDS
     )
 
-    status = _validate_service_status(payload)
-
     props = {
-        'name': payload.get('name', existing['name']),
-        'slug': payload['slug'],
-        'description': payload.get('description'),
-        'icon': payload.get('icon'),
-        'vendor': payload.get('vendor', existing['vendor']),
-        'service_url': (
-            str(payload['service_url']) if payload.get('service_url') else None
-        ),
-        'category': payload.get('category'),
-        'status': status,
-        'links': payload.get('links', existing.get('links', {})),
-        'identifiers': payload.get(
-            'identifiers',
-            existing.get('identifiers', {}),
-        ),
+        'name': data.name if data.name is not None else existing['name'],
+        'slug': data.slug if data.slug is not None else slug,
+        'description': data.description,
+        'icon': data.icon,
+        'vendor': data.vendor
+        if data.vendor is not None
+        else existing['vendor'],
+        'service_url': (str(data.service_url) if data.service_url else None),
+        'category': data.category,
+        'status': data.status,
+        'links': data.links
+        if data.links is not None
+        else existing.get('links', {}),
+        'identifiers': data.identifiers
+        if data.identifiers is not None
+        else existing.get('identifiers', {}),
     }
 
     neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
-    if team_slug:
+    if data.team_slug:
         update_query: typing.LiteralString = """
         MATCH (s:ThirdPartyService {slug: $slug})
               -[:BELONGS_TO]->(o:Organization)
@@ -408,7 +339,7 @@ async def update_third_party_service(
         """
         update_params: dict[str, typing.Any] = {
             'slug': slug,
-            'team_slug': team_slug,
+            'team_slug': data.team_slug,
             'props': neo4j_props,
         }
     else:
@@ -438,7 +369,7 @@ async def update_third_party_service(
             status_code=409,
             detail=(
                 f'Third-party service with slug '
-                f'{payload["slug"]!r} already exists'
+                f'{props["slug"]!r} already exists'
             ),
         ) from e
 
@@ -448,9 +379,7 @@ async def update_third_party_service(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    return _deserialize_json_fields(
-        updated[0]['service'], _SERVICE_JSON_FIELDS
-    )
+    return _build_service_response(updated[0])
 
 
 @third_party_services_router.delete('/{slug}', status_code=204)

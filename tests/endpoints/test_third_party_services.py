@@ -135,11 +135,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'vendor': 'Stripe Inc',
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(
-            'organization_slug',
-            response.json()['detail'],
-        )
+        self.assertEqual(response.status_code, 422)
 
     def test_create_missing_vendor(self) -> None:
         response = self.client.post(
@@ -150,8 +146,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'organization_slug': 'engineering',
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('vendor', response.json()['detail'])
+        self.assertEqual(response.status_code, 422)
 
     def test_create_missing_name(self) -> None:
         response = self.client.post(
@@ -162,8 +157,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'organization_slug': 'engineering',
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('name', response.json()['detail'])
+        self.assertEqual(response.status_code, 422)
 
     def test_create_missing_slug(self) -> None:
         response = self.client.post(
@@ -174,8 +168,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'organization_slug': 'engineering',
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('slug', response.json()['detail'])
+        self.assertEqual(response.status_code, 422)
 
     def test_create_invalid_status(self) -> None:
         response = self.client.post(
@@ -188,8 +181,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'status': 'bogus',
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Invalid status', response.json()['detail'])
+        self.assertEqual(response.status_code, 422)
 
     def test_create_duplicate_slug(self) -> None:
         with mock.patch(
@@ -460,8 +452,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 },
             )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Invalid status', response.json()['detail'])
+        self.assertEqual(response.status_code, 422)
 
     def test_update_slug_conflict(self) -> None:
         fetch_result = _mock_neo4j_result(

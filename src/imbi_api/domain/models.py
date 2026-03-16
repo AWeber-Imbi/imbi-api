@@ -38,6 +38,9 @@ __all__ = [
     'Session',
     'TOTPSecret',
     'ThirdPartyService',
+    'ThirdPartyServiceCreate',
+    'ThirdPartyServiceResponse',
+    'ThirdPartyServiceUpdate',
     'TokenMetadata',
     'Upload',
     'User',
@@ -458,13 +461,12 @@ class ServiceAccountCreate(pydantic.BaseModel):
     """Request model for creating service accounts."""
 
     slug: str = pydantic.Field(
-        ...,
         pattern=r'^[a-z][a-z0-9-]*$',
         min_length=2,
         max_length=64,
         description='Unique slug identifier (lowercase, hyphens)',
     )
-    display_name: str = pydantic.Field(..., min_length=1, max_length=128)
+    display_name: str = pydantic.Field(min_length=1, max_length=128)
     description: str | None = None
     is_active: bool = True
 
@@ -510,7 +512,6 @@ class ClientCredentialCreate(pydantic.BaseModel):
     """Request model for creating client credentials."""
 
     name: str = pydantic.Field(
-        ...,
         min_length=1,
         max_length=128,
         description='Human-readable name',
@@ -586,6 +587,90 @@ class ThirdPartyService(models.Node):  # type: ignore[misc]
     identifiers: dict[str, int | str] = {}  # noqa: RUF012
 
 
+_VALID_SERVICE_STATUSES = typing.Literal[
+    'active',
+    'deprecated',
+    'evaluating',
+    'inactive',
+]
+
+
+class ThirdPartyServiceCreate(pydantic.BaseModel):
+    """Request model for creating a third-party service."""
+
+    organization_slug: str = pydantic.Field(
+        min_length=1,
+        max_length=128,
+    )
+    team_slug: str | None = None
+    name: str = pydantic.Field(min_length=1, max_length=128)
+    slug: str = pydantic.Field(
+        pattern=r'^[a-z][a-z0-9-]*$',
+        min_length=2,
+        max_length=64,
+    )
+    vendor: str = pydantic.Field(min_length=1, max_length=128)
+    description: str | None = None
+    icon: str | None = None
+    service_url: pydantic.HttpUrl | None = None
+    category: str | None = None
+    status: _VALID_SERVICE_STATUSES = 'active'
+    links: dict[str, str] = pydantic.Field(
+        default_factory=dict,
+    )
+    identifiers: dict[str, int | str] = pydantic.Field(
+        default_factory=dict,
+    )
+
+
+class ThirdPartyServiceUpdate(pydantic.BaseModel):
+    """Request model for updating a third-party service."""
+
+    team_slug: str | None = None
+    name: str | None = pydantic.Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
+    slug: str | None = pydantic.Field(
+        default=None,
+        pattern=r'^[a-z][a-z0-9-]*$',
+        min_length=2,
+        max_length=64,
+    )
+    vendor: str | None = pydantic.Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
+    description: str | None = None
+    icon: str | None = None
+    service_url: pydantic.HttpUrl | None = None
+    category: str | None = None
+    status: _VALID_SERVICE_STATUSES = 'active'
+    links: dict[str, str] | None = None
+    identifiers: dict[str, int | str] | None = None
+
+
+class ThirdPartyServiceResponse(pydantic.BaseModel):
+    """Response model for a third-party service."""
+
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    name: str
+    slug: str
+    vendor: str
+    description: str | None = None
+    icon: str | None = None
+    service_url: str | None = None
+    category: str | None = None
+    status: str = 'active'
+    links: dict[str, typing.Any] = {}
+    identifiers: dict[str, typing.Any] = {}
+    organization: dict[str, typing.Any] | None = None
+    team: dict[str, typing.Any] | None = None
+
+
 SECRET_MASK = '********'
 
 
@@ -636,17 +721,16 @@ class ServiceApplicationCreate(pydantic.BaseModel):
     """Request model for creating a service application."""
 
     slug: str = pydantic.Field(
-        ...,
         pattern=r'^[a-z][a-z0-9-]*$',
         min_length=2,
         max_length=64,
     )
-    name: str = pydantic.Field(..., min_length=1, max_length=128)
+    name: str = pydantic.Field(min_length=1, max_length=128)
     description: str | None = None
-    app_type: str = pydantic.Field(..., min_length=1, max_length=64)
+    app_type: str = pydantic.Field(min_length=1, max_length=64)
     application_url: str | None = None
-    client_id: str = pydantic.Field(..., min_length=1)
-    client_secret: str = pydantic.Field(..., min_length=1)
+    client_id: str = pydantic.Field(min_length=1)
+    client_secret: str = pydantic.Field(min_length=1)
     scopes: list[str] = pydantic.Field(default_factory=list)
     webhook_secret: str | None = None
     private_key: str | None = None
