@@ -61,8 +61,9 @@ async def create_role(
             status_code=409,
             detail=f'Role with slug {role.slug!r} already exists',
         ) from e
-    created.relationships = _build_relationships(created.slug)
-    return created  # type: ignore[return-value]
+    result = created.model_dump()
+    result['relationships'] = _build_relationships(created.slug)
+    return result  # type: ignore[return-value]
 
 
 @roles_router.get('/')
@@ -169,12 +170,13 @@ async def get_role(
         records = await result.data()
         user_count = records[0]['user_count'] if records else 0
 
-    role.relationships = _build_relationships(
+    role_dict = role.model_dump()
+    role_dict['relationships'] = _build_relationships(
         slug,
         permission_count,
         user_count,
     )
-    return role.model_dump()
+    return role_dict
 
 
 @roles_router.get(
@@ -257,8 +259,9 @@ async def update_role(
         )
 
     await neo4j.upsert(role, {'slug': slug})
-    role.relationships = _build_relationships(role.slug)
-    return role
+    result = role.model_dump()
+    result['relationships'] = _build_relationships(role.slug)
+    return result  # type: ignore[return-value]
 
 
 @roles_router.delete('/{slug}', status_code=204)

@@ -1,9 +1,12 @@
 """OpenAPI schema customization with blueprint-enhanced models.
 
-This module provides functionality to generate OpenAPI documentation that
-includes blueprint-enhanced model schemas. Since FastAPI evaluates
-response_model at import time, we use a custom openapi() function to
-inject dynamic schemas at runtime.
+This module generates OpenAPI documentation with separate request
+and response schemas:
+
+- **Request schemas**: Write model + blueprints (writable fields
+  only — no timestamps, relationships, or expanded sub-objects)
+- **Response schemas**: Write model + blueprints + relationships
+  + timestamps
 
 Usage:
     # In app.py lifespan:
@@ -23,14 +26,16 @@ import pydantic
 
 LOGGER = logging.getLogger(__name__)
 
-# Cache for blueprint-enhanced models
+# Cache for blueprint-enhanced write models
 _blueprint_models: dict[str, type[pydantic.BaseModel]] = {}
+
+# Cache for blueprint-enhanced response models
+_response_models: dict[str, type[pydantic.BaseModel]] = {}
 
 # Cache for the generated OpenAPI schema
 _schema_cache: dict[str, typing.Any] | None = None
 
 # Mapping of API paths to their model types
-# These paths will have their request/response schemas rewritten
 PATH_MODEL_MAPPING: dict[str, str] = {
     '/teams/': 'Team',
     '/teams/{slug}': 'Team',
@@ -43,33 +48,41 @@ PATH_MODEL_MAPPING: dict[str, str] = {
 }
 
 
-async def generate_blueprint_models() -> dict[str, type[pydantic.BaseModel]]:
-    """Generate blueprint-enhanced models for all MODEL_TYPES.
+async def generate_blueprint_models() -> tuple[
+    dict[str, type[pydantic.BaseModel]],
+    dict[str, type[pydantic.BaseModel]],
+]:
+    """Generate write and response models for all MODEL_TYPES.
 
     Returns:
-        Dictionary mapping model type names to enhanced model classes.
+        Tuple of (write_models, response_models) dictionaries.
+
     """
-    models: dict[str, type[pydantic.BaseModel]] = {}
+    write_models: dict[str, type[pydantic.BaseModel]] = {}
+    response_models: dict[str, type[pydantic.BaseModel]] = {}
 
     for model_name, model_class in imbi_common.models.MODEL_TYPES.items():
         try:
-            enhanced_model = await imbi_common.blueprints.get_model(
-                model_class
+            write_model = await imbi_common.blueprints.get_model(model_class)
+            write_models[model_name] = write_model
+            response_models[model_name] = (
+                imbi_common.blueprints.make_response_model(write_model)
             )
-            models[model_name] = enhanced_model
             LOGGER.debug(
-                'Generated blueprint model for %s with %d fields',
+                'Generated blueprint models for %s',
                 model_name,
-                len(enhanced_model.model_fields),
             )
         except Exception:
             LOGGER.exception(
-                'Failed to generate blueprint model for %s', model_name
+                'Failed to generate blueprint model for %s',
+                model_name,
             )
-            # Fall back to base model on error
-            models[model_name] = model_class
+            write_models[model_name] = model_class
+            response_models[model_name] = (
+                imbi_common.blueprints.make_response_model(model_class)
+            )
 
-    return models
+    return write_models, response_models
 
 
 async def refresh_blueprint_models() -> dict[str, type[pydantic.BaseModel]]:
@@ -78,54 +91,46 @@ async def refresh_blueprint_models() -> dict[str, type[pydantic.BaseModel]]:
     Call this at startup and when blueprints change.
 
     Returns:
-        The updated dictionary of blueprint-enhanced models.
+        The updated dictionary of blueprint-enhanced write
+        models.
+
     """
-    global _blueprint_models, _schema_cache
+    global _blueprint_models, _response_models, _schema_cache
 
     LOGGER.info('Refreshing blueprint models for OpenAPI schema')
-    _blueprint_models = await generate_blueprint_models()
+    _blueprint_models, _response_models = await generate_blueprint_models()
 
-    # Clear schema cache so it gets regenerated with new models
     _schema_cache = None
 
-    LOGGER.info('Refreshed %d blueprint models', len(_blueprint_models))
+    LOGGER.info(
+        'Refreshed %d blueprint models',
+        len(_blueprint_models),
+    )
     return _blueprint_models
 
 
 def get_blueprint_models() -> dict[str, type[pydantic.BaseModel]]:
-    """Get the currently cached blueprint models.
-
-    Returns:
-        Dictionary of blueprint-enhanced models, or empty dict if
-        not yet refreshed.
-    """
+    """Get the currently cached write models."""
     return _blueprint_models
 
 
 def create_custom_openapi(
     app: fastapi.FastAPI,
 ) -> typing.Callable[[], dict[str, typing.Any]]:
-    """Create a custom OpenAPI generator that includes blueprint schemas.
+    """Create a custom OpenAPI generator with separate schemas.
 
-    This function returns a callable that generates OpenAPI schema with:
-    1. Blueprint-enhanced model schemas in components/schemas
-    2. Path operations rewritten to reference the enhanced schemas
+    Generates OpenAPI schema with:
+    1. Write schemas for request bodies (no read-only fields)
+    2. Response schemas with relationships and timestamps
 
-    Args:
-        app: The FastAPI application instance.
-
-    Returns:
-        A callable that generates the OpenAPI schema dictionary.
     """
 
     def custom_openapi() -> dict[str, typing.Any]:
         global _schema_cache
 
-        # Return cached schema if available
         if _schema_cache is not None:
             return _schema_cache
 
-        # Generate base OpenAPI schema
         openapi_schema = fastapi.openapi.utils.get_openapi(
             title=app.title,
             version=app.version,
@@ -140,30 +145,42 @@ def create_custom_openapi(
             license_info=app.license_info,
         )
 
-        # Add blueprint-enhanced schemas to components
-        if _blueprint_models:
-            if 'components' not in openapi_schema:
-                openapi_schema['components'] = {}
-            if 'schemas' not in openapi_schema['components']:
-                openapi_schema['components']['schemas'] = {}
+        if 'components' not in openapi_schema:
+            openapi_schema['components'] = {}
+        if 'schemas' not in openapi_schema['components']:
+            openapi_schema['components']['schemas'] = {}
 
-            for model_name, model_class in _blueprint_models.items():
-                schema_name = f'{model_name}WithBlueprints'
+        schemas = openapi_schema['components']['schemas']
+
+        if _blueprint_models:
+            for model_name in _blueprint_models:
+                write_model = _blueprint_models[model_name]
+                resp_model = _response_models[model_name]
+
+                # Write schema (for request bodies)
+                write_name = f'{model_name}Request'
                 try:
-                    openapi_schema['components']['schemas'][schema_name] = (
-                        model_class.model_json_schema(
-                            ref_template='#/components/schemas/{model}'
-                        )
-                    )
-                    LOGGER.debug(
-                        'Added %s schema to OpenAPI components', schema_name
+                    schemas[write_name] = write_model.model_json_schema(
+                        ref_template=('#/components/schemas/{model}')
                     )
                 except Exception:
                     LOGGER.exception(
-                        'Failed to generate schema for %s', model_name
+                        'Failed to generate write schema for %s',
+                        model_name,
                     )
 
-            # Rewrite path operations to reference blueprint schemas
+                # Response schema (with relationships)
+                resp_name = f'{model_name}Response'
+                try:
+                    schemas[resp_name] = resp_model.model_json_schema(
+                        ref_template=('#/components/schemas/{model}')
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        'Failed to generate response schema for %s',
+                        model_name,
+                    )
+
             _rewrite_path_schemas(openapi_schema)
 
         _schema_cache = openapi_schema
@@ -172,25 +189,33 @@ def create_custom_openapi(
     return custom_openapi
 
 
-def _rewrite_path_schemas(openapi_schema: dict[str, typing.Any]) -> None:
-    """Rewrite path request/response schemas to reference blueprint models.
+def _rewrite_path_schemas(
+    openapi_schema: dict[str, typing.Any],
+) -> None:
+    """Rewrite path schemas for request and response.
 
-    This modifies the openapi_schema in place.
+    Request bodies use write schemas (writable fields only).
+    Response bodies use response schemas (with relationships).
 
-    Args:
-        openapi_schema: The OpenAPI schema dictionary to modify.
     """
-    paths: dict[str, typing.Any] = openapi_schema.get('paths', {})
+    paths: dict[str, typing.Any] = openapi_schema.get(
+        'paths',
+        {},
+    )
 
     for path, model_type in PATH_MODEL_MAPPING.items():
         if path not in paths:
             continue
 
-        schema_name = f'{model_type}WithBlueprints'
-        single_ref = {'$ref': f'#/components/schemas/{schema_name}'}
+        request_ref = {
+            '$ref': (f'#/components/schemas/{model_type}Request'),
+        }
+        response_ref = {
+            '$ref': (f'#/components/schemas/{model_type}Response'),
+        }
         array_ref: dict[str, typing.Any] = {
             'type': 'array',
-            'items': single_ref,
+            'items': response_ref,
         }
 
         path_ops: dict[str, typing.Any] = paths[path]
@@ -200,10 +225,36 @@ def _rewrite_path_schemas(openapi_schema: dict[str, typing.Any]) -> None:
 
             op = typing.cast(dict[str, typing.Any], operation)
 
-            # Only rewrite response schemas, not request bodies.
-            # Request bodies use dict[str, Any] with explicit
-            # validation in the endpoint (e.g. organization_slug).
-            _rewrite_response_schemas(op, path, method, single_ref, array_ref)
+            if method in ('post', 'put', 'patch'):
+                _rewrite_request_body(op, request_ref)
+
+            _rewrite_response_schemas(
+                op,
+                path,
+                method,
+                response_ref,
+                array_ref,
+            )
+
+
+def _rewrite_request_body(
+    operation: dict[str, typing.Any],
+    schema_ref: dict[str, str],
+) -> None:
+    """Rewrite request body schema."""
+    request_body = operation.get('requestBody')
+    if not isinstance(request_body, dict):
+        return
+    rb = typing.cast(dict[str, typing.Any], request_body)
+
+    content = rb.get('content')
+    if not isinstance(content, dict):
+        return
+    ct = typing.cast(dict[str, typing.Any], content)
+
+    json_content = ct.get('application/json')
+    if isinstance(json_content, dict):
+        json_content['schema'] = schema_ref
 
 
 def _rewrite_response_schemas(
@@ -213,15 +264,7 @@ def _rewrite_response_schemas(
     single_ref: dict[str, str],
     array_ref: dict[str, typing.Any],
 ) -> None:
-    """Rewrite response schemas to reference blueprint models.
-
-    Args:
-        operation: The operation dictionary from OpenAPI paths.
-        path: The API path (used to determine if list endpoint).
-        method: The HTTP method.
-        single_ref: The $ref schema for single item responses.
-        array_ref: The array schema for list responses.
-    """
+    """Rewrite response schemas to reference response models."""
     responses = operation.get('responses')
     if not isinstance(responses, dict):
         return
@@ -242,7 +285,6 @@ def _rewrite_response_schemas(
         if not isinstance(json_content, dict):
             continue
 
-        # Use array schema for list endpoints (GET on collection paths)
         if path.endswith('/') and method == 'get':
             json_content['schema'] = array_ref
         else:
@@ -250,10 +292,7 @@ def _rewrite_response_schemas(
 
 
 def clear_schema_cache() -> None:
-    """Clear the cached OpenAPI schema.
-
-    Call this when blueprints are modified to force schema regeneration.
-    """
+    """Clear the cached OpenAPI schema."""
     global _schema_cache
     _schema_cache = None
     LOGGER.debug('Cleared OpenAPI schema cache')

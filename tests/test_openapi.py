@@ -3,45 +3,60 @@
 import unittest
 import unittest.mock
 
+import imbi_common.blueprints
 import imbi_common.models
 import pydantic
 
 from imbi_api import openapi
 
 
-class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
+class GenerateBlueprintModelsTestCase(
+    unittest.IsolatedAsyncioTestCase,
+):
     """Test cases for generate_blueprint_models function."""
 
     async def asyncSetUp(self) -> None:
         """Reset module state before each test."""
         openapi._blueprint_models = {}
+        openapi._response_models = {}
         openapi._schema_cache = None
 
-    async def test_generate_blueprint_models_no_blueprints(self) -> None:
-        """Test that base models are returned when no blueprints exist."""
+    async def test_generate_blueprint_models_no_blueprints(
+        self,
+    ) -> None:
+        """Test base models returned when no blueprints exist."""
         with unittest.mock.patch(
             'imbi_common.blueprints.get_model',
             new_callable=unittest.mock.AsyncMock,
         ) as mock_get_model:
             mock_get_model.side_effect = lambda m: m
 
-            models = await openapi.generate_blueprint_models()
+            (
+                write_models,
+                response_models,
+            ) = await openapi.generate_blueprint_models()
 
             self.assertEqual(
-                len(models),
+                len(write_models),
+                len(imbi_common.models.MODEL_TYPES),
+            )
+            self.assertEqual(
+                len(response_models),
                 len(imbi_common.models.MODEL_TYPES),
             )
             for model_name in imbi_common.models.MODEL_TYPES:
-                self.assertIn(model_name, models)
-                self.assertEqual(
-                    models[model_name],
-                    imbi_common.models.MODEL_TYPES[model_name],
+                self.assertIn(model_name, write_models)
+                self.assertIn(model_name, response_models)
+                # Response model should have relationships
+                self.assertIn(
+                    'relationships',
+                    response_models[model_name].model_fields,
                 )
 
     async def test_generate_blueprint_models_with_blueprints(
         self,
     ) -> None:
-        """Test that enhanced models include blueprint fields."""
+        """Test enhanced models include blueprint fields."""
         with unittest.mock.patch(
             'imbi_common.blueprints.get_model',
             new_callable=unittest.mock.AsyncMock,
@@ -59,23 +74,34 @@ class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
 
             mock_get_model.side_effect = mock_side_effect
 
-            models = await openapi.generate_blueprint_models()
+            (
+                write_models,
+                response_models,
+            ) = await openapi.generate_blueprint_models()
 
-            self.assertIn('Team', models)
+            # Write model has custom_field
+            self.assertIn('Team', write_models)
             self.assertIn(
                 'custom_field',
-                models['Team'].model_fields,
+                write_models['Team'].model_fields,
             )
 
-            self.assertEqual(
-                models['Project'],
-                imbi_common.models.MODEL_TYPES['Project'],
+            # Response model has both custom_field and
+            # relationships
+            self.assertIn('Team', response_models)
+            self.assertIn(
+                'custom_field',
+                response_models['Team'].model_fields,
+            )
+            self.assertIn(
+                'relationships',
+                response_models['Team'].model_fields,
             )
 
     async def test_generate_blueprint_models_handles_errors(
         self,
     ) -> None:
-        """Test errors are handled gracefully, falling back to base."""
+        """Test errors are handled, falling back to base."""
         with unittest.mock.patch(
             'imbi_common.blueprints.get_model',
             new_callable=unittest.mock.AsyncMock,
@@ -88,15 +114,20 @@ class GenerateBlueprintModelsTestCase(unittest.IsolatedAsyncioTestCase):
 
             mock_get_model.side_effect = mock_side_effect
 
-            models = await openapi.generate_blueprint_models()
+            (
+                write_models,
+                response_models,
+            ) = await openapi.generate_blueprint_models()
 
+            # Falls back to base model
             self.assertEqual(
-                models['Team'],
+                write_models['Team'],
                 imbi_common.models.MODEL_TYPES['Team'],
             )
-            self.assertEqual(
-                models['Project'],
-                imbi_common.models.MODEL_TYPES['Project'],
+            # Response model still created
+            self.assertIn(
+                'relationships',
+                response_models['Team'].model_fields,
             )
 
 
@@ -108,6 +139,7 @@ class RefreshBlueprintModelsTestCase(
     async def asyncSetUp(self) -> None:
         """Reset module state before each test."""
         openapi._blueprint_models = {}
+        openapi._response_models = {}
         openapi._schema_cache = None
 
     async def test_refresh_updates_cache(self) -> None:
@@ -118,7 +150,10 @@ class RefreshBlueprintModelsTestCase(
         ) as mock_get_model:
             mock_get_model.side_effect = lambda m: m
 
-            self.assertEqual(openapi._blueprint_models, {})
+            self.assertEqual(
+                openapi._blueprint_models,
+                {},
+            )
 
             models = await openapi.refresh_blueprint_models()
 
@@ -126,7 +161,15 @@ class RefreshBlueprintModelsTestCase(
                 len(models),
                 len(imbi_common.models.MODEL_TYPES),
             )
-            self.assertEqual(openapi._blueprint_models, models)
+            self.assertEqual(
+                openapi._blueprint_models,
+                models,
+            )
+            # Response models also populated
+            self.assertEqual(
+                len(openapi._response_models),
+                len(imbi_common.models.MODEL_TYPES),
+            )
 
     async def test_refresh_clears_schema_cache(self) -> None:
         """Test that refresh clears the OpenAPI schema cache."""
@@ -149,10 +192,11 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """Reset module state before each test."""
         openapi._blueprint_models = {}
+        openapi._response_models = {}
         openapi._schema_cache = None
 
-    def test_custom_openapi_includes_blueprint_schemas(self) -> None:
-        """Test OpenAPI schema includes blueprint-enhanced schemas."""
+    def test_custom_openapi_includes_schemas(self) -> None:
+        """Test OpenAPI schema includes request and response."""
         import fastapi
 
         enhanced_team = pydantic.create_model(
@@ -163,6 +207,16 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
         openapi._blueprint_models = {
             'Team': enhanced_team,
             'Project': imbi_common.models.Project,
+        }
+        openapi._response_models = {
+            'Team': imbi_common.blueprints.make_response_model(
+                enhanced_team,
+            ),
+            'Project': (
+                imbi_common.blueprints.make_response_model(
+                    imbi_common.models.Project,
+                )
+            ),
         }
 
         app = fastapi.FastAPI(title='Test', version='1.0.0')
@@ -175,22 +229,24 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
         schema = custom_openapi_fn()
 
         self.assertIn('components', schema)
-        self.assertIn('schemas', schema['components'])
+        schemas = schema['components']['schemas']
+
+        # Request schemas
+        self.assertIn('TeamRequest', schemas)
         self.assertIn(
-            'TeamWithBlueprints',
-            schema['components']['schemas'],
-        )
-        self.assertIn(
-            'ProjectWithBlueprints',
-            schema['components']['schemas'],
+            'custom_field',
+            schemas['TeamRequest']['properties'],
         )
 
-        team_schema = schema['components']['schemas']['TeamWithBlueprints']
-        self.assertIn('properties', team_schema)
-        self.assertIn('custom_field', team_schema['properties'])
+        # Response schemas
+        self.assertIn('TeamResponse', schemas)
+        self.assertIn(
+            'custom_field',
+            schemas['TeamResponse']['properties'],
+        )
 
     def test_custom_openapi_caches_result(self) -> None:
-        """Test that the schema is cached after first generation."""
+        """Test that the schema is cached."""
         import fastapi
 
         openapi._blueprint_models = {}
@@ -203,12 +259,17 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
 
         self.assertIs(schema1, schema2)
 
-    def test_path_schema_rewriting_for_list_endpoints(self) -> None:
-        """Test that list endpoints get array schemas."""
+    def test_path_schema_rewriting(self) -> None:
+        """Test list endpoints get array response schemas."""
         import fastapi
 
         openapi._blueprint_models = {
             'Team': imbi_common.models.Team,
+        }
+        openapi._response_models = {
+            'Team': imbi_common.blueprints.make_response_model(
+                imbi_common.models.Team,
+            ),
         }
 
         app = fastapi.FastAPI(title='Test', version='1.0.0')
