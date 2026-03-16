@@ -750,10 +750,10 @@ class ServiceApplicationSecrets(pydantic.BaseModel):
 class ServiceApplicationSecretsUpdate(pydantic.BaseModel):
     """Request model for updating application secrets."""
 
-    client_secret: str | None = None
-    webhook_secret: str | None = None
-    private_key: str | None = None
-    signing_secret: str | None = None
+    client_secret: str | None = pydantic.Field(default=None, min_length=1)
+    webhook_secret: str | None = pydantic.Field(default=None, min_length=1)
+    private_key: str | None = pydantic.Field(default=None, min_length=1)
+    signing_secret: str | None = pydantic.Field(default=None, min_length=1)
 
     @pydantic.model_validator(mode='after')
     def at_least_one_field(self) -> typing.Self:

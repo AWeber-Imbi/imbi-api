@@ -75,6 +75,35 @@ def _strip_secrets(
     return app
 
 
+def _build_secrets_response(
+    app: dict[str, typing.Any],
+    encryptor: encryption.TokenEncryption,
+) -> models.ServiceApplicationSecrets:
+    """Decrypt secret fields and build a secrets response."""
+    client_secret = encryptor.decrypt(app['client_secret'])
+    if client_secret is None:
+        msg = 'Decryption failed for client_secret'
+        raise ValueError(msg)
+    return models.ServiceApplicationSecrets(
+        client_secret=client_secret,
+        webhook_secret=(
+            encryptor.decrypt(app['webhook_secret'])
+            if app.get('webhook_secret') is not None
+            else None
+        ),
+        private_key=(
+            encryptor.decrypt(app['private_key'])
+            if app.get('private_key') is not None
+            else None
+        ),
+        signing_secret=(
+            encryptor.decrypt(app['signing_secret'])
+            if app.get('signing_secret') is not None
+            else None
+        ),
+    )
+
+
 third_party_services_router = fastapi.APIRouter(
     prefix='/third-party-services',
     tags=['Third-Party Services'],
@@ -696,27 +725,7 @@ async def get_application_secrets(
 
     app = await _fetch_application(slug, app_slug)
     encryptor = encryption.TokenEncryption.get_instance()
-    return models.ServiceApplicationSecrets(
-        client_secret=typing.cast(
-            str,
-            encryptor.decrypt(app['client_secret']),
-        ),
-        webhook_secret=(
-            encryptor.decrypt(app['webhook_secret'])
-            if app.get('webhook_secret') is not None
-            else None
-        ),
-        private_key=(
-            encryptor.decrypt(app['private_key'])
-            if app.get('private_key') is not None
-            else None
-        ),
-        signing_secret=(
-            encryptor.decrypt(app['signing_secret'])
-            if app.get('signing_secret') is not None
-            else None
-        ),
-    )
+    return _build_secrets_response(app, encryptor)
 
 
 @third_party_services_router.put(
@@ -782,24 +791,4 @@ async def update_application_secrets(
         )
 
     updated = records[0]['app']
-    return models.ServiceApplicationSecrets(
-        client_secret=typing.cast(
-            str,
-            encryptor.decrypt(updated['client_secret']),
-        ),
-        webhook_secret=(
-            encryptor.decrypt(updated['webhook_secret'])
-            if updated.get('webhook_secret') is not None
-            else None
-        ),
-        private_key=(
-            encryptor.decrypt(updated['private_key'])
-            if updated.get('private_key') is not None
-            else None
-        ),
-        signing_secret=(
-            encryptor.decrypt(updated['signing_secret'])
-            if updated.get('signing_secret') is not None
-            else None
-        ),
-    )
+    return _build_secrets_response(updated, encryptor)
