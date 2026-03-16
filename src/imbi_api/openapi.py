@@ -150,7 +150,10 @@ def create_custom_openapi(
         if 'schemas' not in openapi_schema['components']:
             openapi_schema['components']['schemas'] = {}
 
-        schemas = openapi_schema['components']['schemas']
+        schemas = typing.cast(
+            dict[str, typing.Any],
+            openapi_schema['components']['schemas'],
+        )
 
         if _blueprint_models:
             for model_name in _blueprint_models:
