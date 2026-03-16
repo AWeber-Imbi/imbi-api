@@ -324,6 +324,7 @@ app.dependency_overrides[_get_storage_client] = lambda: mock_storage
    - Keep models simple, focused on data structure
    - Model class names become Neo4j labels (lowercase)
    - Includes: Blueprint, User, Group, Role, Permission, Project, Organization, Team, etc.
+   - **Prefer `typing.Literal` over `enum.StrEnum`** for constrained string fields (e.g., `typing.Literal['active', 'inactive']`). Simple strings are the only type natively supported across Neo4j, ClickHouse, PostgreSQL, JSON, and msgpack — avoid enums, pattern matching on enum values, or other alternatives.
 
 2. **Settings** (`imbi_common/settings.py`):
    - Use `pydantic_settings.BaseSettings` for configuration
@@ -392,6 +393,9 @@ mock_session.__aexit__.return_value = None
 - `TRY400`: logging.exception is not always preferable
 - `UP040`: Allow non-PEP 695 type aliases
 - `UP047`: Allow non-PEP 695 generic functions (TypeVars for cypherantic compatibility)
+
+**Formatting**:
+- Always run `just format <filename>` on modified files before returning control to the user, running tests, or committing
 
 **Type checking**:
 - **mypy**: Configured for strict type checking of `src/imbi_api`
