@@ -974,3 +974,172 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
+
+    # -- Deserialization edge cases --
+
+    def test_list_applications_null_json_fields(self) -> None:
+        """None values in JSON fields use defaults."""
+        app_data = dict(self.app_data)
+        app_data['scopes'] = None
+        app_data['settings'] = None
+
+        result = _mock_neo4j_result([{'app': app_data}])
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=result,
+        ):
+            response = self.client.get(
+                '/third-party-services/stripe/applications/',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()[0]
+        self.assertEqual(data['scopes'], [])
+        self.assertEqual(data['settings'], {})
+
+    def test_list_applications_malformed_json_fields(self) -> None:
+        """Malformed JSON strings in fields use defaults."""
+        app_data = dict(self.app_data)
+        app_data['scopes'] = '{not valid json'
+        app_data['settings'] = '{also broken'
+
+        result = _mock_neo4j_result([{'app': app_data}])
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=result,
+        ):
+            response = self.client.get(
+                '/third-party-services/stripe/applications/',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()[0]
+        self.assertEqual(data['scopes'], [])
+        self.assertEqual(data['settings'], {})
+
+    # -- Update application secrets --
+
+    def test_update_secrets(self) -> None:
+        fetch_result = _mock_neo4j_result(
+            [{'app': self.app_data}],
+        )
+        updated_app = dict(self.app_data)
+        updated_app['client_secret'] = 'enc:new-secret'
+        update_result = _mock_neo4j_result(
+            [{'app': updated_app}],
+        )
+
+        with (
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=[fetch_result, update_result],
+            ),
+            self._patch_encryption(),
+        ):
+            response = self.client.put(
+                '/third-party-services/stripe/applications/my-app/secrets',
+                json={'client_secret': 'new-secret'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['client_secret'], 'new-secret')
+
+    def test_update_secrets_preserves_unchanged(self) -> None:
+        """Fields not provided keep their existing encrypted values."""
+        fetch_result = _mock_neo4j_result(
+            [{'app': self.app_data}],
+        )
+        updated_app = dict(self.app_data)
+        updated_app['webhook_secret'] = 'enc:new-webhook'
+        update_result = _mock_neo4j_result(
+            [{'app': updated_app}],
+        )
+
+        with (
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=[fetch_result, update_result],
+            ) as mock_run,
+            self._patch_encryption(),
+        ):
+            response = self.client.put(
+                '/third-party-services/stripe/applications/my-app/secrets',
+                json={'webhook_secret': 'new-webhook'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        # Existing client_secret should be preserved
+        update_call = mock_run.call_args_list[1]
+        self.assertEqual(
+            update_call.kwargs['client_secret'],
+            self.app_data['client_secret'],
+        )
+
+    def test_update_secrets_non_admin(self) -> None:
+        from imbi_api.auth import permissions
+
+        non_admin = models.User(
+            email='user@example.com',
+            display_name='Regular User',
+            password_hash='$argon2id$hashed',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = permissions.AuthContext(
+            user=non_admin,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions={'third_party_service:update'},
+        )
+
+        async def mock_get_current_user():
+            return self.auth_context
+
+        self.test_app.dependency_overrides[permissions.get_current_user] = (
+            mock_get_current_user
+        )
+
+        result = _mock_neo4j_result([{'app': self.app_data}])
+        with mock.patch(
+            'imbi_common.neo4j.run',
+            return_value=result,
+        ):
+            response = self.client.put(
+                '/third-party-services/stripe/applications/my-app/secrets',
+                json={'client_secret': 'new-secret'},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('Admin', response.json()['detail'])
+
+    def test_update_secrets_empty_body_rejected(self) -> None:
+        """At least one secret field must be provided."""
+        response = self.client.put(
+            '/third-party-services/stripe/applications/my-app/secrets',
+            json={},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_update_secrets_not_found(self) -> None:
+        fetch_result = _mock_neo4j_result(
+            [{'app': self.app_data}],
+        )
+        empty_result = _mock_neo4j_result([])
+
+        with (
+            mock.patch(
+                'imbi_common.neo4j.run',
+                side_effect=[fetch_result, empty_result],
+            ),
+            self._patch_encryption(),
+        ):
+            response = self.client.put(
+                '/third-party-services/stripe/applications/missing/secrets',
+                json={'client_secret': 'new-secret'},
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('not found', response.json()['detail'])
