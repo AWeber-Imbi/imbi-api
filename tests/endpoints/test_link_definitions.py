@@ -1,6 +1,7 @@
 """Tests for link definition CRUD endpoints."""
 
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -50,12 +51,9 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
 
         self.client = testclient.TestClient(self.test_app)
 
-    def _link_def_data(
-        self,
-        **overrides: object,
-    ) -> dict:
+    def _link_def_data(self, **overrides: typing.Any) -> dict:
         """Return a default link definition record."""
-        data = {
+        data: dict[str, typing.Any] = {
             'name': 'GitHub Repository',
             'slug': 'github-repo',
             'description': 'Link to GitHub repo',

@@ -1,6 +1,7 @@
 """Tests for project CRUD endpoints."""
 
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -50,9 +51,9 @@ class ProjectEndpointsTestCase(unittest.TestCase):
 
         self.client = testclient.TestClient(self.test_app)
 
-    def _project_data(self, **overrides: object) -> dict:
+    def _project_data(self, **overrides: typing.Any) -> dict:
         """Return a default project record as returned by Neo4j."""
-        data = {
+        data: dict[str, typing.Any] = {
             'name': 'My API',
             'slug': 'my-api',
             'description': 'An example API',
