@@ -138,7 +138,8 @@ async def create_link_definition(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return records[0]['link_definition']
+    result: dict[str, typing.Any] = records[0]['link_definition']
+    return result
 
 
 @link_definitions_router.get('/')
@@ -215,7 +216,8 @@ async def get_link_definition(
             status_code=404,
             detail=(f'Link definition with slug {slug!r} not found'),
         )
-    return records[0]['link_definition']
+    result: dict[str, typing.Any] = records[0]['link_definition']
+    return result
 
 
 @link_definitions_router.put('/{slug}')
@@ -316,7 +318,8 @@ async def update_link_definition(
             detail=(f'Link definition with slug {slug!r} not found'),
         )
 
-    return updated[0]['link_definition']
+    result: dict[str, typing.Any] = updated[0]['link_definition']
+    return result
 
 
 @link_definitions_router.delete('/{slug}', status_code=204)
