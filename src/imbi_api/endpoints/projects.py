@@ -69,7 +69,7 @@ class ProjectCreate(pydantic.BaseModel):
     team_slug: str
     project_type_slug: str
     environment_slugs: list[str] = []
-    links: dict[str, str] = {}
+    links: dict[str, pydantic.HttpUrl] = {}
     identifiers: dict[str, int | str] = {}
 
 
@@ -83,7 +83,7 @@ class ProjectUpdate(pydantic.BaseModel):
     team_slug: str | None = None
     project_type_slug: str | None = None
     environment_slugs: list[str] | None = None
-    links: dict[str, str] | None = None
+    links: dict[str, pydantic.HttpUrl] | None = None
     identifiers: dict[str, int | str] | None = None
 
 
@@ -101,7 +101,7 @@ class ProjectResponse(pydantic.BaseModel):
     team: TeamRef
     project_type: ProjectTypeRef
     environments: list[EnvironmentRef] = []
-    links: dict[str, str] = {}
+    links: dict[str, pydantic.HttpUrl] = {}
     identifiers: dict[str, int | str] = {}
     relationships: dict[str, models.RelationshipLink] | None = None
 
@@ -209,7 +209,7 @@ async def create_project(
     props = project.model_dump(
         exclude={'team', 'project_type', 'environments'},
     )
-    props['_project_type_slug'] = data.project_type_slug
+    props['project_type_slug'] = data.project_type_slug
 
     env_clause: typing.LiteralString = ''
     if data.environment_slugs:
@@ -486,7 +486,7 @@ async def update_project(
     props = project.model_dump(
         exclude={'team', 'project_type', 'environments'},
     )
-    props['_project_type_slug'] = effective_pt_slug
+    props['project_type_slug'] = effective_pt_slug
 
     # Build update query with optional relationship changes
     rel_clauses: typing.LiteralString = ''
