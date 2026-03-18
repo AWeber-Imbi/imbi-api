@@ -67,7 +67,6 @@ class ProjectCreate(pydantic.BaseModel):
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     team_slug: str
-    project_type_slug: str
     environment_slugs: list[str] = []
     links: dict[str, pydantic.HttpUrl] = {}
     identifiers: dict[str, int | str] = {}
@@ -81,7 +80,6 @@ class ProjectUpdate(pydantic.BaseModel):
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     team_slug: str | None = None
-    project_type_slug: str | None = None
     environment_slugs: list[str] | None = None
     links: dict[str, pydantic.HttpUrl] | None = None
     identifiers: dict[str, int | str] | None = None
@@ -156,9 +154,10 @@ def _add_relationships(
 # -- Endpoints ----------------------------------------------------------
 
 
-@projects_router.post('/', status_code=201)
+@projects_router.post('/{project_type_slug}', status_code=201)
 async def create_project(
     org_slug: str,
+    project_type_slug: str,
     data: ProjectCreate,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -182,7 +181,7 @@ async def create_project(
             ),
             project_type=models.ProjectType(
                 name='',
-                slug=data.project_type_slug,
+                slug=project_type_slug,
                 organization=models.Organization(
                     name='',
                     slug=org_slug,
@@ -255,7 +254,7 @@ async def create_project(
             query,
             org_slug=org_slug,
             team_slug=data.team_slug,
-            pt_slug=data.project_type_slug,
+            pt_slug=project_type_slug,
             props=props,
             env_slugs=data.environment_slugs,
         )
@@ -274,7 +273,7 @@ async def create_project(
             detail=(
                 f'Organization {org_slug!r}, team'
                 f' {data.team_slug!r}, or project type'
-                f' {data.project_type_slug!r} not found'
+                f' {project_type_slug!r} not found'
             ),
         )
 
@@ -435,8 +434,7 @@ async def update_project(
             organization: o{.*}
         }
     } AS project,
-    t.slug AS current_team_slug,
-    pt.slug AS current_pt_slug
+    t.slug AS current_team_slug
     """
     records = await neo4j.query(
         fetch_query,
@@ -453,7 +451,6 @@ async def update_project(
 
     existing = records[0]['project']
     effective_team_slug = data.team_slug or records[0]['current_team_slug']
-    effective_pt_slug = data.project_type_slug or records[0]['current_pt_slug']
 
     # Merge provided fields with existing values
     merged_name = data.name or existing.get('name', '')
@@ -485,7 +482,7 @@ async def update_project(
             ),
             project_type=models.ProjectType(
                 name='',
-                slug=effective_pt_slug,
+                slug=project_type_slug,
                 organization=models.Organization(
                     name='',
                     slug=org_slug,
@@ -525,15 +522,6 @@ async def update_project(
     OPTIONAL MATCH (p)-[old_own:OWNED_BY]->(:Team)
     DELETE old_own
     CREATE (p)-[:OWNED_BY]->(new_t)
-    """
-    if data.project_type_slug:
-        rel_clauses += """
-    WITH p, o
-    MATCH (new_pt:ProjectType {slug: $new_pt_slug})
-          -[:BELONGS_TO]->(o)
-    OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
-    DELETE old_type
-    CREATE (p)-[:TYPE]->(new_pt)
     """
     if data.environment_slugs is not None:
         rel_clauses += """
@@ -604,7 +592,6 @@ async def update_project(
             org_slug=org_slug,
             props=props,
             new_team_slug=data.team_slug or '',
-            new_pt_slug=data.project_type_slug or '',
             new_env_slugs=data.environment_slugs or [],
         )
     except (exceptions.ConstraintError, exceptions.ClientError) as e:

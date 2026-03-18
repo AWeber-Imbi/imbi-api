@@ -101,13 +101,12 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Project
 
             response = self.client.post(
-                '/organizations/engineering/projects/',
+                '/organizations/engineering/projects/api-service',
                 json={
                     'name': 'My API',
                     'slug': 'my-api',
                     'description': 'An example API',
                     'team_slug': 'platform',
-                    'project_type_slug': 'api-service',
                 },
             )
 
@@ -144,12 +143,11 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Project
 
             response = self.client.post(
-                '/organizations/engineering/projects/',
+                '/organizations/engineering/projects/api-service',
                 json={
                     'name': 'My API',
                     'slug': 'my-api',
                     'team_slug': 'platform',
-                    'project_type_slug': 'api-service',
                     'environment_slugs': ['production'],
                 },
             )
@@ -166,7 +164,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Project
 
             response = self.client.post(
-                '/organizations/engineering/projects/',
+                '/organizations/engineering/projects/api-service',
                 json={},
             )
 
@@ -186,12 +184,11 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Project
 
             response = self.client.post(
-                '/organizations/nonexistent/projects/',
+                '/organizations/nonexistent/projects/api-service',
                 json={
                     'name': 'My API',
                     'slug': 'my-api',
                     'team_slug': 'platform',
-                    'project_type_slug': 'api-service',
                 },
             )
 
@@ -215,12 +212,11 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             mock_get_model.return_value = models.Project
 
             response = self.client.post(
-                '/organizations/engineering/projects/',
+                '/organizations/engineering/projects/api-service',
                 json={
                     'name': 'My API',
                     'slug': 'my-api',
                     'team_slug': 'platform',
-                    'project_type_slug': 'api-service',
                 },
             )
 
@@ -327,7 +323,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                         {
                             'project': existing,
                             'current_team_slug': 'platform',
-                            'current_pt_slug': 'api-service',
                         },
                     ],
                     [
@@ -376,7 +371,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                         {
                             'project': existing,
                             'current_team_slug': 'platform',
-                            'current_pt_slug': 'api-service',
                         },
                     ],
                     [
@@ -424,7 +418,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                         {
                             'project': existing,
                             'current_team_slug': 'platform',
-                            'current_pt_slug': 'api-service',
                         },
                     ],
                     [
@@ -480,7 +473,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                         {
                             'project': existing,
                             'current_team_slug': 'platform',
-                            'current_pt_slug': 'api-service',
                         },
                     ],
                     exceptions.ClientError(
@@ -518,7 +510,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                         {
                             'project': existing,
                             'current_team_slug': 'platform',
-                            'current_pt_slug': 'api-service',
                         },
                     ],
                     [],
