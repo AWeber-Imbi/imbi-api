@@ -304,7 +304,8 @@ async def list_projects(
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
-         collect(DISTINCT dep.slug) AS dependency_slugs
+         [x IN collect(DISTINCT dep.slug) WHERE x IS NOT NULL]
+             AS dependency_slugs
     RETURN p{.*,
         team: t{.*,
             organization: o{.*}
@@ -312,10 +313,10 @@ async def list_projects(
         project_type: pt{.*,
             organization: o{.*}
         },
-        environments: envs
+        environments: envs,
+        dependency_slugs: dependency_slugs
     } AS project,
-    dependency_count,
-    dependency_slugs
+    dependency_count
     ORDER BY p.name
     """
     results: list[ProjectResponse] = []
@@ -326,9 +327,6 @@ async def list_projects(
             org_slug,
             record['dependency_count'],
         )
-        proj['dependency_slugs'] = [
-            s for s in record.get('dependency_slugs', []) if s is not None
-        ]
         results.append(ProjectResponse.model_validate(proj))
     return results
 
@@ -355,7 +353,8 @@ async def get_project(
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
-         collect(DISTINCT dep.slug) AS dependency_slugs
+         [x IN collect(DISTINCT dep.slug) WHERE x IS NOT NULL]
+             AS dependency_slugs
     RETURN p{.*,
         team: t{.*,
             organization: o{.*}
@@ -363,10 +362,10 @@ async def get_project(
         project_type: pt{.*,
             organization: o{.*}
         },
-        environments: envs
+        environments: envs,
+        dependency_slugs: dependency_slugs
     } AS project,
-    dependency_count,
-    dependency_slugs
+    dependency_count
     """
     records = await neo4j.query(
         query,
@@ -384,9 +383,6 @@ async def get_project(
         org_slug,
         records[0]['dependency_count'],
     )
-    result['dependency_slugs'] = [
-        s for s in records[0].get('dependency_slugs', []) if s is not None
-    ]
     return ProjectResponse.model_validate(result)
 
 
@@ -555,7 +551,8 @@ async def update_project(
     WITH p, t2, pt2, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
-         collect(DISTINCT dep.slug) AS dependency_slugs
+         [x IN collect(DISTINCT dep.slug) WHERE x IS NOT NULL]
+             AS dependency_slugs
     RETURN p{.*,
         team: t2{.*,
             organization: o{.*}
@@ -563,10 +560,10 @@ async def update_project(
         project_type: pt2{.*,
             organization: o{.*}
         },
-        environments: envs
+        environments: envs,
+        dependency_slugs: dependency_slugs
     } AS project,
-    dependency_count,
-    dependency_slugs
+    dependency_count
     """
     )
 
@@ -600,9 +597,6 @@ async def update_project(
         org_slug,
         updated[0]['dependency_count'],
     )
-    result['dependency_slugs'] = [
-        s for s in updated[0].get('dependency_slugs', []) if s is not None
-    ]
     return ProjectResponse.model_validate(result)
 
 
