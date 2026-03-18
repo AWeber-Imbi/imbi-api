@@ -293,12 +293,21 @@ async def list_projects(
             permissions.require_permission('project:read'),
         ),
     ],
+    project_type_slug: str | None = None,
 ) -> list[ProjectResponse]:
-    """List all projects in an organization."""
-    query: typing.LiteralString = """
+    """List all projects in an organization, optionally filtered by type."""
+    type_filter: typing.LiteralString = (
+        'MATCH (p)-[:TYPE]->(pt:ProjectType {slug: $project_type_slug})'
+        if project_type_slug
+        else 'MATCH (p)-[:TYPE]->(pt:ProjectType)'
+    )
+    query: typing.LiteralString = (
+        """
     MATCH (p:Project)-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    """
+        + type_filter
+        + """
     OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
           -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(depOrg:Organization)
@@ -328,8 +337,11 @@ async def list_projects(
     dependency_count
     ORDER BY p.name
     """
+    )
     results: list[ProjectResponse] = []
-    records = await neo4j.query(query, org_slug=org_slug)
+    records = await neo4j.query(
+        query, org_slug=org_slug, project_type_slug=project_type_slug
+    )
     for record in records:
         proj = _add_relationships(
             record['project'],
