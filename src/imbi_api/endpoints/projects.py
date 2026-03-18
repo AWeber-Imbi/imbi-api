@@ -104,6 +104,7 @@ class ProjectResponse(pydantic.BaseModel):
     links: dict[str, pydantic.HttpUrl] = {}
     identifiers: dict[str, int | str] = {}
     relationships: dict[str, models.RelationshipLink] | None = None
+    dependency_slugs: list[str] = []
 
     @pydantic.field_validator(
         'links',
@@ -302,7 +303,8 @@ async def list_projects(
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
-         count(DISTINCT dep) AS dependency_count
+         count(DISTINCT dep) AS dependency_count,
+         collect(DISTINCT dep.slug) AS dependency_slugs
     RETURN p{.*,
         team: t{.*,
             organization: o{.*}
@@ -312,7 +314,8 @@ async def list_projects(
         },
         environments: envs
     } AS project,
-    dependency_count
+    dependency_count,
+    dependency_slugs
     ORDER BY p.name
     """
     results: list[ProjectResponse] = []
@@ -323,6 +326,9 @@ async def list_projects(
             org_slug,
             record['dependency_count'],
         )
+        proj['dependency_slugs'] = [
+            s for s in record.get('dependency_slugs', []) if s is not None
+        ]
         results.append(ProjectResponse.model_validate(proj))
     return results
 
@@ -348,7 +354,8 @@ async def get_project(
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
-         count(DISTINCT dep) AS dependency_count
+         count(DISTINCT dep) AS dependency_count,
+         collect(DISTINCT dep.slug) AS dependency_slugs
     RETURN p{.*,
         team: t{.*,
             organization: o{.*}
@@ -358,7 +365,8 @@ async def get_project(
         },
         environments: envs
     } AS project,
-    dependency_count
+    dependency_count,
+    dependency_slugs
     """
     records = await neo4j.query(
         query,
@@ -376,6 +384,9 @@ async def get_project(
         org_slug,
         records[0]['dependency_count'],
     )
+    result['dependency_slugs'] = [
+        s for s in records[0].get('dependency_slugs', []) if s is not None
+    ]
     return ProjectResponse.model_validate(result)
 
 
@@ -543,7 +554,8 @@ async def update_project(
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
     WITH p, t2, pt2, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
-         count(DISTINCT dep) AS dependency_count
+         count(DISTINCT dep) AS dependency_count,
+         collect(DISTINCT dep.slug) AS dependency_slugs
     RETURN p{.*,
         team: t2{.*,
             organization: o{.*}
@@ -553,7 +565,8 @@ async def update_project(
         },
         environments: envs
     } AS project,
-    dependency_count
+    dependency_count,
+    dependency_slugs
     """
     )
 
@@ -587,6 +600,9 @@ async def update_project(
         org_slug,
         updated[0]['dependency_count'],
     )
+    result['dependency_slugs'] = [
+        s for s in updated[0].get('dependency_slugs', []) if s is not None
+    ]
     return ProjectResponse.model_validate(result)
 
 
