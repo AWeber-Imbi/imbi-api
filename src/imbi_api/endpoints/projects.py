@@ -212,7 +212,6 @@ async def create_project(
     props = project.model_dump(
         exclude={'team', 'project_type', 'environments'},
     )
-    props['project_type_slug'] = data.project_type_slug
 
     env_clause: typing.LiteralString = ''
     if data.environment_slugs:
@@ -260,7 +259,7 @@ async def create_project(
             props=props,
             env_slugs=data.environment_slugs,
         )
-    except exceptions.ConstraintError as e:
+    except (exceptions.ConstraintError, exceptions.ClientError) as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=(
@@ -304,15 +303,16 @@ async def list_projects(
     OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
           -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(depOrg:Organization)
+    OPTIONAL MATCH (dep)-[:TYPE]->(depPt:ProjectType)
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
          [x IN collect(DISTINCT
              CASE WHEN dep IS NOT NULL
-                       AND dep.project_type_slug IS NOT NULL
+                       AND depPt IS NOT NULL
                        AND depOrg IS NOT NULL
                   THEN '/organizations/' + depOrg.slug
-                       + '/projects/' + dep.project_type_slug
+                       + '/projects/' + depPt.slug
                        + '/' + dep.slug
              END
          ) WHERE x IS NOT NULL] AS dependency_uris
@@ -355,22 +355,22 @@ async def get_project(
 ) -> ProjectResponse:
     """Get a project by project-type slug and slug."""
     query: typing.LiteralString = """
-    MATCH (p:Project {slug: $slug, project_type_slug: $project_type_slug})
-          -[:OWNED_BY]->(t:Team)
+    MATCH (p:Project {slug: $slug})-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    MATCH (p)-[:TYPE]->(pt:ProjectType {slug: $project_type_slug})
     OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
           -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(depOrg:Organization)
+    OPTIONAL MATCH (dep)-[:TYPE]->(depPt:ProjectType)
     WITH p, t, pt, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
          [x IN collect(DISTINCT
              CASE WHEN dep IS NOT NULL
-                       AND dep.project_type_slug IS NOT NULL
+                       AND depPt IS NOT NULL
                        AND depOrg IS NOT NULL
                   THEN '/organizations/' + depOrg.slug
-                       + '/projects/' + dep.project_type_slug
+                       + '/projects/' + depPt.slug
                        + '/' + dep.slug
              END
          ) WHERE x IS NOT NULL] AS dependency_uris
@@ -424,10 +424,9 @@ async def update_project(
 
     # Fetch existing project
     fetch_query: typing.LiteralString = """
-    MATCH (p:Project {slug: $slug, project_type_slug: $project_type_slug})
-          -[:OWNED_BY]->(t:Team)
+    MATCH (p:Project {slug: $slug})-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    MATCH (p)-[:TYPE]->(pt:ProjectType {slug: $project_type_slug})
     RETURN p{.*,
         team: t{.*,
             organization: o{.*}
@@ -515,7 +514,6 @@ async def update_project(
     props = project.model_dump(
         exclude={'team', 'project_type', 'environments'},
     )
-    props['project_type_slug'] = effective_pt_slug
 
     # Build update query with optional relationship changes
     rel_clauses: typing.LiteralString = ''
@@ -558,9 +556,9 @@ async def update_project(
 
     update_query: typing.LiteralString = (
         """
-    MATCH (p:Project {slug: $slug, project_type_slug: $project_type_slug})
-          -[:OWNED_BY]->(t:Team)
+    MATCH (p:Project {slug: $slug})-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    MATCH (p)-[:TYPE]->(pt_cur:ProjectType {slug: $project_type_slug})
     SET p = $props
     """
         + rel_clauses
@@ -571,15 +569,16 @@ async def update_project(
     OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
           -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(depOrg:Organization)
+    OPTIONAL MATCH (dep)-[:TYPE]->(depPt:ProjectType)
     WITH p, t2, pt2, o,
          collect(DISTINCT env{.*, organization: o{.*}}) AS envs,
          count(DISTINCT dep) AS dependency_count,
          [x IN collect(DISTINCT
              CASE WHEN dep IS NOT NULL
-                       AND dep.project_type_slug IS NOT NULL
+                       AND depPt IS NOT NULL
                        AND depOrg IS NOT NULL
                   THEN '/organizations/' + depOrg.slug
-                       + '/projects/' + dep.project_type_slug
+                       + '/projects/' + depPt.slug
                        + '/' + dep.slug
              END
          ) WHERE x IS NOT NULL] AS dependency_uris
@@ -608,7 +607,7 @@ async def update_project(
             new_pt_slug=data.project_type_slug or '',
             new_env_slugs=data.environment_slugs or [],
         )
-    except exceptions.ConstraintError as e:
+    except (exceptions.ConstraintError, exceptions.ClientError) as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=(
@@ -645,9 +644,9 @@ async def delete_project(
 ) -> None:
     """Delete a project."""
     query: typing.LiteralString = """
-    MATCH (p:Project {slug: $slug, project_type_slug: $project_type_slug})
-          -[:OWNED_BY]->(t:Team)
+    MATCH (p:Project {slug: $slug})-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    MATCH (p)-[:TYPE]->(pt:ProjectType {slug: $project_type_slug})
     DETACH DELETE p
     RETURN count(p) AS deleted
     """
