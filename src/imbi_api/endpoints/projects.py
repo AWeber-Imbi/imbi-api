@@ -132,10 +132,10 @@ def _add_relationships(
 ) -> dict[str, typing.Any]:
     """Attach relationships sub-object to a project dict."""
     slug = project['slug']
-    project_type_slug = (project.get('project_type') or {}).get('slug', '')
+    pt_slug = project['project_type']['slug']
     team = project.get('team', {})
     team_slug = team.get('slug', '') if team else ''
-    base = f'/api/organizations/{org_slug}/projects/{project_type_slug}/{slug}'
+    base = f'/api/organizations/{org_slug}/projects/{pt_slug}/{slug}'
     project['relationships'] = {
         'team': relationship_link(
             f'/api/organizations/{org_slug}/teams/{team_slug}',
