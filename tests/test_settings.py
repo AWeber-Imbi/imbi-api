@@ -2,6 +2,7 @@ import typing
 import unittest
 
 import pydantic
+from imbi_common import settings as common_settings
 
 from imbi_api import settings
 
@@ -157,7 +158,7 @@ class EmailSettingsTestCase(unittest.TestCase):
         import os
 
         # Set environment variables for Mailpit detection
-        os.environ['IMBI_ENVIRONMENT'] = 'development'
+        os.environ['IMBI_API_ENVIRONMENT'] = 'development'
         os.environ['MAILPIT_SMTP_PORT'] = '1025'
 
         try:
@@ -168,14 +169,14 @@ class EmailSettingsTestCase(unittest.TestCase):
             self.assertFalse(email.smtp_use_tls)
         finally:
             # Clean up environment variables
-            os.environ.pop('IMBI_ENVIRONMENT', None)
+            os.environ.pop('IMBI_API_ENVIRONMENT', None)
             os.environ.pop('MAILPIT_SMTP_PORT', None)
 
     def test_mailpit_detection_with_explicit_tls(self) -> None:
         """Test that explicit TLS setting is not overridden."""
         import os
 
-        os.environ['IMBI_ENVIRONMENT'] = 'development'
+        os.environ['IMBI_API_ENVIRONMENT'] = 'development'
         os.environ['MAILPIT_SMTP_PORT'] = '1025'
         os.environ['IMBI_EMAIL_SMTP_USE_TLS'] = 'true'
 
@@ -188,7 +189,7 @@ class EmailSettingsTestCase(unittest.TestCase):
             self.assertEqual(email.smtp_port, 1025)
             self.assertTrue(email.smtp_use_tls)
         finally:
-            os.environ.pop('IMBI_ENVIRONMENT', None)
+            os.environ.pop('IMBI_API_ENVIRONMENT', None)
             os.environ.pop('MAILPIT_SMTP_PORT', None)
             os.environ.pop('IMBI_EMAIL_SMTP_USE_TLS', None)
 
@@ -196,7 +197,7 @@ class EmailSettingsTestCase(unittest.TestCase):
         """Test that Mailpit detection is skipped in production."""
         import os
 
-        os.environ['IMBI_ENVIRONMENT'] = 'production'
+        os.environ['IMBI_API_ENVIRONMENT'] = 'production'
         os.environ['MAILPIT_SMTP_PORT'] = '1025'
 
         try:
@@ -208,14 +209,14 @@ class EmailSettingsTestCase(unittest.TestCase):
             self.assertEqual(email.smtp_port, 587)
             self.assertTrue(email.smtp_use_tls)
         finally:
-            os.environ.pop('IMBI_ENVIRONMENT', None)
+            os.environ.pop('IMBI_API_ENVIRONMENT', None)
             os.environ.pop('MAILPIT_SMTP_PORT', None)
 
     def test_no_mailpit_detection_non_localhost(self) -> None:
         """Test that Mailpit detection only applies to localhost."""
         import os
 
-        os.environ['IMBI_ENVIRONMENT'] = 'development'
+        os.environ['IMBI_API_ENVIRONMENT'] = 'development'
         os.environ['MAILPIT_SMTP_PORT'] = '1025'
 
         try:
@@ -227,14 +228,14 @@ class EmailSettingsTestCase(unittest.TestCase):
             self.assertEqual(email.smtp_port, 587)
             self.assertTrue(email.smtp_use_tls)
         finally:
-            os.environ.pop('IMBI_ENVIRONMENT', None)
+            os.environ.pop('IMBI_API_ENVIRONMENT', None)
             os.environ.pop('MAILPIT_SMTP_PORT', None)
 
     def test_no_mailpit_detection_different_port(self) -> None:
         """Test that Mailpit detection only applies to default port 587."""
         import os
 
-        os.environ['IMBI_ENVIRONMENT'] = 'development'
+        os.environ['IMBI_API_ENVIRONMENT'] = 'development'
         os.environ['MAILPIT_SMTP_PORT'] = '1025'
 
         try:
@@ -243,28 +244,8 @@ class EmailSettingsTestCase(unittest.TestCase):
             # Should not detect Mailpit for non-default port
             self.assertEqual(email.smtp_port, 2525)
         finally:
-            os.environ.pop('IMBI_ENVIRONMENT', None)
+            os.environ.pop('IMBI_API_ENVIRONMENT', None)
             os.environ.pop('MAILPIT_SMTP_PORT', None)
-
-
-class ServerConfigSettingsTestCase(unittest.TestCase):
-    """Test cases for ServerConfig settings."""
-
-    def test_default_settings(self) -> None:
-        """Test ServerConfig settings with defaults."""
-        config = settings.ServerConfig()
-        self.assertEqual(config.environment, 'development')
-        self.assertEqual(config.host, 'localhost')
-        self.assertEqual(config.port, 8000)
-
-    def test_custom_settings(self) -> None:
-        """Test ServerConfig with custom values."""
-        config = settings.ServerConfig(
-            environment='production', host='0.0.0.0', port=9000
-        )
-        self.assertEqual(config.environment, 'production')
-        self.assertEqual(config.host, '0.0.0.0')
-        self.assertEqual(config.port, 9000)
 
 
 class ConfigurationTestCase(unittest.TestCase):
@@ -276,7 +257,7 @@ class ConfigurationTestCase(unittest.TestCase):
 
         self.assertIsInstance(config.clickhouse, settings.Clickhouse)
         self.assertIsInstance(config.neo4j, settings.Neo4j)
-        self.assertIsInstance(config.server, settings.ServerConfig)
+        self.assertIsInstance(config.server, common_settings.ServerConfig)
         self.assertIsInstance(config.auth, settings.Auth)
         self.assertIsInstance(config.email, settings.Email)
 
