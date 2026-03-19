@@ -2,7 +2,6 @@ import typing
 import unittest
 
 import pydantic
-from imbi_common import settings as common_settings
 
 from imbi_api import settings
 
@@ -248,6 +247,26 @@ class EmailSettingsTestCase(unittest.TestCase):
             os.environ.pop('MAILPIT_SMTP_PORT', None)
 
 
+class ServerConfigSettingsTestCase(unittest.TestCase):
+    """Test cases for ServerConfig settings."""
+
+    def test_default_settings(self) -> None:
+        """Test ServerConfig settings with defaults."""
+        config = settings.ServerConfig()
+        self.assertEqual(config.environment, 'development')
+        self.assertEqual(config.host, 'localhost')
+        self.assertEqual(config.port, 8000)
+
+    def test_custom_settings(self) -> None:
+        """Test ServerConfig with custom values."""
+        config = settings.ServerConfig(
+            environment='production', host='0.0.0.0', port=9000
+        )
+        self.assertEqual(config.environment, 'production')
+        self.assertEqual(config.host, '0.0.0.0')
+        self.assertEqual(config.port, 9000)
+
+
 class ConfigurationTestCase(unittest.TestCase):
     """Test cases for Configuration class."""
 
@@ -257,7 +276,7 @@ class ConfigurationTestCase(unittest.TestCase):
 
         self.assertIsInstance(config.clickhouse, settings.Clickhouse)
         self.assertIsInstance(config.neo4j, settings.Neo4j)
-        self.assertIsInstance(config.server, common_settings.ServerConfig)
+        self.assertIsInstance(config.server, settings.ServerConfig)
         self.assertIsInstance(config.auth, settings.Auth)
         self.assertIsInstance(config.email, settings.Email)
 
