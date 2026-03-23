@@ -1,7 +1,9 @@
 """Tests for webhook and project services endpoints."""
 
+import copy
 import datetime
 import json
+import typing
 import unittest
 from unittest import mock
 
@@ -18,6 +20,28 @@ def _mock_neo4j_result(data):
     result.__aenter__.return_value = result
     result.__aexit__.return_value = None
     return result
+
+
+class _WebhookDetails(typing.TypedDict):
+    name: str
+    slug: str
+    description: typing.NotRequired[str]
+    icon: typing.NotRequired[str | None]
+    notification_path: str
+    secret: typing.NotRequired[str]
+
+
+class _WebhookRule(typing.TypedDict):
+    filter_expression: str
+    handler: str
+    handler_config: str
+
+
+class _WebhookRecord(typing.TypedDict):
+    webhook: _WebhookDetails
+    tps: typing.NotRequired[dict[str, str] | None]
+    identifier_selector: typing.NotRequired[str | None]
+    rules: list[_WebhookRule | None]
 
 
 class WebhookEndpointsTestCase(unittest.TestCase):
@@ -59,7 +83,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         self.client = testclient.TestClient(self.test_app)
 
-        self.webhook_record = {
+        self.webhook_record: _WebhookRecord = {
             'webhook': {
                 'name': 'GitHub Events',
                 'slug': 'github-events',
@@ -73,14 +97,14 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             'rules': [],
         }
 
-        self.webhook_create_json = {
+        self.webhook_create_json: _WebhookDetails = {
             'name': 'GitHub Events',
             'slug': 'github-events',
             'notification_path': '/webhooks/github',
             'secret': 'my-secret',
         }
 
-        self.webhook_update_json = {
+        self.webhook_update_json: _WebhookDetails = {
             'name': 'GitHub Events',
             'slug': 'github-events',
             'notification_path': '/webhooks/github',
@@ -121,7 +145,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['notification_path'], '/webhooks/github')
 
     def test_create_with_rules(self) -> None:
-        record = dict(self.webhook_record)
+        record = copy.deepcopy(self.webhook_record)
         record['rules'] = [
             {
                 'filter_expression': '$.action == "opened"',
@@ -157,7 +181,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['rules'][0]['handler'], 'my.handler')
 
     def test_create_with_third_party_service(self) -> None:
-        record = dict(self.webhook_record)
+        record = copy.deepcopy(self.webhook_record)
         record['tps'] = {
             'name': 'GitHub',
             'slug': 'github',
@@ -324,8 +348,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- Update --
 
     def test_update_webhook(self) -> None:
-        updated = dict(self.webhook_record)
-        updated['webhook'] = dict(self.webhook_record['webhook'])
+        updated = copy.deepcopy(self.webhook_record)
         updated['webhook']['description'] = 'Updated'
 
         fetch_result = _mock_neo4j_result(
@@ -451,7 +474,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- Response building edge cases --
 
     def test_rules_with_malformed_handler_config(self) -> None:
-        record = dict(self.webhook_record)
+        record = copy.deepcopy(self.webhook_record)
         record['rules'] = [
             {
                 'filter_expression': '$.action',
@@ -475,7 +498,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['rules'][0]['handler_config'], {})
 
     def test_rules_with_null_entries_filtered(self) -> None:
-        record = dict(self.webhook_record)
+        record = copy.deepcopy(self.webhook_record)
         record['rules'] = [None]
 
         result = _mock_neo4j_result([record])
@@ -491,7 +514,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.json()['rules'], [])
 
     def test_rules_with_list_handler_config(self) -> None:
-        record = dict(self.webhook_record)
+        record = copy.deepcopy(self.webhook_record)
         record['rules'] = [
             {
                 'filter_expression': '$.action',
@@ -553,7 +576,7 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
 
         self.client = testclient.TestClient(self.test_app)
 
-        self.service_record = {
+        self.service_record: dict[str, str | None] = {
             'service_slug': 'github',
             'service_name': 'GitHub',
             'identifier': 'org/repo',
@@ -593,7 +616,7 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.json(), [])
 
     def test_list_without_canonical_link(self) -> None:
-        record = dict(self.service_record)
+        record = copy.deepcopy(self.service_record)
         record['canonical_link'] = None
 
         result = _mock_neo4j_result([record])
