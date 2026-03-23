@@ -51,9 +51,9 @@ export NEO4J_PASSWORD="your-neo4j-password"
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IMBI_ENVIRONMENT` | `development` | Environment name (development, staging, production) |
-| `IMBI_HOST` | `localhost` | Server bind address |
-| `IMBI_PORT` | `8000` | Server bind port |
+| `IMBI_API_ENVIRONMENT` | `development` | Environment name (development, staging, production) |
+| `IMBI_API_HOST` | `localhost` | Server bind address |
+| `IMBI_API_PORT` | `8000` | Server bind port |
 | `IMBI_API_CORS_ALLOWED_ORIGINS` | `[]` | JSON array of allowed CORS origins |
 | `IMBI_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `IMBI_AUTO_SEED_AUTH` | `true` | Auto-seed default roles and permissions on startup |
@@ -238,9 +238,9 @@ For development, use environment variables or a `.env` file:
 
 ```bash
 # Application
-IMBI_ENVIRONMENT=development
-IMBI_HOST=localhost
-IMBI_PORT=8000
+IMBI_API_ENVIRONMENT=development
+IMBI_API_HOST=localhost
+IMBI_API_PORT=8000
 IMBI_LOG_LEVEL=INFO
 IMBI_AUTO_SEED_AUTH=true
 IMBI_API_CORS_ALLOWED_ORIGINS='["http://localhost:3000"]'
