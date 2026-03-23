@@ -77,8 +77,10 @@ async def create_webhook(
             })
             CREATE (r)-[:ACTIONS]->(w)
         )
-        WITH w, tps, o, impl
+        WITH DISTINCT w, tps, impl
         OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+        WITH w, tps, impl, r
+        ORDER BY r.ordinal
         WITH w, tps, impl,
              collect(r{
                 .filter_expression, .handler,
@@ -116,8 +118,10 @@ async def create_webhook(
             })
             CREATE (r)-[:ACTIONS]->(w)
         )
-        WITH w
+        WITH DISTINCT w
         OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+        WITH w, r
+        ORDER BY r.ordinal
         WITH w,
              collect(r{
                 .filter_expression, .handler,
@@ -173,6 +177,8 @@ async def list_webhooks(
           (o:Organization {slug: $org_slug})
     OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
     OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+    WITH w, tps, impl, r
+    ORDER BY r.ordinal
     WITH w, tps, impl,
          collect(r{
                 .filter_expression, .handler,
@@ -207,6 +213,8 @@ async def get_webhook(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
     OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+    WITH w, tps, impl, r
+    ORDER BY r.ordinal
     WITH w, tps, impl,
          collect(r{
                 .filter_expression, .handler,
@@ -267,13 +275,15 @@ async def update_webhook(
 
     encryptor = encryption.TokenEncryption.get_instance()
 
-    # If secret is provided, encrypt it; if None, clear it.
-    # Preserve existing encrypted secret when not provided.
+    # Distinguish omitted secret (preserve existing) from explicit
+    # null (clear) or a new value (encrypt and store).
     existing_webhook = existing[0]['webhook']
-    if data.secret is not None:
-        encrypted_secret = encryptor.encrypt(data.secret)
-    else:
+    if 'secret' not in data.model_fields_set:
         encrypted_secret = existing_webhook.get('secret')
+    elif data.secret is None:
+        encrypted_secret = None
+    else:
+        encrypted_secret = encryptor.encrypt(data.secret)
 
     props: dict[str, typing.Any] = {
         'name': data.name,
@@ -300,19 +310,18 @@ async def update_webhook(
         query: typing.LiteralString = """
         MATCH (w:Webhook {slug: $old_slug})
               -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
-        DETACH DELETE old_r
-        WITH w, o
-        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
-        DELETE old_impl
-        WITH w, o
-        SET w = $props
-        WITH w, o
         MATCH (tps:ThirdPartyService {slug: $tps_slug})
               -[:BELONGS_TO]->(o)
+        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
+        DETACH DELETE old_r
+        WITH DISTINCT w, o, tps
+        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
+        DELETE old_impl
+        WITH DISTINCT w, o, tps
+        SET w = $props
         CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
         SET impl.identifier_selector = $identifier_selector
-        WITH w, tps, impl, o
+        WITH w, tps, impl
         UNWIND
             CASE WHEN size($rules) = 0 THEN [null]
                  ELSE $rules END AS rule_data
@@ -326,8 +335,10 @@ async def update_webhook(
             })
             CREATE (r)-[:ACTIONS]->(w)
         )
-        WITH w, tps, impl
+        WITH DISTINCT w, tps, impl
         OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+        WITH w, tps, impl, r
+        ORDER BY r.ordinal
         WITH w, tps, impl,
              collect(r{
                 .filter_expression, .handler,
@@ -353,10 +364,10 @@ async def update_webhook(
               -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
         OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
         DETACH DELETE old_r
-        WITH w, o
+        WITH DISTINCT w, o
         OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
         DELETE old_impl
-        WITH w, o
+        WITH DISTINCT w
         SET w = $props
         WITH w
         UNWIND
@@ -372,8 +383,10 @@ async def update_webhook(
             })
             CREATE (r)-[:ACTIONS]->(w)
         )
-        WITH w
+        WITH DISTINCT w
         OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
+        WITH w, r
+        ORDER BY r.ordinal
         WITH w,
              collect(r{
                 .filter_expression, .handler,

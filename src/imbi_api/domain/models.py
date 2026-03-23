@@ -57,6 +57,7 @@ __all__ = [
     'WebhookCreate',
     'WebhookResponse',
     'WebhookRuleCreate',
+    'WebhookRuleResponse',
     'WebhookUpdate',
 ]
 
