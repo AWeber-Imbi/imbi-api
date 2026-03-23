@@ -17,46 +17,6 @@ LOGGER = logging.getLogger(__name__)
 webhooks_router = fastapi.APIRouter(tags=['Webhooks'])
 
 
-def _build_webhook_response(
-    record: dict[str, typing.Any],
-) -> models.WebhookResponse:
-    """Build a WebhookResponse from a Neo4j record."""
-    webhook = neo4j.convert_neo4j_types(record['webhook'])
-
-    # Parse rules JSON array
-    raw_rules = record.get('rules', [])
-    rules: list[models.WebhookRuleResponse] = []
-    for r in raw_rules:
-        if r is not None:
-            raw_config = r.get('handler_config', '{}')
-            try:
-                config = json.loads(raw_config) if raw_config else {}
-            except (json.JSONDecodeError, TypeError):
-                config = {}
-            rules.append(
-                models.WebhookRuleResponse(
-                    filter_expression=r['filter_expression'],
-                    handler=r['handler'],
-                    handler_config=config,
-                )
-            )
-
-    tps = record.get('tps')
-    if tps:
-        tps = neo4j.convert_neo4j_types(tps)
-
-    return models.WebhookResponse(
-        name=webhook['name'],
-        slug=webhook['slug'],
-        description=webhook.get('description'),
-        icon=webhook.get('icon'),
-        notification_path=webhook['notification_path'],
-        third_party_service=tps,
-        identifier_selector=record.get('identifier_selector'),
-        rules=rules,
-    )
-
-
 @webhooks_router.post('/', status_code=201)
 async def create_webhook(
     org_slug: str,
@@ -83,7 +43,7 @@ async def create_webhook(
     }
 
     # Build rule creation clauses
-    rule_params = []
+    rule_params: list[dict[str, object]] = []
     for idx, rule in enumerate(data.rules):
         rule_params.append(
             {
@@ -194,7 +154,7 @@ async def create_webhook(
             detail=f'Organization {org_slug!r} not found',
         )
 
-    return _build_webhook_response(records[0])
+    return models.WebhookResponse.from_neo4j_record(records[0])
 
 
 @webhooks_router.get('/')
@@ -227,7 +187,7 @@ async def list_webhooks(
     """
     async with neo4j.run(query, org_slug=org_slug) as result:
         records = await result.data()
-    return [_build_webhook_response(r) for r in records]
+    return [models.WebhookResponse.from_neo4j_record(r) for r in records]
 
 
 @webhooks_router.get('/{slug}')
@@ -270,7 +230,7 @@ async def get_webhook(
             status_code=404,
             detail=f'Webhook with slug {slug!r} not found',
         )
-    return _build_webhook_response(records[0])
+    return models.WebhookResponse.from_neo4j_record(records[0])
 
 
 @webhooks_router.put('/{slug}')
@@ -324,7 +284,7 @@ async def update_webhook(
         'secret': encrypted_secret,
     }
 
-    rule_params = []
+    rule_params: list[dict[str, str | int]] = []
     for idx, rule in enumerate(data.rules):
         rule_params.append(
             {
@@ -451,7 +411,7 @@ async def update_webhook(
             detail=f'Webhook with slug {slug!r} not found',
         )
 
-    return _build_webhook_response(records[0])
+    return models.WebhookResponse.from_neo4j_record(records[0])
 
 
 @webhooks_router.delete('/{slug}', status_code=204)

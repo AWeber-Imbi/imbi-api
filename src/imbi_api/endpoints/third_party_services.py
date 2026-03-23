@@ -11,7 +11,6 @@ from neo4j import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.domain import models
-from imbi_api.endpoints.webhooks import _build_webhook_response
 
 LOGGER = logging.getLogger(__name__)
 
@@ -490,7 +489,7 @@ async def list_service_webhooks(
         org_slug=org_slug,
     ) as result:
         records = await result.data()
-    return [_build_webhook_response(r) for r in records]
+    return [models.WebhookResponse.from_neo4j_record(r) for r in records]
 
 
 # --- Service Application endpoints ---

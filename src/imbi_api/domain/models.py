@@ -7,11 +7,12 @@ needed across all Imbi services.
 """
 
 import datetime
+import json
 import typing
 
 import cypherantic
 import pydantic
-from imbi_common import models
+from imbi_common import models, neo4j
 
 __all__ = [
     'SECRET_FIELDS',
@@ -918,6 +919,47 @@ class WebhookResponse(pydantic.BaseModel):
     third_party_service: dict[str, typing.Any] | None = None
     identifier_selector: str | None = None
     rules: list[WebhookRuleResponse] = []
+
+    @classmethod
+    def from_neo4j_record(
+        cls,
+        record: dict[str, typing.Any],
+    ) -> 'WebhookResponse':
+        """Build a WebhookResponse from a Neo4j record."""
+        webhook = neo4j.convert_neo4j_types(record['webhook'])
+
+        raw_rules = record.get('rules', [])
+        rules: list[WebhookRuleResponse] = []
+        for r in raw_rules:
+            if r is not None:
+                raw_config = r.get('handler_config', '{}')
+                config: dict[str, typing.Any] | list[typing.Any]
+                try:
+                    config = json.loads(raw_config) if raw_config else {}
+                except (json.JSONDecodeError, TypeError):
+                    config = {}
+                rules.append(
+                    WebhookRuleResponse(
+                        filter_expression=r['filter_expression'],
+                        handler=r['handler'],
+                        handler_config=config,
+                    )
+                )
+
+        tps = record.get('tps')
+        if tps:
+            tps = neo4j.convert_neo4j_types(tps)
+
+        return cls(
+            name=webhook['name'],
+            slug=webhook['slug'],
+            description=webhook.get('description'),
+            icon=webhook.get('icon'),
+            notification_path=webhook['notification_path'],
+            third_party_service=tps,
+            identifier_selector=record.get('identifier_selector'),
+            rules=rules,
+        )
 
 
 # -- EXISTS_IN models ------------------------------------------------------
