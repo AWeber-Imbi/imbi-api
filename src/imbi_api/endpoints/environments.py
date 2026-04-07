@@ -140,7 +140,7 @@ async def list_environments(
     WITH e, o, count(DISTINCT p) AS project_count
     RETURN e{.*, organization: o{.*}} AS environment,
            project_count
-    ORDER BY e.name
+    ORDER BY e.sort_order, e.name
     """
     environments: list[dict[str, typing.Any]] = []
     records = await neo4j.query(query, org_slug=org_slug)
