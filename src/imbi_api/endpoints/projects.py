@@ -56,6 +56,11 @@ class ProjectCreate(pydantic.BaseModel):
     links: dict[str, pydantic.AnyUrl] = {}
     identifiers: dict[str, int | str] = {}
 
+    @pydantic.field_validator('project_type_slugs')
+    @classmethod
+    def _deduplicate_type_slugs(cls, v: list[str]) -> list[str]:
+        return list(dict.fromkeys(v))
+
 
 class ProjectUpdate(pydantic.BaseModel):
     """Request body for updating a project.
@@ -73,6 +78,17 @@ class ProjectUpdate(pydantic.BaseModel):
     project_type_slugs: list[str] | None = pydantic.Field(
         default=None, min_length=1
     )
+
+    @pydantic.field_validator('project_type_slugs')
+    @classmethod
+    def _deduplicate_type_slugs(
+        cls,
+        v: list[str] | None,
+    ) -> list[str] | None:
+        if v is not None:
+            return list(dict.fromkeys(v))
+        return v
+
     environments: dict[str, str | None] | None = pydantic.Field(
         default=None,
         description=(
@@ -701,7 +717,7 @@ async def update_project(
     WITH p, o
     OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
     DELETE old_type
-    WITH p, o
+    WITH DISTINCT p, o
     UNWIND
         CASE WHEN size($new_type_slugs) = 0
              THEN [null]
