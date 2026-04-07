@@ -10,12 +10,27 @@ from imbi_common import models, neo4j
 from neo4j import exceptions
 
 from imbi_api.auth import permissions
+from imbi_api.relationships import relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
 link_definitions_router = fastapi.APIRouter(
     tags=['Link Definitions'],
 )
+
+
+def _add_relationships(
+    ld: dict[str, typing.Any],
+    project_count: int = 0,
+) -> dict[str, typing.Any]:
+    """Attach relationships sub-object to a link definition dict."""
+    ld['relationships'] = {
+        'projects': relationship_link(
+            f'/api/projects?link={ld["slug"]}',
+            project_count,
+        ),
+    }
+    return ld
 
 
 class LinkDefinitionCreate(pydantic.BaseModel):
@@ -167,11 +182,20 @@ async def list_link_definitions(
     query: typing.LiteralString = """
     MATCH (ld:LinkDefinition)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN ld{.*, organization: o{.*}} AS link_definition
+    OPTIONAL MATCH (p:Project)
+        WHERE p.links CONTAINS ('"' + ld.slug + '":')
+    WITH ld, o, count(DISTINCT p) AS project_count
+    RETURN ld{.*, organization: o{.*}} AS link_definition,
+           project_count
     ORDER BY ld.name
     """
     records = await neo4j.query(query, org_slug=org_slug)
-    return [record['link_definition'] for record in records]
+    results: list[dict[str, typing.Any]] = []
+    for record in records:
+        ld = record['link_definition']
+        _add_relationships(ld, record['project_count'])
+        results.append(ld)
+    return results
 
 
 @link_definitions_router.get('/{slug}')
