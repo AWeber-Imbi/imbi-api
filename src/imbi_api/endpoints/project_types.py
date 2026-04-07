@@ -91,7 +91,7 @@ async def create_project_type(
     )
 
     prop_str = ', '.join(f'{k}: ${k}' for k in props)
-    query: typing.LiteralString = f"""
+    query: str = f"""
     MATCH (o:Organization {{slug: $org_slug}})
     CREATE (pt:ProjectType {{{prop_str}}})
     CREATE (pt)-[:BELONGS_TO]->(o)
@@ -296,7 +296,7 @@ async def update_project_type(
     )
 
     set_clause = ', '.join(f'pt.{k} = ${k}' for k in props)
-    update_query: typing.LiteralString = f"""
+    update_query: str = f"""
     MATCH (pt:ProjectType {{slug: $slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
     SET {set_clause}

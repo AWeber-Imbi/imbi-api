@@ -133,7 +133,7 @@ async def create_link_definition(
     props = link_def.model_dump(exclude={'organization'})
 
     prop_str = ', '.join(f'{k}: ${k}' for k in props)
-    query: typing.LiteralString = f"""
+    query: str = f"""
     MATCH (o:Organization {{slug: $org_slug}})
     CREATE (ld:LinkDefinition {{{prop_str}}})
     CREATE (ld)-[:BELONGS_TO]->(o)
@@ -337,7 +337,7 @@ async def update_link_definition(
     props = link_def.model_dump(exclude={'organization'})
 
     set_clause = ', '.join(f'ld.{k} = ${k}' for k in props)
-    update_query: typing.LiteralString = f"""
+    update_query: str = f"""
     MATCH (ld:LinkDefinition {{slug: $slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
     SET {set_clause}

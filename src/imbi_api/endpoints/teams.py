@@ -96,7 +96,7 @@ async def create_team(
     )
 
     prop_str = ', '.join(f'{k}: ${k}' for k in props)
-    query: typing.LiteralString = f"""
+    query: str = f"""
     MATCH (o:Organization {{slug: $org_slug}})
     CREATE (t:Team {{{prop_str}}})
     CREATE (t)-[:BELONGS_TO]->(o)
@@ -301,7 +301,7 @@ async def update_team(
     props = team.model_dump(exclude={'organization'})
 
     set_clause = ', '.join(f't.{k} = ${k}' for k in props)
-    update_query: typing.LiteralString = f"""
+    update_query: str = f"""
     MATCH (t:Team {{slug: $slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
     SET {set_clause}

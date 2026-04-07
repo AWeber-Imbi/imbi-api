@@ -87,7 +87,7 @@ async def create_environment(
     props = environment.model_dump(exclude={'organization'})
 
     prop_str = ', '.join(f'{k}: ${k}' for k in props)
-    query: typing.LiteralString = f"""
+    query: str = f"""
     MATCH (o:Organization {{slug: $org_slug}})
     CREATE (e:Environment {{{prop_str}}})
     CREATE (e)-[:BELONGS_TO]->(o)
@@ -288,7 +288,7 @@ async def update_environment(
     props = environment.model_dump(exclude={'organization'})
 
     set_clause = ', '.join(f'e.{k} = ${k}' for k in props)
-    update_query: typing.LiteralString = f"""
+    update_query: str = f"""
     MATCH (e:Environment {{slug: $slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
     SET {set_clause}

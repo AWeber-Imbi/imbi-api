@@ -328,9 +328,9 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         """Test API key expiration with datetime object."""
         expired_key_data = self.api_key_data.copy()
-        expired_key_data['expires_at'] = datetime.datetime.now(
-            datetime.UTC
-        ) - datetime.timedelta(days=1)
+        expired_key_data['expires_at'] = (  # type: ignore[assignment]
+            datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)
+        )
 
         def mock_run(query: str, **params):
             mock_result = mock.AsyncMock()
@@ -365,9 +365,9 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         """Test API key with future expiration datetime."""
         valid_key_data = self.api_key_data.copy()
-        valid_key_data['expires_at'] = datetime.datetime.now(
-            datetime.UTC
-        ) + datetime.timedelta(days=30)
+        valid_key_data['expires_at'] = (  # type: ignore[assignment]
+            datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=30)
+        )
 
         def mock_run(query: str, **params):
             mock_result = mock.AsyncMock()

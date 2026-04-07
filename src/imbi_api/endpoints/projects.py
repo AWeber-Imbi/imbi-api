@@ -225,7 +225,7 @@ async def _fetch_project_details(
     RETURN properties(pt) AS pt, properties(o) AS org
     """
     pt_records = await age.query(q3, project_id=project_id)
-    pts = []
+    pts: list[dict[str, typing.Any]] = []
     for r in pt_records:
         pt = r['pt']
         pt['organization'] = r.get('org')
@@ -240,7 +240,7 @@ async def _fetch_project_details(
            d.url AS url
     """
     env_records = await age.query(q4, project_id=project_id)
-    envs = []
+    envs: list[dict[str, typing.Any]] = []
     for r in env_records:
         env = r['env']
         env['sort_order'] = env.get('sort_order') or 0

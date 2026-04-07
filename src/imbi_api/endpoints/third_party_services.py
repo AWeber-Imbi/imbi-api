@@ -149,7 +149,7 @@ async def create_third_party_service(
 
     prop_str = ', '.join(f'{k}: ${k}' for k in neo4j_props)
     if data.team_slug:
-        query: typing.LiteralString = f"""
+        query: str = f"""
         MATCH (o:Organization {{slug: $org_slug}})
         MATCH (t:Team {{slug: $team_slug}})-[:BELONGS_TO]->(o)
         CREATE (s:ThirdPartyService {{{prop_str}}})
@@ -354,7 +354,7 @@ async def update_third_party_service(
 
     set_clause = ', '.join(f's.{k} = ${k}' for k in neo4j_props)
     if data.team_slug:
-        update_query: typing.LiteralString = f"""
+        update_query: str = f"""
         MATCH (s:ThirdPartyService {{slug: $slug}})
               -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
         OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
@@ -608,7 +608,7 @@ async def create_service_application(
     neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
     app_prop_str = ', '.join(f'{k}: ${k}' for k in neo4j_props)
-    create_query: typing.LiteralString = f"""
+    create_query: str = f"""
     MATCH (s:ThirdPartyService {{slug: $svc_slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
     CREATE (a:ServiceApplication {{{app_prop_str}}})
@@ -724,7 +724,7 @@ async def update_service_application(
     neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
     app_set_clause = ', '.join(f'a.{k} = ${k}' for k in neo4j_props)
-    update_query: typing.LiteralString = f"""
+    update_query: str = f"""
     MATCH (a:ServiceApplication {{slug: $app_slug}})
           -[:REGISTERED_IN]->(s:ThirdPartyService {{slug: $svc_slug}})
           -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
