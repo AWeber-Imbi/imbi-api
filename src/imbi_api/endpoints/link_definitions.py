@@ -23,10 +23,15 @@ def _add_relationships(
     ld: dict[str, typing.Any],
     project_count: int = 0,
 ) -> dict[str, typing.Any]:
-    """Attach relationships sub-object to a link definition dict."""
+    """Attach relationships sub-object to a link definition dict.
+
+    The projects href is omitted because ``list_projects`` does not
+    yet support a ``link`` query-parameter filter.  Only the count
+    is accurate for now.
+    """
     ld['relationships'] = {
         'projects': relationship_link(
-            f'/api/projects?link={ld["slug"]}',
+            '',
             project_count,
         ),
     }

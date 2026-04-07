@@ -36,8 +36,9 @@ STANDARD_PERMISSIONS: list[tuple[str, str, str, str]] = [
     ('blueprint:write', 'blueprint', 'write', 'Create/update blueprints'),
     ('blueprint:delete', 'blueprint', 'delete', 'Delete blueprints'),
     # Project management
+    ('project:create', 'project', 'create', 'Create projects'),
     ('project:read', 'project', 'read', 'View projects'),
-    ('project:write', 'project', 'write', 'Create/update projects'),
+    ('project:write', 'project', 'write', 'Update projects'),
     ('project:delete', 'project', 'delete', 'Delete projects'),
     # Environment management
     ('environment:create', 'environment', 'create', 'Create environments'),
@@ -127,6 +128,7 @@ DEFAULT_ROLES: list[tuple[str, str, str, int, list[str]]] = [
         [
             'blueprint:read',
             'blueprint:write',
+            'project:create',
             'project:read',
             'project:write',
             'environment:read',

@@ -208,9 +208,10 @@ _RETURN_FRAGMENT: typing.LiteralString = """
                [x IN collect(DISTINCT
                    CASE WHEN dep IS NOT NULL
                              AND depOrg IS NOT NULL
+                             AND dep.id IS NOT NULL
                         THEN '/organizations/' + depOrg.slug
                              + '/projects/'
-                             + coalesce(dep.id, dep.slug)
+                             + dep.id
                    END
                ) WHERE x IS NOT NULL] AS dependency_uris
     }
@@ -292,6 +293,27 @@ async def create_project(
         },
     )
 
+    # Pre-validate that all project type slugs exist before creating
+    # anything, to avoid orphaned Project nodes when slugs are invalid.
+    validate_query: typing.LiteralString = """
+    MATCH (o:Organization {slug: $org_slug})
+    UNWIND $pt_slugs AS pt_slug
+    OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
+             -[:BELONGS_TO]->(o)
+    RETURN pt_slug, pt IS NOT NULL AS found
+    """
+    validation = await neo4j.query(
+        validate_query,
+        org_slug=org_slug,
+        pt_slugs=data.project_type_slugs,
+    )
+    missing = [r['pt_slug'] for r in validation if not r['found']]
+    if missing:
+        raise fastapi.HTTPException(
+            status_code=422,
+            detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
+        )
+
     query: typing.LiteralString = (
         """
     MATCH (o:Organization {slug: $org_slug})
@@ -352,17 +374,6 @@ async def create_project(
         )
 
     project = records[0]['project']
-    created_types: list[dict[str, typing.Any]] = (
-        project.get('project_types') or []
-    )
-    if len(created_types) != len(data.project_type_slugs):
-        created_slugs = {pt.get('slug', '') for pt in created_types}
-        missing = set(data.project_type_slugs) - created_slugs
-        raise fastapi.HTTPException(
-            status_code=422,
-            detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
-        )
-
     result = _add_relationships(project, org_slug)
     return ProjectResponse.model_validate(result)
 
@@ -731,6 +742,53 @@ async def update_project(
         },
     )
 
+    # Pre-validate team slug exists before executing the update to
+    # prevent partial writes (SET p = $props commits even when a
+    # subsequent strict MATCH on the team returns 0 rows).
+    if data.team_slug:
+        team_check: typing.LiteralString = """
+        MATCH (t:Team {slug: $team_slug})
+              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        RETURN t.slug AS slug
+        """
+        team_records = await neo4j.query(
+            team_check,
+            team_slug=data.team_slug,
+            org_slug=org_slug,
+        )
+        if not team_records:
+            raise fastapi.HTTPException(
+                status_code=422,
+                detail=(
+                    f'Team {data.team_slug!r} not found in'
+                    f' organization {org_slug!r}'
+                ),
+            )
+
+    # Pre-validate that all project type slugs exist to avoid
+    # silently deleting existing TYPE edges with no replacements.
+    if data.project_type_slugs is not None:
+        pt_check: typing.LiteralString = """
+        MATCH (o:Organization {slug: $org_slug})
+        UNWIND $pt_slugs AS pt_slug
+        OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
+                 -[:BELONGS_TO]->(o)
+        RETURN pt_slug, pt IS NOT NULL AS found
+        """
+        pt_records = await neo4j.query(
+            pt_check,
+            org_slug=org_slug,
+            pt_slugs=data.project_type_slugs,
+        )
+        missing = [r['pt_slug'] for r in pt_records if not r['found']]
+        if missing:
+            raise fastapi.HTTPException(
+                status_code=422,
+                detail=(
+                    f'Project type slug(s) not found: {sorted(missing)!r}'
+                ),
+            )
+
     # Build update query with optional relationship changes
     rel_clauses: typing.LiteralString = ''
     if data.team_slug:
@@ -748,17 +806,10 @@ async def update_project(
     OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
     DELETE old_type
     WITH DISTINCT p, o
-    UNWIND
-        CASE WHEN size($new_type_slugs) = 0
-             THEN [null]
-             ELSE $new_type_slugs
-        END AS new_pt_slug
-    OPTIONAL MATCH (new_pt:ProjectType {slug: new_pt_slug})
+    UNWIND $new_type_slugs AS new_pt_slug
+    MATCH (new_pt:ProjectType {slug: new_pt_slug})
           -[:BELONGS_TO]->(o)
-    FOREACH (_ IN CASE WHEN new_pt IS NOT NULL
-                       THEN [1] ELSE [] END |
-        CREATE (p)-[:TYPE]->(new_pt)
-    )
+    CREATE (p)-[:TYPE]->(new_pt)
     """
     if data.environments is not None:
         rel_clauses += """
