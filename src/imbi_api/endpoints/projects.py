@@ -496,7 +496,7 @@ async def get_project_schema(
                 default=getattr(prop_schema, 'default', None),
                 minimum=getattr(prop_schema, 'minimum', None),
                 maximum=getattr(prop_schema, 'maximum', None),
-                x_ui=x_ui,
+                **{'x-ui': x_ui},
             )
 
         sections.append(
