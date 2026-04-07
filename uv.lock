@@ -1050,7 +1050,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fmigrate-neo4j-to-age" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
     { name = "jinja2" },
     { name = "nanoid", specifier = ">=2.0.0" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
@@ -1096,7 +1096,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fmigrate-neo4j-to-age#f45304d8f9aac2a6968351c82b0d75e7fe40f031" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#a6dd3a86235e3eb645dafe0640b2c751e70cde51" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "cryptography" },
