@@ -130,12 +130,11 @@ async def create_client_credential(
     # Store in graph with relationship to ServiceAccount (atomic)
     props = credential.model_dump(mode='json')
     prop_str = ', '.join(f'{k}: ${k}' for k in props)
-    query = typing.cast(
-        typing.LiteralString,
+    query: str = (
         f'MATCH (s:ServiceAccount {{slug: $slug}})'
         f' CREATE (c:ClientCredential {{{prop_str}}})'
         f'-[:OWNED_BY]->(s)'
-        f' RETURN id(c) AS element_id',
+        f' RETURN id(c) AS element_id'
     )
     async with age.run(query, slug=slug, **props) as result:
         record = await result.single()

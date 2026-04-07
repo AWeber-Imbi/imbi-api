@@ -204,7 +204,7 @@ async def _fetch_project_details(
     records = await age.query(q1, project_id=project_id, org_slug=org_slug)
     if not records:
         return None
-    project = records[0]['project']
+    project: dict[str, typing.Any] = records[0]['project']
 
     # 2. Get team (with its organization)
     q2: typing.LiteralString = """
@@ -358,17 +358,14 @@ async def create_project(
     # Step 1: Create the project node with explicit properties
     prop_keys = sorted(props.keys())
     prop_str = ', '.join(f'{k}: ${k}' for k in prop_keys)
-    create_query = typing.cast(
-        typing.LiteralString,
-        f"""
+    create_query: str = f"""
     MATCH (o:Organization {{slug: $org_slug}})
     MATCH (t:Team {{slug: $team_slug}})
           -[:BELONGS_TO]->(o)
     CREATE (p:Project {{{prop_str}}})
     CREATE (p)-[:OWNED_BY]->(t)
     RETURN p.id AS project_id
-    """,
-    )
+    """
     try:
         records = await age.query(
             create_query,
@@ -898,14 +895,11 @@ async def update_project(
     # Step 1: Update project node properties with individual SETs
     prop_keys = sorted(props.keys())
     set_clauses = ', '.join(f'p.{k} = ${k}' for k in prop_keys)
-    update_q = typing.cast(
-        typing.LiteralString,
-        f"""
+    update_q: str = f"""
     MATCH (p:Project {{id: $project_id}})
     SET {set_clauses}
     RETURN p.id AS id
-    """,
-    )
+    """
     try:
         updated = await age.query(
             update_q,
