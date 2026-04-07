@@ -105,7 +105,7 @@ class ProjectResponse(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra='allow')
 
-    id: str
+    id: str | None = None
     name: str
     slug: str
     description: str | None = None
@@ -137,6 +137,17 @@ class ProjectResponse(pydantic.BaseModel):
 
 
 # -- Helpers ------------------------------------------------------------
+
+_RESERVED_FIELDS = frozenset(
+    {
+        'id',
+        'team',
+        'project_types',
+        'environments',
+        'created_at',
+        'updated_at',
+    }
+)
 
 
 def _add_relationships(
@@ -254,7 +265,11 @@ async def create_project(
             icon=data.icon,
             links=data.links,
             identifiers=data.identifiers,
-            **(data.model_extra or {}),
+            **{
+                k: v
+                for k, v in (data.model_extra or {}).items()
+                if k not in _RESERVED_FIELDS
+            },
         )
     except pydantic.ValidationError as e:
         LOGGER.warning(
@@ -336,10 +351,19 @@ async def create_project(
             ),
         )
 
-    result = _add_relationships(
-        records[0]['project'],
-        org_slug,
-    )
+    project = records[0]['project']
+    created_types = project.get('project_types') or []
+    if len(created_types) != len(data.project_type_slugs):
+        missing = set(data.project_type_slugs) - {
+            pt.get('slug', pt) if isinstance(pt, dict) else pt
+            for pt in created_types
+        }
+        raise fastapi.HTTPException(
+            status_code=422,
+            detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
+        )
+
+    result = _add_relationships(project, org_slug)
     return ProjectResponse.model_validate(result)
 
 
@@ -663,7 +687,13 @@ async def update_project(
         for k, v in existing.items()
         if k not in base_fields and k not in skip
     }
-    extra_fields.update(data.model_extra or {})
+    extra_fields.update(
+        {
+            k: v
+            for k, v in (data.model_extra or {}).items()
+            if k not in _RESERVED_FIELDS
+        }
+    )
 
     try:
         project = dynamic_model(
@@ -714,7 +744,7 @@ async def update_project(
     """
     if data.project_type_slugs is not None:
         rel_clauses += """
-    WITH p, o
+    WITH DISTINCT p, o
     OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
     DELETE old_type
     WITH DISTINCT p, o
@@ -732,10 +762,10 @@ async def update_project(
     """
     if data.environments is not None:
         rel_clauses += """
-    WITH p, o
+    WITH DISTINCT p, o
     OPTIONAL MATCH (p)-[old_env:DEPLOYED_IN]->(:Environment)
     DELETE old_env
-    WITH p, o
+    WITH DISTINCT p, o
     UNWIND
         CASE WHEN size($new_env_entries) = 0
              THEN [null]
