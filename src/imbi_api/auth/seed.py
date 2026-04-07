@@ -279,7 +279,7 @@ async def seed_default_roles() -> int:
         """
 
         async with age.run(
-            query=role_query,
+            role_query,
             slug=slug,
             name=name,
             description=description,
@@ -298,7 +298,7 @@ async def seed_default_roles() -> int:
             MERGE (r)-[:GRANTS]->(p)
             """
             async with age.run(
-                query=perm_query, slug=slug, perm_name=perm_name
+                perm_query, slug=slug, perm_name=perm_name
             ) as result:
                 await result.consume()
 

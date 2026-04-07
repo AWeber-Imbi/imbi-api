@@ -217,7 +217,7 @@ async def _create_admin_user(
     """
 
     async with age.run(
-        query=query,
+        query,
         email=user.email,
         display_name=user.display_name,
         password_hash=user.password_hash,
@@ -239,7 +239,7 @@ async def _create_admin_user(
     """
 
     async with age.run(
-        query=membership_query,
+        membership_query,
         email=email,
         org_slug=org_slug,
     ) as result:
