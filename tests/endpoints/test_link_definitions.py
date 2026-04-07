@@ -187,7 +187,9 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
 
         with mock.patch(
             'imbi_common.neo4j.query',
-            return_value=[{'link_definition': record}],
+            return_value=[
+                {'link_definition': record, 'project_count': 3},
+            ],
         ):
             response = self.client.get(
                 '/organizations/engineering/link-definitions/github-repo',
@@ -196,6 +198,8 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['slug'], 'github-repo')
+        self.assertIn('relationships', data)
+        self.assertEqual(data['relationships']['projects']['count'], 3)
 
     def test_get_not_found(self) -> None:
         """Test retrieving nonexistent link definition."""
@@ -223,7 +227,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
             'imbi_common.neo4j.query',
             side_effect=[
                 [{'link_definition': existing}],
-                [{'link_definition': updated}],
+                [{'link_definition': updated, 'project_count': 2}],
             ],
         ):
             response = self.client.put(
