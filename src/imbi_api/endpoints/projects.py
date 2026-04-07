@@ -70,7 +70,9 @@ class ProjectUpdate(pydantic.BaseModel):
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     team_slug: str | None = None
-    project_type_slugs: list[str] | None = None
+    project_type_slugs: list[str] | None = pydantic.Field(
+        default=None, min_length=1
+    )
     environments: dict[str, str | None] | None = pydantic.Field(
         default=None,
         description=(
@@ -180,7 +182,8 @@ _RETURN_FRAGMENT: typing.LiteralString = """
                    CASE WHEN dep IS NOT NULL
                              AND depOrg IS NOT NULL
                         THEN '/organizations/' + depOrg.slug
-                             + '/projects/' + dep.id
+                             + '/projects/'
+                             + coalesce(dep.id, dep.slug)
                    END
                ) WHERE x IS NOT NULL] AS dependency_uris
     }
@@ -267,9 +270,12 @@ async def create_project(
     CREATE (p)-[:OWNED_BY]->(t)
     WITH p, t, o
     UNWIND $pt_slugs AS pt_slug
-    MATCH (pt:ProjectType {slug: pt_slug})
+    OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
           -[:BELONGS_TO]->(o)
-    CREATE (p)-[:TYPE]->(pt)
+    FOREACH (_ IN CASE WHEN pt IS NOT NULL
+                       THEN [1] ELSE [] END |
+        CREATE (p)-[:TYPE]->(pt)
+    )
     WITH DISTINCT p, t, o
     UNWIND
         CASE WHEN size($env_entries) = 0
@@ -699,10 +705,17 @@ async def update_project(
     OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
     DELETE old_type
     WITH p, o
-    UNWIND $new_type_slugs AS new_pt_slug
-    MATCH (new_pt:ProjectType {slug: new_pt_slug})
+    UNWIND
+        CASE WHEN size($new_type_slugs) = 0
+             THEN [null]
+             ELSE $new_type_slugs
+        END AS new_pt_slug
+    OPTIONAL MATCH (new_pt:ProjectType {slug: new_pt_slug})
           -[:BELONGS_TO]->(o)
-    CREATE (p)-[:TYPE]->(new_pt)
+    FOREACH (_ IN CASE WHEN new_pt IS NOT NULL
+                       THEN [1] ELSE [] END |
+        CREATE (p)-[:TYPE]->(new_pt)
+    )
     """
     if data.environments is not None:
         rel_clauses += """
