@@ -447,37 +447,102 @@ async def list_projects(
     project_type: str | None = None,
 ) -> list[ProjectResponse]:
     """List all projects, optionally filtered by type."""
-    type_filter: typing.LiteralString = (
-        'MATCH (p)-[:TYPE]->(filter_pt:ProjectType {slug: $project_type})'
-        if project_type
-        else ''
-    )
-    id_query = typing.cast(
-        typing.LiteralString,
+    # Fetch all project nodes in one query
+    if project_type:
+        base_q: typing.LiteralString = """
+        MATCH (p:Project)-[:OWNED_BY]->(:Team)
+              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        MATCH (p)-[:TYPE]->(filter_pt:ProjectType {slug: $project_type})
+        RETURN properties(p) AS project
+        ORDER BY p.name
         """
-    MATCH (p:Project)-[:OWNED_BY]->(:Team)
+    else:
+        base_q = """
+        MATCH (p:Project)-[:OWNED_BY]->(:Team)
+              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        RETURN properties(p) AS project
+        ORDER BY p.name
+        """
+    proj_records = await age.query(
+        base_q, org_slug=org_slug, project_type=project_type
+    )
+    if not proj_records:
+        return []
+
+    project_ids = [r['project']['id'] for r in proj_records]
+
+    # Batch fetch teams for all projects
+    teams_q: typing.LiteralString = """
+    MATCH (p:Project)-[:OWNED_BY]->(t:Team)
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    WHERE p.id IN $ids
+    RETURN p.id AS pid, properties(t) AS team, properties(o) AS org
     """
-        + type_filter
-        + """
-    RETURN p.id AS project_id
-    ORDER BY p.name
-    """,
-    )
-    id_records = await age.query(
-        id_query,
-        org_slug=org_slug,
-        project_type=project_type,
-    )
+    team_records = await age.query(teams_q, org_slug=org_slug, ids=project_ids)
+    teams_by_id: dict[str, dict[str, typing.Any]] = {}
+    for r in team_records:
+        team = r['team']
+        team['organization'] = r.get('org')
+        teams_by_id[r['pid']] = team
+
+    # Batch fetch project types
+    pts_q: typing.LiteralString = """
+    MATCH (p:Project)-[:TYPE]->(pt:ProjectType)
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    WHERE p.id IN $ids
+    RETURN p.id AS pid, properties(pt) AS pt, properties(o) AS org
+    """
+    pt_records = await age.query(pts_q, org_slug=org_slug, ids=project_ids)
+    pts_by_id: dict[str, list[dict[str, typing.Any]]] = {}
+    for r in pt_records:
+        pt = r['pt']
+        pt['organization'] = r.get('org')
+        pts_by_id.setdefault(r['pid'], []).append(pt)
+
+    # Batch fetch environments
+    envs_q: typing.LiteralString = """
+    MATCH (p:Project)-[d:DEPLOYED_IN]->(env:Environment)
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    WHERE p.id IN $ids
+    RETURN p.id AS pid, properties(env) AS env,
+           properties(o) AS org, d.url AS url
+    """
+    env_records = await age.query(envs_q, org_slug=org_slug, ids=project_ids)
+    envs_by_id: dict[str, list[dict[str, typing.Any]]] = {}
+    for r in env_records:
+        env = r['env']
+        env['sort_order'] = env.get('sort_order') or 0
+        env['url'] = r.get('url')
+        env['organization'] = r.get('org')
+        envs_by_id.setdefault(r['pid'], []).append(env)
+
+    # Batch fetch dependencies
+    deps_q: typing.LiteralString = """
+    MATCH (p:Project)-[:DEPENDS_ON]->(dep:Project)
+          -[:OWNED_BY]->(:Team)
+          -[:BELONGS_TO]->(depOrg:Organization)
+    WHERE p.id IN $ids AND dep.id IS NOT NULL
+    RETURN p.id AS pid, dep.id AS dep_id,
+           depOrg.slug AS dep_org_slug
+    """
+    dep_records = await age.query(deps_q, ids=project_ids)
+    deps_by_id: dict[str, list[str]] = {}
+    for r in dep_records:
+        uri = f'/organizations/{r["dep_org_slug"]}/projects/{r["dep_id"]}'
+        deps_by_id.setdefault(r['pid'], []).append(uri)
+
+    # Assemble results
     results: list[ProjectResponse] = []
-    for record in id_records:
-        proj = await _fetch_project_details(record['project_id'], org_slug)
-        if proj:
-            dep_count = len(proj.get('dependency_uris', []))
-            proj = _add_relationships(proj, org_slug, dep_count)
-            results.append(
-                ProjectResponse.model_validate(proj),
-            )
+    for record in proj_records:
+        proj = record['project']
+        pid = proj['id']
+        proj['team'] = teams_by_id.get(pid)
+        proj['project_types'] = pts_by_id.get(pid, [])
+        proj['environments'] = envs_by_id.get(pid, [])
+        proj['dependency_uris'] = deps_by_id.get(pid, [])
+        dep_count = len(proj['dependency_uris'])
+        proj = _add_relationships(proj, org_slug, dep_count)
+        results.append(ProjectResponse.model_validate(proj))
     return results
 
 

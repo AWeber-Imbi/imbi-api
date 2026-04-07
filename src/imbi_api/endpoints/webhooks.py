@@ -56,6 +56,21 @@ async def _fetch_webhook(
     return record
 
 
+def _build_rule_params(
+    rules: list[models.WebhookRuleCreate],
+) -> list[dict[str, object]]:
+    """Convert WebhookRuleCreate list to parameter dicts."""
+    return [
+        {
+            'filter_expression': rule.filter_expression,
+            'handler': rule.handler,
+            'handler_config': json.dumps(rule.handler_config),
+            'ordinal': idx,
+        }
+        for idx, rule in enumerate(rules)
+    ]
+
+
 async def _create_rules(
     webhook_slug: str,
     rules: list[dict[str, object]],
@@ -161,17 +176,7 @@ async def create_webhook(
         )
 
     # Step 3: Create rules
-    rule_params: list[dict[str, object]] = []
-    for idx, rule in enumerate(data.rules):
-        rule_params.append(
-            {
-                'filter_expression': rule.filter_expression,
-                'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
-                'ordinal': idx,
-            }
-        )
-    await _create_rules(data.slug, rule_params)
+    await _create_rules(data.slug, _build_rule_params(data.rules))
 
     # Step 4: Fetch and return
     result = await _fetch_webhook(data.slug, org_slug)
@@ -194,18 +199,48 @@ async def list_webhooks(
     ],
 ) -> list[models.WebhookResponse]:
     """List webhooks for an organization."""
-    slug_q: typing.LiteralString = """
+    # Batch fetch all webhooks with their TPS in one query
+    wh_q: typing.LiteralString = """
     MATCH (w:Webhook)-[:BELONGS_TO]->
           (o:Organization {slug: $org_slug})
-    RETURN w.slug AS slug
+    OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
+    RETURN properties(w) AS webhook,
+           properties(tps) AS tps,
+           impl.identifier_selector AS identifier_selector
     ORDER BY w.name
     """
-    slug_records = await age.query(slug_q, org_slug=org_slug)
+    wh_records = await age.query(wh_q, org_slug=org_slug)
+
+    # Batch fetch all rules for this org's webhooks
+    rules_q: typing.LiteralString = """
+    MATCH (r:WebhookRule)-[:ACTIONS]->(w:Webhook)
+          -[:BELONGS_TO]->(:Organization {slug: $org_slug})
+    RETURN w.slug AS slug,
+           r.filter_expression AS filter_expression,
+           r.handler AS handler,
+           r.handler_config AS handler_config,
+           r.ordinal AS ordinal
+    ORDER BY w.slug, r.ordinal
+    """
+    rule_records = await age.query(rules_q, org_slug=org_slug)
+
+    # Group rules by webhook slug
+    rules_by_slug: dict[str, list[dict[str, typing.Any]]] = {}
+    for r in rule_records:
+        rules_by_slug.setdefault(r['slug'], []).append(
+            {
+                'filter_expression': r['filter_expression'],
+                'handler': r['handler'],
+                'handler_config': r.get('handler_config'),
+            }
+        )
+
     results: list[models.WebhookResponse] = []
-    for r in slug_records:
-        record = await _fetch_webhook(r['slug'], org_slug)
-        if record:
-            results.append(models.WebhookResponse.from_neo4j_record(record))
+    for record in wh_records:
+        webhook = record['webhook']
+        slug = webhook.get('slug', '')
+        record['rules'] = rules_by_slug.get(slug, [])
+        results.append(models.WebhookResponse.from_neo4j_record(record))
     return results
 
 
@@ -345,17 +380,7 @@ async def update_webhook(
         )
 
     # Step 5: Create new rules
-    rule_params: list[dict[str, object]] = []
-    for idx, rule in enumerate(data.rules):
-        rule_params.append(
-            {
-                'filter_expression': rule.filter_expression,
-                'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
-                'ordinal': idx,
-            }
-        )
-    await _create_rules(new_slug, rule_params)
+    await _create_rules(new_slug, _build_rule_params(data.rules))
 
     # Step 6: Fetch and return
     result = await _fetch_webhook(new_slug, org_slug)
