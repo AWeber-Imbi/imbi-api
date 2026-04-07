@@ -77,7 +77,9 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
 
         with mock.patch(
             'imbi_common.neo4j.query',
-            return_value=[{'link_definition': record}],
+            return_value=[
+                {'link_definition': record, 'project_count': 0},
+            ],
         ):
             response = self.client.post(
                 '/organizations/engineering/link-definitions/',
@@ -93,6 +95,11 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'github-repo')
         self.assertEqual(data['name'], 'GitHub Repository')
+        self.assertIn('relationships', data)
+        self.assertEqual(
+            data['relationships']['projects']['count'],
+            0,
+        )
 
     def test_create_validation_error(self) -> None:
         """Test creating link definition with invalid data."""
