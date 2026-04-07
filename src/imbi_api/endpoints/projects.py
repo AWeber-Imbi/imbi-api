@@ -352,12 +352,12 @@ async def create_project(
         )
 
     project = records[0]['project']
-    created_types = project.get('project_types') or []
+    created_types: list[dict[str, typing.Any]] = (
+        project.get('project_types') or []
+    )
     if len(created_types) != len(data.project_type_slugs):
-        missing = set(data.project_type_slugs) - {
-            pt.get('slug', pt) if isinstance(pt, dict) else pt
-            for pt in created_types
-        }
+        created_slugs = {pt.get('slug', '') for pt in created_types}
+        missing = set(data.project_type_slugs) - created_slugs
         raise fastapi.HTTPException(
             status_code=422,
             detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
