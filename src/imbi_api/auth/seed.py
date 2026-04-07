@@ -40,6 +40,31 @@ STANDARD_PERMISSIONS: list[tuple[str, str, str, str]] = [
     ('project:read', 'project', 'read', 'View projects'),
     ('project:write', 'project', 'write', 'Update projects'),
     ('project:delete', 'project', 'delete', 'Delete projects'),
+    # Link definition management
+    (
+        'link_definition:create',
+        'link_definition',
+        'create',
+        'Create link definitions',
+    ),
+    (
+        'link_definition:read',
+        'link_definition',
+        'read',
+        'View link definitions',
+    ),
+    (
+        'link_definition:write',
+        'link_definition',
+        'write',
+        'Update link definitions',
+    ),
+    (
+        'link_definition:delete',
+        'link_definition',
+        'delete',
+        'Delete link definitions',
+    ),
     # Environment management
     ('environment:create', 'environment', 'create', 'Create environments'),
     ('environment:read', 'environment', 'read', 'View environments'),
@@ -132,6 +157,8 @@ DEFAULT_ROLES: list[tuple[str, str, str, int, list[str]]] = [
             'project:read',
             'project:write',
             'environment:read',
+            'link_definition:read',
+            'link_definition:write',
             'organization:read',
             'organization:update',
             'project_type:read',
@@ -154,6 +181,7 @@ DEFAULT_ROLES: list[tuple[str, str, str, int, list[str]]] = [
         [
             'blueprint:read',
             'environment:read',
+            'link_definition:read',
             'project:read',
             'project_type:read',
             'organization:read',

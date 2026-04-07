@@ -234,7 +234,11 @@ async def get_link_definition(
     query: typing.LiteralString = """
     MATCH (ld:LinkDefinition {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN ld{.*, organization: o{.*}} AS link_definition
+    OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
+        WHERE p.links CONTAINS ('"' + ld.slug + '":')
+    WITH ld, o, count(DISTINCT p) AS project_count
+    RETURN ld{.*, organization: o{.*}} AS link_definition,
+           project_count
     """
     records = await neo4j.query(
         query,
@@ -248,6 +252,7 @@ async def get_link_definition(
             detail=(f'Link definition with slug {slug!r} not found'),
         )
     result: dict[str, typing.Any] = records[0]['link_definition']
+    _add_relationships(result, records[0]['project_count'])
     return result
 
 
@@ -326,7 +331,12 @@ async def update_link_definition(
     MATCH (ld:LinkDefinition {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     SET ld = $props
-    RETURN ld{.*, organization: o{.*}} AS link_definition
+    WITH ld, o
+    OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
+        WHERE p.links CONTAINS ('"' + ld.slug + '":')
+    WITH ld, o, count(DISTINCT p) AS project_count
+    RETURN ld{.*, organization: o{.*}} AS link_definition,
+           project_count
     """
     try:
         updated = await neo4j.query(
@@ -350,6 +360,7 @@ async def update_link_definition(
         )
 
     result: dict[str, typing.Any] = updated[0]['link_definition']
+    _add_relationships(result, updated[0]['project_count'])
     return result
 
 

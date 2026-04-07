@@ -156,7 +156,7 @@ def _add_relationships(
     dependency_count: int = 0,
 ) -> dict[str, typing.Any]:
     """Attach relationships sub-object to a project dict."""
-    project_id = project.get('id', '')
+    project_id = project.get('id') or ''
     team = project.get('team', {})
     team_slug = team.get('slug', '') if team else ''
     base = f'/api/organizations/{org_slug}/projects/{project_id}'

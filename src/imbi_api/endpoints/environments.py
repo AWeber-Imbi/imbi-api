@@ -181,7 +181,8 @@ async def get_environment(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, organization: o{.*}} AS environment,
+    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
+             organization: o{.*}} AS environment,
            project_count
     """
     records = await neo4j.query(
@@ -282,7 +283,8 @@ async def update_environment(
     WITH e, o
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, organization: o{.*}} AS environment,
+    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
+             organization: o{.*}} AS environment,
            project_count
     """
     try:
