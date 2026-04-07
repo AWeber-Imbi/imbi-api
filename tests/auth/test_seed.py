@@ -17,7 +17,7 @@ class SeedPermissionsTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.age.run', return_value=mock_result):
             count = await seed.seed_permissions()
 
         self.assertEqual(count, len(seed.STANDARD_PERMISSIONS))
@@ -30,7 +30,7 @@ class SeedPermissionsTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aenter__.return_value = mock_result
         mock_result.__aexit__.return_value = None
 
-        with mock.patch('imbi_common.neo4j.run', return_value=mock_result):
+        with mock.patch('imbi_common.age.run', return_value=mock_result):
             count = await seed.seed_permissions()
 
         # Should create 0 new permissions
@@ -78,7 +78,7 @@ class SeedDefaultRolesTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_role_result
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=run_side_effect,
         ):
             count = await seed.seed_default_roles()
@@ -107,7 +107,7 @@ class SeedDefaultRolesTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_role_result
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=run_side_effect,
         ):
             count = await seed.seed_default_roles()
@@ -167,7 +167,7 @@ class SeedDefaultOrganizationTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             created = await seed.seed_default_organization()
@@ -182,7 +182,7 @@ class SeedDefaultOrganizationTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             created = await seed.seed_default_organization()
@@ -276,7 +276,7 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             is_seeded = await seed.check_if_seeded()
@@ -291,7 +291,7 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             is_seeded = await seed.check_if_seeded()
@@ -306,7 +306,7 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             is_seeded = await seed.check_if_seeded()

@@ -225,9 +225,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             template_manager = templates.TemplateManager()
 
             with mock.patch('imbi_common.clickhouse.insert'):
-                with mock.patch(
-                    'imbi_common.neo4j.create_node'
-                ) as mock_create:
+                with mock.patch('imbi_common.age.create_node') as mock_create:
                     mock_create.return_value = None
 
                     token, audit = await email.send_password_reset(
@@ -299,9 +297,7 @@ class MailpitIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
             template_manager = templates.TemplateManager()
 
             with mock.patch('imbi_common.clickhouse.insert'):
-                with mock.patch(
-                    'imbi_common.neo4j.create_node'
-                ) as mock_create:
+                with mock.patch('imbi_common.age.create_node') as mock_create:
                     mock_create.return_value = None
 
                     with mock.patch.object(

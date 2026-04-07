@@ -55,7 +55,7 @@ docker:
     IMBI_EMAIL_SMTP_USE_TLS="false"
     IMBI_EMAIL_FROM_EMAIL="noreply@imbi.example"
     IMBI_EMAIL_FROM_NAME="Imbi Development"
-    NEO4J_URL="bolt://neo4j:neo4j@$test_host:$(get_port neo4j 7687)"
+    AGE_URL="postgresql://postgres:secret@$test_host:$(get_port postgres 5432)/imbi"
     S3_ENDPOINT_URL="http://$test_host:$(get_port localstack 4566)"
     S3_ACCESS_KEY="test"
     S3_SECRET_KEY="test"

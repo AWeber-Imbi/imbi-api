@@ -67,7 +67,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
             created_at=datetime.datetime.now(datetime.UTC),
         )
 
-    @mock.patch('imbi_common.neo4j.upsert')
+    @mock.patch('imbi_common.age.upsert')
     @mock.patch(
         'imbi_api.endpoints.uploads.thumbnails.can_thumbnail',
         return_value=False,
@@ -124,7 +124,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('bad file', response.json()['detail'])
 
-    @mock.patch('imbi_common.neo4j.upsert')
+    @mock.patch('imbi_common.age.upsert')
     @mock.patch(
         'imbi_api.endpoints.uploads.thumbnails.can_thumbnail',
         return_value=True,
@@ -169,7 +169,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
             yield
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=empty_generator(),
         ):
             response = self.client.get('/uploads/')
@@ -185,7 +185,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
             yield self.test_upload
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=upload_generator(),
         ):
             response = self.client.get('/uploads/')
@@ -203,7 +203,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
             yield self.test_upload
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=upload_generator(),
         ) as mock_fetch:
             response = self.client.get(
@@ -222,7 +222,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         self.mock_storage.download.return_value = b'file-data'
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=self.test_upload,
         ):
             response = self.client.get('/uploads/test-uuid-1234')
@@ -257,7 +257,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=self.test_upload,
         ):
             response = self.client.get('/uploads/test-uuid-1234')
@@ -271,7 +271,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
     def test_get_upload_not_found(self) -> None:
         """Test getting non-existent upload returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.get('/uploads/nonexistent')
@@ -281,7 +281,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
     def test_get_upload_meta(self) -> None:
         """Test getting upload metadata."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=self.test_upload,
         ):
             response = self.client.get(
@@ -299,7 +299,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         self.mock_storage.download.return_value = b'thumb-data'
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=self.test_upload,
         ):
             response = self.client.get(
@@ -336,7 +336,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=self.test_upload,
         ):
             response = self.client.get(
@@ -363,7 +363,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=upload_no_thumb,
         ):
             response = self.client.get(
@@ -380,11 +380,11 @@ class UploadEndpointsTestCase(unittest.TestCase):
         """Test deleting an upload."""
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=self.test_upload,
             ),
             mock.patch(
-                'imbi_common.neo4j.delete_node',
+                'imbi_common.age.delete_node',
                 return_value=True,
             ),
         ):
@@ -399,7 +399,7 @@ class UploadEndpointsTestCase(unittest.TestCase):
     def test_delete_upload_not_found(self) -> None:
         """Test deleting non-existent upload returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.delete(

@@ -8,12 +8,12 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
 
-def _mock_neo4j_result(data):
+def _mock_age_result(data):
     """Create a mock async context manager for neo4j.run()."""
     result = mock.AsyncMock()
     result.data.return_value = data
@@ -125,10 +125,10 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- Create --
 
     def test_create_success(self) -> None:
-        result = _mock_neo4j_result([self.webhook_record])
+        result = _mock_age_result([self.webhook_record])
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=result,
             ),
             self._patch_encryption(),
@@ -154,10 +154,10 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=result,
             ),
             self._patch_encryption(),
@@ -188,10 +188,10 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         }
         record['identifier_selector'] = '$.repository.full_name'
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=result,
             ),
             self._patch_encryption(),
@@ -212,7 +212,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     def test_create_duplicate_slug(self) -> None:
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=exceptions.ConstraintError(),
             ),
             self._patch_encryption(),
@@ -226,10 +226,10 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertIn('already exists', response.json()['detail'])
 
     def test_create_org_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=result,
             ),
             self._patch_encryption(),
@@ -287,9 +287,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- List --
 
     def test_list_webhooks(self) -> None:
-        result = _mock_neo4j_result([self.webhook_record])
+        result = _mock_age_result([self.webhook_record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -303,9 +303,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['slug'], 'github-events')
 
     def test_list_webhooks_empty(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -318,9 +318,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- Get --
 
     def test_get_webhook(self) -> None:
-        result = _mock_neo4j_result([self.webhook_record])
+        result = _mock_age_result([self.webhook_record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -333,9 +333,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['notification_path'], '/webhooks/github')
 
     def test_get_webhook_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -351,17 +351,17 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         updated = copy.deepcopy(self.webhook_record)
         updated['webhook']['description'] = 'Updated'
 
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'webhook': self.webhook_record['webhook']}],
         )
-        update_result = _mock_neo4j_result([updated])
+        update_result = _mock_age_result([updated])
 
         payload = dict(self.webhook_update_json)
         payload['description'] = 'Updated'
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ),
             self._patch_encryption(),
@@ -375,9 +375,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.json()['description'], 'Updated')
 
     def test_update_webhook_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.put(
@@ -389,7 +389,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertIn('not found', response.json()['detail'])
 
     def test_update_slug_conflict(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'webhook': self.webhook_record['webhook']}],
         )
 
@@ -398,7 +398,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[
                     fetch_result,
                     exceptions.ConstraintError(),
@@ -415,14 +415,14 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertIn('already exists', response.json()['detail'])
 
     def test_update_concurrent_delete(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'webhook': self.webhook_record['webhook']}],
         )
-        empty_result = _mock_neo4j_result([])
+        empty_result = _mock_age_result([])
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, empty_result],
             ),
             self._patch_encryption(),
@@ -447,9 +447,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
     # -- Delete --
 
     def test_delete_webhook(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 1}])
+        result = _mock_age_result([{'deleted': 1}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -459,9 +459,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_webhook_not_found(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 0}])
+        result = _mock_age_result([{'deleted': 0}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -483,9 +483,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -501,9 +501,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         record = copy.deepcopy(self.webhook_record)
         record['rules'] = [None]
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -523,9 +523,9 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -586,9 +586,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
     # -- List --
 
     def test_list_project_services(self) -> None:
-        result = _mock_neo4j_result([self.service_record])
+        result = _mock_age_result([self.service_record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -603,9 +603,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['identifier'], 'org/repo')
 
     def test_list_project_services_empty(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -619,9 +619,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         record = copy.deepcopy(self.service_record)
         record['canonical_link'] = None
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -635,9 +635,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
     # -- Create --
 
     def test_create_project_service(self) -> None:
-        result = _mock_neo4j_result([self.service_record])
+        result = _mock_age_result([self.service_record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -655,9 +655,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['identifier'], 'org/repo')
 
     def test_create_project_service_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -693,9 +693,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
     # -- Delete --
 
     def test_delete_project_service(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 1}])
+        result = _mock_age_result([{'deleted': 1}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -706,9 +706,9 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_project_service_not_found(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 0}])
+        result = _mock_age_result([{'deleted': 0}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(

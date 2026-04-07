@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -76,7 +76,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         record = self._link_def_data()
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[
                 {'link_definition': record, 'project_count': 0},
             ],
@@ -113,7 +113,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_create_org_not_found(self) -> None:
         """Test creating link definition when org does not exist."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[],
         ):
             response = self.client.post(
@@ -130,7 +130,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_create_slug_conflict(self) -> None:
         """Test creating link definition with duplicate slug."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             side_effect=exceptions.ConstraintError(),
         ):
             response = self.client.post(
@@ -166,7 +166,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         ]
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=records,
         ):
             response = self.client.get(
@@ -186,7 +186,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         record = self._link_def_data()
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[
                 {'link_definition': record, 'project_count': 3},
             ],
@@ -204,7 +204,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_get_not_found(self) -> None:
         """Test retrieving nonexistent link definition."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[],
         ):
             response = self.client.get(
@@ -224,7 +224,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             side_effect=[
                 [{'link_definition': existing}],
                 [{'link_definition': updated, 'project_count': 2}],
@@ -242,7 +242,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_update_not_found(self) -> None:
         """Test updating nonexistent link definition."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[],
         ):
             response = self.client.put(
@@ -258,7 +258,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         existing = self._link_def_data()
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             side_effect=[
                 [{'link_definition': existing}],
                 exceptions.ConstraintError(),
@@ -284,7 +284,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
         existing = self._link_def_data()
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             side_effect=[
                 [{'link_definition': existing}],
                 [],
@@ -303,7 +303,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_delete_success(self) -> None:
         """Test deleting a link definition."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[{'deleted': 1}],
         ):
             response = self.client.delete(
@@ -315,7 +315,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_delete_not_found(self) -> None:
         """Test deleting nonexistent link definition."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[{'deleted': 0}],
         ):
             response = self.client.delete(

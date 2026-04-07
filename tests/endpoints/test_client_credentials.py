@@ -138,10 +138,10 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(),
             ),
-            mock.patch('imbi_common.neo4j.create_node'),
+            mock.patch('imbi_common.age.create_node'),
         ):
             mock_settings.return_value = self.auth_settings
 
@@ -211,7 +211,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     credential_list=credential_list,
                 ),
@@ -255,7 +255,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     credential_data=credential_data,
                 ),
@@ -284,7 +284,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     credential_data=None,
                 ),
@@ -323,7 +323,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     credential_data=credential_data,
                 ),
@@ -371,7 +371,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     credential_data=credential_data,
                 ),

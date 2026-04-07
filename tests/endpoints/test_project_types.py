@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -50,7 +50,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
         self.client = testclient.TestClient(self.test_app)
 
-    def _mock_neo4j_run(self, data=None):
+    def _mock_age_run(self, data=None):
         """Create a mock for neo4j.run returning data."""
         mock_result = mock.AsyncMock()
         if data is not None:
@@ -63,7 +63,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
         return mock_result
 
-    def _mock_neo4j_run_with_count(
+    def _mock_age_run_with_count(
         self,
         data=None,
         project_count=0,
@@ -94,14 +94,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_result = self._mock_neo4j_run(pt_data)
+        mock_result = self._mock_age_run(pt_data)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -129,14 +129,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
     def test_create_project_type_org_not_found_in_url(self) -> None:
         """Test creating project type with nonexistent org in URL."""
-        mock_result = self._mock_neo4j_run(None)
+        mock_result = self._mock_age_run(None)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -155,14 +155,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
     def test_create_project_type_org_not_found(self) -> None:
         """Test creating project type with nonexistent org."""
-        mock_result = self._mock_neo4j_run(None)
+        mock_result = self._mock_age_run(None)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -204,7 +204,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=exceptions.ConstraintError(),
             ),
         ):
@@ -255,7 +255,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -288,13 +288,13 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_result = self._mock_neo4j_run_with_count(
+        mock_result = self._mock_age_run_with_count(
             pt_data,
             project_count=42,
         )
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -313,10 +313,10 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
     def test_get_project_type_not_found(self) -> None:
         """Test retrieving nonexistent project type."""
-        mock_result = self._mock_neo4j_run_with_count(None)
+        mock_result = self._mock_age_run_with_count(None)
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -346,8 +346,8 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        fetch_result = self._mock_neo4j_run(existing_data)
-        update_result = self._mock_neo4j_run_with_count(
+        fetch_result = self._mock_age_run(existing_data)
+        update_result = self._mock_age_run_with_count(
             updated_data,
             project_count=5,
         )
@@ -357,7 +357,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ),
         ):
@@ -379,14 +379,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
     def test_update_project_type_not_found(self) -> None:
         """Test updating nonexistent project type."""
-        mock_run = self._mock_neo4j_run(None)
+        mock_run = self._mock_age_run(None)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_run,
             ),
         ):
@@ -413,14 +413,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        mock_run = self._mock_neo4j_run(existing_data)
+        mock_run = self._mock_age_run(existing_data)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_run,
             ),
         ):
@@ -444,14 +444,14 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        fetch_result = self._mock_neo4j_run(existing_data)
+        fetch_result = self._mock_age_run(existing_data)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[
                     fetch_result,
                     exceptions.ConstraintError(),
@@ -486,15 +486,15 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
                 'slug': 'engineering',
             },
         }
-        fetch_result = self._mock_neo4j_run(existing_data)
-        empty_result = self._mock_neo4j_run_with_count(None)
+        fetch_result = self._mock_age_run(existing_data)
+        empty_result = self._mock_age_run_with_count(None)
 
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, empty_result],
             ),
         ):
@@ -519,7 +519,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -536,7 +536,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(

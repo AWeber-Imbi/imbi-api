@@ -25,7 +25,7 @@ class OrgMembershipPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_user_permissions(
@@ -53,7 +53,7 @@ class OrgMembershipPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_user_permissions(
@@ -82,7 +82,7 @@ class OrgMembershipPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_user_permissions(
@@ -101,7 +101,7 @@ class OrgMembershipPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_user_permissions(
@@ -122,7 +122,7 @@ class ResourceLevelPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             has_read = await permissions.check_resource_permission(
@@ -147,7 +147,7 @@ class ResourceLevelPermissionTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             has_access = await permissions.check_resource_permission(
@@ -178,7 +178,7 @@ class PermissionDeduplicationTestCase(unittest.IsolatedAsyncioTestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_user_permissions(
@@ -302,7 +302,7 @@ class ServiceAccountPermissionTestCase(
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             perms = await permissions.load_service_account_permissions(
@@ -374,11 +374,11 @@ class ServiceAccountPermissionTestCase(
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=mock_run_side_effect,
             ),
             mock.patch(
-                'imbi_common.neo4j.convert_neo4j_types',
+                'imbi_common.age.convert_neo4j_types',
                 side_effect=lambda x: x,
             ),
         ):

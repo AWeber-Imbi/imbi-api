@@ -36,12 +36,12 @@ class SetupTestCase(unittest.TestCase):
         # Database lifecycle
         self.mock_neo4j_init = self.enterContext(
             mock.patch.object(
-                entrypoint.neo4j, 'initialize', new_callable=mock.AsyncMock
+                entrypoint.age, 'initialize', new_callable=mock.AsyncMock
             )
         )
         self.mock_neo4j_close = self.enterContext(
             mock.patch.object(
-                entrypoint.neo4j, 'aclose', new_callable=mock.AsyncMock
+                entrypoint.age, 'aclose', new_callable=mock.AsyncMock
             )
         )
         self.mock_ch_init = self.enterContext(

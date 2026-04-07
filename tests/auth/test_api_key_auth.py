@@ -73,7 +73,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
 
             return mock_result
 
-        with mock.patch('imbi_common.neo4j.run', side_effect=mock_run):
+        with mock.patch('imbi_common.age.run', side_effect=mock_run):
             auth_context = await permissions.authenticate_api_key(
                 self.full_key, self.auth_settings
             )
@@ -105,7 +105,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -135,7 +135,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -168,7 +168,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -203,7 +203,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -235,7 +235,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -272,7 +272,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -314,7 +314,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
 
             return mock_result
 
-        with mock.patch('imbi_common.neo4j.run', side_effect=mock_run):
+        with mock.patch('imbi_common.age.run', side_effect=mock_run):
             auth_context = await permissions.authenticate_api_key(
                 self.full_key, self.auth_settings
             )
@@ -356,7 +356,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             return mock_result
 
         with (
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
             self.assertRaises(fastapi.HTTPException) as cm,
         ):
             await permissions.authenticate_api_key(
@@ -405,7 +405,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
 
             return mock_result
 
-        with mock.patch('imbi_common.neo4j.run', side_effect=mock_run):
+        with mock.patch('imbi_common.age.run', side_effect=mock_run):
             auth_context = await permissions.authenticate_api_key(
                 self.full_key, self.auth_settings
             )
@@ -471,7 +471,7 @@ class GetCurrentUserTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
-            mock.patch('imbi_common.neo4j.run', side_effect=mock_run),
+            mock.patch('imbi_common.age.run', side_effect=mock_run),
         ):
             mock_settings.return_value = self.auth_settings
 

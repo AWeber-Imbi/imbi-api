@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -59,7 +59,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_create_organization_success(self) -> None:
         """Test successful organization creation."""
         with mock.patch(
-            'imbi_common.neo4j.create_node',
+            'imbi_common.age.create_node',
         ) as mock_create:
             mock_create.return_value = self.test_org
 
@@ -109,7 +109,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_create_organization_duplicate_slug(self) -> None:
         """Test creating organization with duplicate slug."""
         with mock.patch(
-            'imbi_common.neo4j.create_node',
+            'imbi_common.age.create_node',
         ) as mock_create:
             mock_create.side_effect = exceptions.ConstraintError(
                 'Duplicate',
@@ -168,7 +168,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get('/organizations/')
@@ -218,7 +218,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -240,7 +240,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
         mock_result = self._mock_list_result(None)
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -268,13 +268,13 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
             ) as mock_fetch,
             mock.patch(
-                'imbi_common.neo4j.upsert',
+                'imbi_common.age.upsert',
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=count_result,
             ),
         ):
@@ -312,13 +312,13 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
             ) as mock_fetch,
             mock.patch(
-                'imbi_common.neo4j.upsert',
+                'imbi_common.age.upsert',
             ) as mock_upsert,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=count_result,
             ),
         ):
@@ -344,10 +344,10 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
         """Test slug rename conflict returns 409."""
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
             ) as mock_fetch,
             mock.patch(
-                'imbi_common.neo4j.upsert',
+                'imbi_common.age.upsert',
             ) as mock_upsert,
         ):
             mock_fetch.return_value = self.test_org
@@ -373,7 +373,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_update_organization_not_found(self) -> None:
         """Test updating non-existent organization."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
         ) as mock_fetch:
             mock_fetch.return_value = None
 
@@ -391,7 +391,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_delete_organization(self) -> None:
         """Test deleting organization."""
         with mock.patch(
-            'imbi_common.neo4j.delete_node',
+            'imbi_common.age.delete_node',
         ) as mock_delete:
             mock_delete.return_value = True
 
@@ -408,7 +408,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_delete_organization_not_found(self) -> None:
         """Test deleting non-existent organization."""
         with mock.patch(
-            'imbi_common.neo4j.delete_node',
+            'imbi_common.age.delete_node',
         ) as mock_delete:
             mock_delete.return_value = False
 

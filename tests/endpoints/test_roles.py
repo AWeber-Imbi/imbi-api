@@ -54,7 +54,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_create_role_success(self) -> None:
         """Test successful role creation."""
         with mock.patch(
-            'imbi_common.neo4j.create_node',
+            'imbi_common.age.create_node',
         ) as mock_create:
             mock_create.return_value = models.Role(
                 name='New Role',
@@ -83,12 +83,12 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
     def test_create_role_duplicate(self) -> None:
         """Test creating duplicate role returns 409."""
-        import neo4j
+        from imbi_common import age
 
         with mock.patch(
-            'imbi_common.neo4j.create_node',
+            'imbi_common.age.create_node',
         ) as mock_create:
-            mock_create.side_effect = neo4j.exceptions.ConstraintError(
+            mock_create.side_effect = age.exceptions.ConstraintError(
                 'Constraint violation'
             )
 
@@ -127,7 +127,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get('/roles/')
@@ -168,11 +168,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=self.test_role,
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[
                     mock_perm_result,
                     mock_parent_result,
@@ -204,7 +204,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_get_role_not_found(self) -> None:
         """Test getting non-existent role returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.get('/roles/nonexistent')
@@ -219,11 +219,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
         """Test updating a role."""
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=None,
             ),
             mock.patch(
-                'imbi_common.neo4j.upsert',
+                'imbi_common.age.upsert',
             ) as mock_upsert,
         ):
             mock_upsert.return_value = 'element123'
@@ -249,11 +249,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
         """Test updating role with different slug renames it."""
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=None,
             ),
             mock.patch(
-                'imbi_common.neo4j.upsert',
+                'imbi_common.age.upsert',
             ) as mock_upsert,
         ):
             response = self.client.put(
@@ -284,7 +284,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=system_role,
         ):
             response = self.client.put(
@@ -314,11 +314,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=non_system_role,
             ),
             mock.patch(
-                'imbi_common.neo4j.delete_node',
+                'imbi_common.age.delete_node',
                 return_value=True,
             ),
         ):
@@ -330,7 +330,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_delete_role_not_found(self) -> None:
         """Test deleting non-existent role returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.delete(
@@ -353,7 +353,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=system_role,
         ):
             response = self.client.delete(
@@ -383,11 +383,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 side_effect=[role, permission],
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -402,7 +402,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_grant_permission_role_not_found(self) -> None:
         """Test granting permission when role doesn't exist."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.post(
@@ -421,7 +421,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
         role = self.test_role
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             side_effect=[role, None],
         ):
             response = self.client.post(
@@ -446,11 +446,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=role,
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -464,7 +464,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_revoke_permission_role_not_found(self) -> None:
         """Test revoking permission when role doesn't exist."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.delete(
@@ -480,7 +480,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_users_success(self) -> None:
         """Test listing users assigned a role via org membership."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [
                 {
@@ -514,7 +514,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_users_not_found(self) -> None:
         """Test listing users for non-existent role returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [{'r': None, 'users': []}]
 
@@ -531,7 +531,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_users_empty(self) -> None:
         """Test listing users when role exists but has no users."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [
                 {
@@ -551,7 +551,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_service_accounts_success(self) -> None:
         """Test listing service accounts assigned a role."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [
                 {
@@ -582,7 +582,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_service_accounts_not_found(self) -> None:
         """Test listing SAs for non-existent role returns 404."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [
                 {'r': None, 'service_accounts': []},
@@ -601,7 +601,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
     def test_list_role_service_accounts_empty(self) -> None:
         """Test listing SAs when role has none assigned."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
         ) as mock_query:
             mock_query.return_value = [
                 {
@@ -631,11 +631,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=role,
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):

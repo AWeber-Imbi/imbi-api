@@ -141,7 +141,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                 ),
@@ -191,7 +191,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(sa_data=None),
             ),
         ):
@@ -223,7 +223,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                 ),
@@ -260,7 +260,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                 ),
@@ -295,7 +295,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                 ),
@@ -389,11 +389,11 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=mock_run_list,
             ),
             mock.patch(
-                'imbi_common.neo4j.convert_neo4j_types',
+                'imbi_common.age.convert_neo4j_types',
                 side_effect=lambda x: x,
             ),
         ):
@@ -435,7 +435,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                     api_key_data=api_key_data,
@@ -465,7 +465,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                     api_key_data=None,
@@ -508,7 +508,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                     api_key_data=api_key_data,
@@ -556,7 +556,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                     api_key_data=None,
@@ -596,7 +596,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
                 'imbi_api.settings.get_auth_settings',
             ) as mock_settings,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=self._create_mock_run(
                     sa_data=self.sa_data,
                     api_key_data=api_key_data,

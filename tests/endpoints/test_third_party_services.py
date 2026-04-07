@@ -6,12 +6,12 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
 
-def _mock_neo4j_result(data):
+def _mock_age_result(data):
     """Create a mock async context manager for neo4j.run()."""
     result = mock.AsyncMock()
     result.data.return_value = data
@@ -89,11 +89,11 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
     # -- Create --
 
     def test_create_success(self) -> None:
-        result = _mock_neo4j_result(
+        result = _mock_age_result(
             [{'service': self.service_data}],
         )
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -114,9 +114,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         svc = dict(self.service_data)
         svc['team'] = {'name': 'Backend', 'slug': 'backend'}
 
-        result = _mock_neo4j_result([{'service': svc}])
+        result = _mock_age_result([{'service': svc}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -177,7 +177,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
 
     def test_create_duplicate_slug(self) -> None:
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=exceptions.ConstraintError(),
         ):
             response = self.client.post(
@@ -193,9 +193,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertIn('already exists', response.json()['detail'])
 
     def test_create_org_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -211,9 +211,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertIn('not found', response.json()['detail'])
 
     def test_create_team_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.post(
@@ -234,11 +234,11 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
     # -- List --
 
     def test_list_services(self) -> None:
-        result = _mock_neo4j_result(
+        result = _mock_age_result(
             [{'service': self.service_data}],
         )
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -252,9 +252,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['slug'], 'stripe')
 
     def test_list_services_empty(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -269,9 +269,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         svc['links'] = json.dumps({'docs': 'https://docs.stripe.com'})
         svc['identifiers'] = json.dumps({'account_id': 'acct_123'})
 
-        result = _mock_neo4j_result([{'service': svc}])
+        result = _mock_age_result([{'service': svc}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -292,11 +292,11 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
     # -- Get --
 
     def test_get_service(self) -> None:
-        result = _mock_neo4j_result(
+        result = _mock_age_result(
             [{'service': self.service_data}],
         )
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -309,9 +309,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['vendor'], 'Stripe Inc')
 
     def test_get_service_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -327,10 +327,10 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         updated = dict(self.service_data)
         updated['description'] = 'Updated description'
 
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'service': self.service_data}],
         )
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'service': updated}],
         )
 
@@ -338,7 +338,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         payload['description'] = 'Updated description'
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, update_result],
         ):
             response = self.client.put(
@@ -356,10 +356,10 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         updated = dict(self.service_data)
         updated['team'] = {'name': 'Backend', 'slug': 'backend'}
 
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'service': self.service_data}],
         )
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'service': updated}],
         )
 
@@ -367,7 +367,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         payload['team_slug'] = 'backend'
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, update_result],
         ):
             response = self.client.put(
@@ -394,9 +394,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_update_service_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.put(
@@ -419,7 +419,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_update_slug_conflict(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'service': self.service_data}],
         )
 
@@ -427,7 +427,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         payload['slug'] = 'existing-slug'
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[
                 fetch_result,
                 exceptions.ConstraintError(),
@@ -443,13 +443,13 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
 
     def test_update_concurrent_delete(self) -> None:
         """Service deleted between fetch and update."""
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'service': self.service_data}],
         )
-        empty_result = _mock_neo4j_result([])
+        empty_result = _mock_age_result([])
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, empty_result],
         ):
             response = self.client.put(
@@ -462,9 +462,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
     # -- Delete --
 
     def test_delete_service(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 1}])
+        result = _mock_age_result([{'deleted': 1}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -474,9 +474,9 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_service_not_found(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 0}])
+        result = _mock_age_result([{'deleted': 0}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -542,9 +542,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             'rules': [],
         }
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -563,9 +563,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
         )
 
     def test_list_service_webhooks_empty(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -597,9 +597,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        result = _mock_neo4j_result(records)
+        result = _mock_age_result(records)
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -633,9 +633,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             ],
         }
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -660,9 +660,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             'rules': [None],
         }
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -688,9 +688,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             ],
         }
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -710,9 +710,9 @@ class ServiceWebhooksEndpointsTestCase(unittest.TestCase):
             'rules': [],
         }
 
-        result = _mock_neo4j_result([record])
+        result = _mock_age_result([record])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(self.base_url)
@@ -811,11 +811,11 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- List applications --
 
     def test_list_applications(self) -> None:
-        result = _mock_neo4j_result(
+        result = _mock_age_result(
             [{'app': self.app_data}],
         )
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -832,9 +832,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertNotIn('webhook_secret', data[0])
 
     def test_list_applications_empty(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -849,9 +849,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         app_data['scopes'] = json.dumps(['read', 'write'])
         app_data['settings'] = json.dumps({'debug': True})
 
-        result = _mock_neo4j_result([{'app': app_data}])
+        result = _mock_age_result([{'app': app_data}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -866,14 +866,14 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- Create application --
 
     def test_create_application(self) -> None:
-        check_result = _mock_neo4j_result([{'cnt': 0}])
-        create_result = _mock_neo4j_result(
+        check_result = _mock_age_result([{'cnt': 0}])
+        create_result = _mock_age_result(
             [{'app': self.app_data}],
         )
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[check_result, create_result],
             ),
             self._patch_encryption(),
@@ -889,11 +889,11 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertNotIn('client_secret', data)
 
     def test_create_application_duplicate(self) -> None:
-        check_result = _mock_neo4j_result([{'cnt': 1}])
+        check_result = _mock_age_result([{'cnt': 1}])
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=check_result,
             ),
             self._patch_encryption(),
@@ -907,12 +907,12 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertIn('already exists', response.json()['detail'])
 
     def test_create_application_service_not_found(self) -> None:
-        check_result = _mock_neo4j_result([{'cnt': 0}])
-        create_result = _mock_neo4j_result([])
+        check_result = _mock_age_result([{'cnt': 0}])
+        create_result = _mock_age_result([])
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[check_result, create_result],
             ),
             self._patch_encryption(),
@@ -926,14 +926,14 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertIn('not found', response.json()['detail'])
 
     def test_create_application_encrypts_secrets(self) -> None:
-        check_result = _mock_neo4j_result([{'cnt': 0}])
-        create_result = _mock_neo4j_result(
+        check_result = _mock_age_result([{'cnt': 0}])
+        create_result = _mock_age_result(
             [{'app': self.app_data}],
         )
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[check_result, create_result],
             ),
             self._patch_encryption(),
@@ -957,18 +957,18 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         payload['private_key'] = 'pk-data'
         payload['signing_secret'] = 'sig-data'
 
-        check_result = _mock_neo4j_result([{'cnt': 0}])
+        check_result = _mock_age_result([{'cnt': 0}])
 
         app_data = dict(self.app_data)
         app_data['private_key'] = 'enc:pk-data'
         app_data['signing_secret'] = 'enc:sig-data'
-        create_result = _mock_neo4j_result(
+        create_result = _mock_age_result(
             [{'app': app_data}],
         )
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[check_result, create_result],
             ),
             self._patch_encryption(),
@@ -988,11 +988,11 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- Get application --
 
     def test_get_application(self) -> None:
-        result = _mock_neo4j_result(
+        result = _mock_age_result(
             [{'app': self.app_data}],
         )
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -1005,9 +1005,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertNotIn('client_secret', data)
 
     def test_get_application_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -1022,10 +1022,10 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         app_data['client_secret'] = 'enc:real-secret'
         app_data['webhook_secret'] = 'enc:real-webhook'
 
-        result = _mock_neo4j_result([{'app': app_data}])
+        result = _mock_age_result([{'app': app_data}])
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=result,
             ),
             self._patch_encryption(),
@@ -1065,9 +1065,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             mock_get_current_user
         )
 
-        result = _mock_neo4j_result([{'app': self.app_data}])
+        result = _mock_age_result([{'app': self.app_data}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -1080,17 +1080,17 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- Update application --
 
     def test_update_application(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
         updated_app = dict(self.app_data)
         updated_app['name'] = 'Updated App'
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'app': updated_app}],
         )
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, update_result],
         ):
             payload = dict(self.app_update_json)
@@ -1107,15 +1107,15 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
     def test_update_preserves_existing_secrets(self) -> None:
         """Update carries forward existing encrypted secret values."""
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'app': self.app_data}],
         )
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, update_result],
         ) as mock_run:
             response = self.client.put(
@@ -1137,9 +1137,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         )
 
     def test_update_application_not_found(self) -> None:
-        result = _mock_neo4j_result([])
+        result = _mock_age_result([])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.put(
@@ -1152,13 +1152,13 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
     def test_update_application_concurrent_delete(self) -> None:
         """App deleted between fetch and update."""
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
-        empty_result = _mock_neo4j_result([])
+        empty_result = _mock_age_result([])
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             side_effect=[fetch_result, empty_result],
         ):
             response = self.client.put(
@@ -1171,9 +1171,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- Delete application --
 
     def test_delete_application(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 1}])
+        result = _mock_age_result([{'deleted': 1}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -1183,9 +1183,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_application_not_found(self) -> None:
-        result = _mock_neo4j_result([{'deleted': 0}])
+        result = _mock_age_result([{'deleted': 0}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.delete(
@@ -1203,9 +1203,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         app_data['scopes'] = None
         app_data['settings'] = None
 
-        result = _mock_neo4j_result([{'app': app_data}])
+        result = _mock_age_result([{'app': app_data}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -1223,9 +1223,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         app_data['scopes'] = '{not valid json'
         app_data['settings'] = '{also broken'
 
-        result = _mock_neo4j_result([{'app': app_data}])
+        result = _mock_age_result([{'app': app_data}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.get(
@@ -1240,18 +1240,18 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
     # -- Update application secrets --
 
     def test_update_secrets(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
         updated_app = dict(self.app_data)
         updated_app['client_secret'] = 'enc:new-secret'
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'app': updated_app}],
         )
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ),
             self._patch_encryption(),
@@ -1267,18 +1267,18 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
     def test_update_secrets_preserves_unchanged(self) -> None:
         """Fields not provided keep their existing encrypted values."""
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
         updated_app = dict(self.app_data)
         updated_app['webhook_secret'] = 'enc:new-webhook'
-        update_result = _mock_neo4j_result(
+        update_result = _mock_age_result(
             [{'app': updated_app}],
         )
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ) as mock_run,
             self._patch_encryption(),
@@ -1322,9 +1322,9 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             mock_get_current_user
         )
 
-        result = _mock_neo4j_result([{'app': self.app_data}])
+        result = _mock_age_result([{'app': self.app_data}])
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=result,
         ):
             response = self.client.put(
@@ -1344,14 +1344,14 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_update_secrets_not_found(self) -> None:
-        fetch_result = _mock_neo4j_result(
+        fetch_result = _mock_age_result(
             [{'app': self.app_data}],
         )
-        empty_result = _mock_neo4j_result([])
+        empty_result = _mock_age_result([])
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, empty_result],
             ),
             self._patch_encryption(),

@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -87,7 +87,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -129,7 +129,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -158,7 +158,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_result,
             ),
         ):
@@ -202,7 +202,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=exceptions.ConstraintError(),
             ),
         ):
@@ -244,7 +244,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get('/organizations/engineering/teams/')
@@ -286,7 +286,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -311,7 +311,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -386,7 +386,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ),
         ):
@@ -435,7 +435,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, update_result],
             ) as mock_run,
         ):
@@ -475,7 +475,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[
                     fetch_result,
                     exceptions.ConstraintError(),
@@ -517,7 +517,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 side_effect=[fetch_result, empty_result],
             ),
         ):
@@ -543,7 +543,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_run,
             ),
         ):
@@ -577,7 +577,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_run,
             ),
         ):
@@ -598,7 +598,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -615,7 +615,7 @@ class TeamEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -687,7 +687,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -718,7 +718,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -740,7 +740,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.get(
@@ -762,7 +762,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.post(
@@ -793,7 +793,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.post(
@@ -811,7 +811,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -828,7 +828,7 @@ class TeamMembershipTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(

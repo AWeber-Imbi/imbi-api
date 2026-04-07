@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -100,7 +100,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Pre-validation query result
                     [{'pt_slug': 'api-service', 'found': True}],
@@ -153,7 +153,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Pre-validation query result
                     [{'pt_slug': 'api-service', 'found': True}],
@@ -205,7 +205,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Pre-validation: org not found, no rows returned
                     [],
@@ -236,7 +236,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Pre-validation: type slug not found
                     [{'pt_slug': 'nonexistent', 'found': False}],
@@ -265,7 +265,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Pre-validation: type slug exists
                     [{'pt_slug': 'api-service', 'found': True}],
@@ -314,7 +314,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         ]
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=records,
         ):
             response = self.client.get(
@@ -339,7 +339,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         record = self._project_data()
 
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[
                 {
                     'project': record,
@@ -362,7 +362,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
     def test_get_not_found(self) -> None:
         """Test retrieving nonexistent project."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[],
         ):
             response = self.client.get(
@@ -386,7 +386,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     [
                         {
@@ -435,7 +435,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Fetch existing project
                     [
@@ -475,7 +475,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Fetch existing project
                     [
@@ -509,7 +509,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     # Fetch existing project
                     [
@@ -555,7 +555,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     [
                         {
@@ -589,7 +589,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 return_value=[],
             ),
         ):
@@ -611,7 +611,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     [
                         {
@@ -649,7 +649,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 'imbi_common.blueprints.get_model',
             ) as mock_get_model,
             mock.patch(
-                'imbi_common.neo4j.query',
+                'imbi_common.age.query',
                 side_effect=[
                     [
                         {
@@ -677,7 +677,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
     def test_delete_success(self) -> None:
         """Test deleting a project."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[{'deleted': 1}],
         ):
             response = self.client.delete(
@@ -689,7 +689,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
     def test_delete_not_found(self) -> None:
         """Test deleting nonexistent project."""
         with mock.patch(
-            'imbi_common.neo4j.query',
+            'imbi_common.age.query',
             return_value=[{'deleted': 0}],
         ):
             response = self.client.delete(

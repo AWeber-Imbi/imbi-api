@@ -79,7 +79,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
     def test_create_blueprint_success(self) -> None:
         """Test successful blueprint creation."""
-        with mock.patch('imbi_common.neo4j.create_node') as mock_create:
+        with mock.patch('imbi_common.age.create_node') as mock_create:
             # Mock node that can be converted to dict
             mock_node = {
                 'name': 'New Blueprint',
@@ -112,12 +112,12 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
     def test_create_blueprint_duplicate(self) -> None:
         """Test creating duplicate blueprint returns 409."""
-        import neo4j
+        from imbi_common import age
 
         with (
-            mock.patch('imbi_common.neo4j.create_node') as mock_create,
+            mock.patch('imbi_common.age.create_node') as mock_create,
         ):
-            mock_create.side_effect = neo4j.exceptions.ConstraintError(
+            mock_create.side_effect = age.exceptions.ConstraintError(
                 'Constraint violation'
             )
 
@@ -160,7 +160,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes', return_value=empty_generator()
+                'imbi_common.age.fetch_nodes', return_value=empty_generator()
             ),
         ):
             response = self.client.get('/blueprints/')
@@ -185,7 +185,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=blueprint_generator(),
             ),
         ):
@@ -213,7 +213,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=blueprint_generator(),
             ) as mock_fetch,
         ):
@@ -241,7 +241,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=blueprint_generator(),
             ) as mock_fetch,
         ):
@@ -272,7 +272,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=blueprint_generator(),
             ) as mock_fetch,
         ):
@@ -289,7 +289,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         """Test getting a specific blueprint."""
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=self.test_blueprint,
             ),
         ):
@@ -304,7 +304,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     def test_get_blueprint_not_found(self) -> None:
         """Test getting non-existent blueprint returns 404."""
         with (
-            mock.patch('imbi_common.neo4j.fetch_node', return_value=None),
+            mock.patch('imbi_common.age.fetch_node', return_value=None),
         ):
             response = self.client.get('/blueprints/Project/nonexistent-slug')
 
@@ -314,7 +314,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     def test_update_blueprint_success(self) -> None:
         """Test updating a blueprint."""
         with (
-            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi_common.age.upsert') as mock_upsert,
         ):
             mock_upsert.return_value = 'element123'
 
@@ -337,7 +337,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
 
     def test_update_blueprint_slug_rename(self) -> None:
         """Test updating blueprint with different slug renames it."""
-        with mock.patch('imbi_common.neo4j.upsert') as mock_upsert:
+        with mock.patch('imbi_common.age.upsert') as mock_upsert:
             response = self.client.put(
                 '/blueprints/Project/test-blueprint',
                 json={
@@ -363,7 +363,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     def test_delete_blueprint_success(self) -> None:
         """Test deleting a blueprint."""
         with (
-            mock.patch('imbi_common.neo4j.delete_node', return_value=True),
+            mock.patch('imbi_common.age.delete_node', return_value=True),
         ):
             response = self.client.delete('/blueprints/Project/test-blueprint')
 
@@ -373,7 +373,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
     def test_delete_blueprint_not_found(self) -> None:
         """Test deleting non-existent blueprint returns 404."""
         with (
-            mock.patch('imbi_common.neo4j.delete_node', return_value=False),
+            mock.patch('imbi_common.age.delete_node', return_value=False),
         ):
             response = self.client.delete(
                 '/blueprints/Project/nonexistent-slug'

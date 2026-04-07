@@ -36,7 +36,7 @@ class AdminSettingsEndpointTestCase(unittest.TestCase):
             auth_settings=self.auth_settings,
         )
 
-    def _mock_neo4j_run(self) -> mock.AsyncMock:
+    def _mock_age_run(self) -> mock.AsyncMock:
         """Build a side_effect list for neo4j.run auth queries.
 
         Returns three async-context-manager mocks:
@@ -82,15 +82,15 @@ class AdminSettingsEndpointTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
-                side_effect=self._mock_neo4j_run().side_effect,
+                'imbi_common.age.run',
+                side_effect=self._mock_age_run().side_effect,
             ),
             mock.patch(
                 'imbi_api.settings.get_auth_settings',
                 return_value=self.auth_settings,
             ),
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=empty_generator(),
             ),
         ):
@@ -132,15 +132,15 @@ class AdminSettingsEndpointTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.run',
-                side_effect=self._mock_neo4j_run().side_effect,
+                'imbi_common.age.run',
+                side_effect=self._mock_age_run().side_effect,
             ),
             mock.patch(
                 'imbi_api.settings.get_auth_settings',
                 return_value=self.auth_settings,
             ),
             mock.patch(
-                'imbi_common.neo4j.fetch_nodes',
+                'imbi_common.age.fetch_nodes',
                 return_value=perm_generator(),
             ) as mock_fetch,
         ):

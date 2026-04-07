@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import testclient
-from neo4j import exceptions
+from imbi_common.age import exceptions
 
 from imbi_api import app, models
 
@@ -87,9 +87,9 @@ class UserEndpointsTestCase(unittest.TestCase):
             mock.patch(
                 'imbi_api.auth.password.hash_password',
             ) as mock_hash,
-            mock.patch('imbi_common.neo4j.create_node') as mock_create,
+            mock.patch('imbi_common.age.create_node') as mock_create,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=self._mock_membership_result(
                     membership_records,
                 ),
@@ -135,10 +135,10 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.create_node',
+                'imbi_common.age.create_node',
             ) as mock_create,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=self._mock_membership_result(
                     membership_records,
                 ),
@@ -162,7 +162,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_create_user_duplicate_username(self) -> None:
         """Test creating user with duplicate username."""
         with mock.patch(
-            'imbi_common.neo4j.create_node',
+            'imbi_common.age.create_node',
         ) as mock_create:
             mock_create.side_effect = exceptions.ConstraintError('Duplicate')
 
@@ -209,14 +209,14 @@ class UserEndpointsTestCase(unittest.TestCase):
         """Test user is deleted when org/role not found."""
         with (
             mock.patch(
-                'imbi_common.neo4j.create_node',
+                'imbi_common.age.create_node',
             ) as mock_create,
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=self._mock_membership_result([]),
             ),
             mock.patch(
-                'imbi_common.neo4j.delete_node',
+                'imbi_common.age.delete_node',
             ) as mock_delete,
         ):
             mock_create.return_value = None
@@ -255,7 +255,7 @@ class UserEndpointsTestCase(unittest.TestCase):
                 yield user
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=mock_fetch(),
         ):
             response = self.client.get('/users/')
@@ -283,7 +283,7 @@ class UserEndpointsTestCase(unittest.TestCase):
                 yield user
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=mock_fetch(),
         ):
             response = self.client.get('/users/?is_active=true')
@@ -311,7 +311,7 @@ class UserEndpointsTestCase(unittest.TestCase):
                 yield user
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_nodes',
+            'imbi_common.age.fetch_nodes',
             return_value=mock_fetch(),
         ):
             response = self.client.get('/users/?is_admin=true')
@@ -345,11 +345,11 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=mock_user,
             ),
             mock.patch(
-                'imbi_common.neo4j.run',
+                'imbi_common.age.run',
                 return_value=mock_org_result,
             ),
         ):
@@ -371,7 +371,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_get_user_not_found(self) -> None:
         """Test retrieving non-existent user."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.get('/users/nonexistent@example.com')
@@ -398,10 +398,10 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=existing_user,
             ),
-            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi_common.age.upsert') as mock_upsert,
         ):
             response = self.client.put(
                 '/users/test@example.com',
@@ -448,7 +448,7 @@ class UserEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=existing_user,
         ):
             response = self.client.put(
@@ -480,7 +480,7 @@ class UserEndpointsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=existing_user,
         ):
             response = self.client.put(
@@ -500,7 +500,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_update_user_not_found(self) -> None:
         """Test updating non-existent user."""
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=None,
         ):
             response = self.client.put(
@@ -516,7 +516,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_delete_user_success(self) -> None:
         """Test deleting a user."""
         with mock.patch(
-            'imbi_common.neo4j.delete_node',
+            'imbi_common.age.delete_node',
             return_value=True,
         ):
             response = self.client.delete('/users/test@example.com')
@@ -537,7 +537,7 @@ class UserEndpointsTestCase(unittest.TestCase):
     def test_delete_user_not_found(self) -> None:
         """Test deleting non-existent user."""
         with mock.patch(
-            'imbi_common.neo4j.delete_node',
+            'imbi_common.age.delete_node',
             return_value=False,
         ):
             response = self.client.delete('/users/nonexistent@example.com')
@@ -561,7 +561,7 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=mock_user,
             ),
             mock.patch(
@@ -571,7 +571,7 @@ class UserEndpointsTestCase(unittest.TestCase):
             mock.patch(
                 'imbi_api.auth.password.hash_password',
             ) as mock_hash,
-            mock.patch('imbi_common.neo4j.upsert') as mock_upsert,
+            mock.patch('imbi_common.age.upsert') as mock_upsert,
         ):
             mock_hash.return_value = '$argon2id$newhash'
 
@@ -604,13 +604,13 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=mock_user,
             ),
             mock.patch(
                 'imbi_api.auth.password.hash_password',
             ) as mock_hash,
-            mock.patch('imbi_common.neo4j.upsert'),
+            mock.patch('imbi_common.age.upsert'),
         ):
             mock_hash.return_value = '$argon2id$newhash'
 
@@ -641,7 +641,7 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         with (
             mock.patch(
-                'imbi_common.neo4j.fetch_node',
+                'imbi_common.age.fetch_node',
                 return_value=mock_user,
             ),
             mock.patch(
@@ -729,7 +729,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.post(
@@ -760,7 +760,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.post(
@@ -781,7 +781,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.put(
@@ -809,7 +809,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.put(
@@ -827,7 +827,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -844,7 +844,7 @@ class OrgMembershipEndpointsTestCase(unittest.TestCase):
         mock_result.__aexit__.return_value = None
 
         with mock.patch(
-            'imbi_common.neo4j.run',
+            'imbi_common.age.run',
             return_value=mock_result,
         ):
             response = self.client.delete(
@@ -959,7 +959,7 @@ class ServiceAccountGuardRailsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=existing_sa,
         ):
             response = self.client.put(
@@ -994,7 +994,7 @@ class ServiceAccountGuardRailsTestCase(unittest.TestCase):
         )
 
         with mock.patch(
-            'imbi_common.neo4j.fetch_node',
+            'imbi_common.age.fetch_node',
             return_value=sa_user,
         ):
             response = self.client.post(
