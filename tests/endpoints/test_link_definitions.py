@@ -5,7 +5,7 @@ import typing
 import unittest
 from unittest import mock
 
-from fastapi import testclient
+from fastapi.testclient import TestClient
 from neo4j import exceptions
 
 from imbi_api import app, models
@@ -49,7 +49,7 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
             mock_get_current_user
         )
 
-        self.client = testclient.TestClient(self.test_app)
+        self.client = TestClient(self.test_app)
 
     def _link_def_data(self, **overrides: typing.Any) -> dict:
         """Return a default link definition record."""
@@ -145,12 +145,16 @@ class LinkDefinitionEndpointsTestCase(unittest.TestCase):
     def test_list_success(self) -> None:
         """Test listing link definitions."""
         records = [
-            {'link_definition': self._link_def_data()},
+            {
+                'link_definition': self._link_def_data(),
+                'project_count': 5,
+            },
             {
                 'link_definition': self._link_def_data(
                     name='Grafana Dashboard',
                     slug='grafana',
                 ),
+                'project_count': 0,
             },
         ]
 

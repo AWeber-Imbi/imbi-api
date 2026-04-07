@@ -632,6 +632,7 @@ async def update_project(
     # Merge blueprint extra fields
     base_fields = set(ProjectUpdate.model_fields)
     skip = {
+        'id',
         'team',
         'project_types',
         'environments',

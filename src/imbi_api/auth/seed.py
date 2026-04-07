@@ -276,10 +276,17 @@ async def seed_default_roles() -> int:
     return created_count
 
 
-async def seed_default_organization() -> bool:
-    """Seed the default organization.
+async def seed_default_organization(
+    slug: str = 'default',
+    name: str = 'Default',
+) -> bool:
+    """Seed the organization.
 
-    Creates a 'Default' organization using MERGE to ensure idempotency.
+    Creates the organization using MERGE to ensure idempotency.
+
+    Args:
+        slug: Organization slug (default: 'default').
+        name: Organization display name (default: 'Default').
 
     Returns:
         True if the organization was newly created, False if it
@@ -300,36 +307,43 @@ async def seed_default_organization() -> bool:
     """
     async with neo4j.run(
         query,
-        slug='default',
-        name='Default',
-        description='Default organization',
+        slug=slug,
+        name=name,
+        description=f'{name} organization',
     ) as result:
         records = await result.data()
         created = bool(records and records[0].get('is_new'))
 
     if created:
-        LOGGER.info('Created default organization')
+        LOGGER.info('Created organization: %s (%s)', name, slug)
     else:
-        LOGGER.info('Default organization already exists')
+        LOGGER.info('Organization already exists: %s', slug)
     return created
 
 
-async def bootstrap_auth_system() -> dict[str, int | bool]:
+async def bootstrap_auth_system(
+    org_slug: str = 'default',
+    org_name: str = 'Default',
+) -> dict[str, int | bool]:
     """Complete bootstrap of the authentication system.
 
-    Seeds the default organization, permissions, and default roles.
+    Seeds the organization, permissions, and default roles.
     This operation is idempotent and can be run multiple times safely.
+
+    Args:
+        org_slug: Organization slug (default: 'default').
+        org_name: Organization display name (default: 'Default').
 
     Returns:
         dict with keys:
-            - 'organization': Whether the default org was created
+            - 'organization': Whether the org was created
             - 'permissions': Number of permissions created
             - 'roles': Number of roles created
 
     """
     LOGGER.info('Starting authentication system bootstrap')
 
-    org_created = await seed_default_organization()
+    org_created = await seed_default_organization(org_slug, org_name)
     permissions_created = await seed_permissions()
     roles_created = await seed_default_roles()
 

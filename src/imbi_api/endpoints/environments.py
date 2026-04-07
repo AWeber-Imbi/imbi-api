@@ -129,8 +129,8 @@ async def list_environments(
         org_slug: Organization slug from URL path.
 
     Returns:
-        Environments ordered by name, each including their
-        organization and relationships.
+        Environments ordered by sort_order then name, each including
+        their organization and relationships.
 
     """
     query: typing.LiteralString = """
@@ -138,9 +138,10 @@ async def list_environments(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, organization: o{.*}} AS environment,
+    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
+             organization: o{.*}} AS environment,
            project_count
-    ORDER BY e.sort_order, e.name
+    ORDER BY coalesce(e.sort_order, 0), e.name
     """
     environments: list[dict[str, typing.Any]] = []
     records = await neo4j.query(query, org_slug=org_slug)
