@@ -3,7 +3,7 @@
 import logging
 import typing
 
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import models
 
@@ -233,7 +233,7 @@ async def seed_permissions() -> int:
         RETURN p, is_new
         """
 
-        async with neo4j.run(
+        async with age.run(
             query,
             name=permission.name,
             resource_type=permission.resource_type,
@@ -278,7 +278,7 @@ async def seed_default_roles() -> int:
         RETURN r, is_new
         """
 
-        async with neo4j.run(
+        async with age.run(
             query=role_query,
             slug=slug,
             name=name,
@@ -297,7 +297,7 @@ async def seed_default_roles() -> int:
             MATCH (p:Permission {name: $perm_name})
             MERGE (r)-[:GRANTS]->(p)
             """
-            async with neo4j.run(
+            async with age.run(
                 query=perm_query, slug=slug, perm_name=perm_name
             ) as result:
                 await result.consume()
@@ -335,7 +335,7 @@ async def seed_default_organization(
         o.description = $description
     RETURN o, is_new
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         name=name,
@@ -405,7 +405,7 @@ async def check_if_seeded() -> bool:
     RETURN count(p) AS count
     """
 
-    async with neo4j.run(query) as result:
+    async with age.run(query) as result:
         records = await result.data()
         if records and records[0].get('count', 0) > 0:
             return True

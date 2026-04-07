@@ -5,9 +5,9 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import neo4j
+from imbi_common import age
+from imbi_common.age import exceptions
 from imbi_common.auth import encryption
-from neo4j import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.domain import models
@@ -15,6 +15,72 @@ from imbi_api.domain import models
 LOGGER = logging.getLogger(__name__)
 
 webhooks_router = fastapi.APIRouter(tags=['Webhooks'])
+
+
+async def _fetch_webhook(
+    slug: str,
+    org_slug: str,
+) -> dict[str, typing.Any] | None:
+    """Fetch a webhook with its TPS and rules."""
+    q: typing.LiteralString = """
+    MATCH (w:Webhook {slug: $slug})
+          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+    OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
+    RETURN properties(w) AS webhook,
+           properties(tps) AS tps,
+           impl.identifier_selector AS identifier_selector
+    """
+    records = await age.query(q, slug=slug, org_slug=org_slug)
+    if not records:
+        return None
+    record = records[0]
+
+    # Fetch rules separately
+    rq: typing.LiteralString = """
+    MATCH (r:WebhookRule)-[:ACTIONS]->(w:Webhook {slug: $slug})
+    RETURN r.filter_expression AS filter_expression,
+           r.handler AS handler,
+           r.handler_config AS handler_config,
+           r.ordinal AS ordinal
+    ORDER BY r.ordinal
+    """
+    rule_records = await age.query(rq, slug=slug)
+    record['rules'] = [
+        {
+            'filter_expression': r['filter_expression'],
+            'handler': r['handler'],
+            'handler_config': r.get('handler_config'),
+        }
+        for r in rule_records
+    ]
+    return record
+
+
+async def _create_rules(
+    webhook_slug: str,
+    rules: list[dict[str, object]],
+) -> None:
+    """Create WebhookRule nodes linked to a webhook."""
+    for rule in rules:
+        q: typing.LiteralString = """
+        MATCH (w:Webhook {slug: $slug})
+        CREATE (r:WebhookRule {
+            filter_expression: $filter_expression,
+            handler: $handler,
+            handler_config: $handler_config,
+            ordinal: $ordinal
+        })
+        CREATE (r)-[:ACTIONS]->(w)
+        RETURN r.ordinal AS ordinal
+        """
+        await age.query(
+            q,
+            slug=webhook_slug,
+            filter_expression=rule['filter_expression'],
+            handler=rule['handler'],
+            handler_config=rule['handler_config'],
+            ordinal=rule['ordinal'],
+        )
 
 
 @webhooks_router.post('/', status_code=201)
@@ -31,117 +97,35 @@ async def create_webhook(
     """Create a new webhook linked to an organization."""
     encryptor = encryption.TokenEncryption.get_instance()
 
-    props: dict[str, typing.Any] = {
-        'name': data.name,
-        'slug': data.slug,
-        'description': data.description,
-        'icon': data.icon,
-        'notification_path': data.notification_path,
-        'secret': (
-            encryptor.encrypt(data.secret) if data.secret is not None else None
-        ),
-    }
+    encrypted_secret = (
+        encryptor.encrypt(data.secret) if data.secret is not None else None
+    )
 
-    # Build rule creation clauses
-    rule_params: list[dict[str, object]] = []
-    for idx, rule in enumerate(data.rules):
-        rule_params.append(
-            {
-                'filter_expression': rule.filter_expression,
-                'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
-                'ordinal': idx,
-            }
-        )
-
-    if data.third_party_service_slug:
-        query: typing.LiteralString = """
-        MATCH (o:Organization {slug: $org_slug})
-        MATCH (tps:ThirdPartyService {slug: $tps_slug})
-              -[:BELONGS_TO]->(o)
-        CREATE (w:Webhook $props)
-        CREATE (w)-[:BELONGS_TO]->(o)
-        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
-        SET impl.identifier_selector = $identifier_selector
-        WITH w, tps, o, impl
-        UNWIND
-            CASE WHEN size($rules) = 0 THEN [null]
-                 ELSE $rules END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            })
-            CREATE (r)-[:ACTIONS]->(w)
-        )
-        WITH DISTINCT w, tps, impl
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, tps, impl, r
-        ORDER BY r.ordinal
-        WITH w, tps, impl,
-             collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-                AS rules
-        RETURN w{.*} AS webhook,
-               tps{.*} AS tps,
-               impl.identifier_selector AS identifier_selector,
-               [x IN rules | x {.filter_expression, .handler, .handler_config}]
-                   AS rules
-        """
-        params: dict[str, typing.Any] = {
-            'org_slug': org_slug,
-            'tps_slug': data.third_party_service_slug,
-            'props': props,
-            'identifier_selector': data.identifier_selector,
-            'rules': rule_params,
-        }
-    else:
-        query = """
-        MATCH (o:Organization {slug: $org_slug})
-        CREATE (w:Webhook $props)
-        CREATE (w)-[:BELONGS_TO]->(o)
-        WITH w, o
-        UNWIND
-            CASE WHEN size($rules) = 0 THEN [null]
-                 ELSE $rules END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            })
-            CREATE (r)-[:ACTIONS]->(w)
-        )
-        WITH DISTINCT w
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, r
-        ORDER BY r.ordinal
-        WITH w,
-             collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-                AS rules
-        RETURN w{.*} AS webhook,
-               null AS tps,
-               null AS identifier_selector,
-               [x IN rules | x {.filter_expression, .handler, .handler_config}]
-                   AS rules
-        """
-        params = {
-            'org_slug': org_slug,
-            'props': props,
-            'rules': rule_params,
-        }
-
+    # Step 1: Create webhook node
+    create_q: typing.LiteralString = """
+    MATCH (o:Organization {slug: $org_slug})
+    CREATE (w:Webhook {
+        name: $name,
+        slug: $slug,
+        description: $description,
+        icon: $icon,
+        notification_path: $notification_path,
+        secret: $secret
+    })
+    CREATE (w)-[:BELONGS_TO]->(o)
+    RETURN w.slug AS slug
+    """
     try:
-        async with neo4j.run(query, **params) as result:
-            records = await result.data()
+        records = await age.query(
+            create_q,
+            org_slug=org_slug,
+            name=data.name,
+            slug=data.slug,
+            description=data.description,
+            icon=data.icon,
+            notification_path=data.notification_path,
+            secret=encrypted_secret,
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -158,7 +142,45 @@ async def create_webhook(
             detail=f'Organization {org_slug!r} not found',
         )
 
-    return models.WebhookResponse.from_neo4j_record(records[0])
+    # Step 2: Link to TPS if provided
+    if data.third_party_service_slug:
+        tps_q: typing.LiteralString = """
+        MATCH (w:Webhook {slug: $slug})
+        MATCH (tps:ThirdPartyService {slug: $tps_slug})
+              -[:BELONGS_TO]->(:Organization {slug: $org_slug})
+        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
+        SET impl.identifier_selector = $identifier_selector
+        RETURN tps.slug AS tps_slug
+        """
+        await age.query(
+            tps_q,
+            slug=data.slug,
+            tps_slug=data.third_party_service_slug,
+            org_slug=org_slug,
+            identifier_selector=data.identifier_selector,
+        )
+
+    # Step 3: Create rules
+    rule_params: list[dict[str, object]] = []
+    for idx, rule in enumerate(data.rules):
+        rule_params.append(
+            {
+                'filter_expression': rule.filter_expression,
+                'handler': rule.handler,
+                'handler_config': json.dumps(rule.handler_config),
+                'ordinal': idx,
+            }
+        )
+    await _create_rules(data.slug, rule_params)
+
+    # Step 4: Fetch and return
+    result = await _fetch_webhook(data.slug, org_slug)
+    if not result:
+        raise fastapi.HTTPException(
+            status_code=500,
+            detail='Webhook created but could not be retrieved',
+        )
+    return models.WebhookResponse.from_neo4j_record(result)
 
 
 @webhooks_router.get('/')
@@ -172,28 +194,19 @@ async def list_webhooks(
     ],
 ) -> list[models.WebhookResponse]:
     """List webhooks for an organization."""
-    query: typing.LiteralString = """
+    slug_q: typing.LiteralString = """
     MATCH (w:Webhook)-[:BELONGS_TO]->
           (o:Organization {slug: $org_slug})
-    OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
-    OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-    WITH w, tps, impl, r
-    ORDER BY r.ordinal
-    WITH w, tps, impl,
-         collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-            AS all_rules
-    RETURN w{.*} AS webhook,
-           tps{.*} AS tps,
-           impl.identifier_selector AS identifier_selector,
-           [x IN all_rules | x {.filter_expression, .handler, .handler_config}]
-               AS rules
+    RETURN w.slug AS slug
     ORDER BY w.name
     """
-    async with neo4j.run(query, org_slug=org_slug) as result:
-        records = await result.data()
-    return [models.WebhookResponse.from_neo4j_record(r) for r in records]
+    slug_records = await age.query(slug_q, org_slug=org_slug)
+    results: list[models.WebhookResponse] = []
+    for r in slug_records:
+        record = await _fetch_webhook(r['slug'], org_slug)
+        if record:
+            results.append(models.WebhookResponse.from_neo4j_record(record))
+    return results
 
 
 @webhooks_router.get('/{slug}')
@@ -208,37 +221,13 @@ async def get_webhook(
     ],
 ) -> models.WebhookResponse:
     """Get a webhook by slug."""
-    query: typing.LiteralString = """
-    MATCH (w:Webhook {slug: $slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    OPTIONAL MATCH (w)-[impl:IMPLEMENTED_BY]->(tps:ThirdPartyService)
-    OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-    WITH w, tps, impl, r
-    ORDER BY r.ordinal
-    WITH w, tps, impl,
-         collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-            AS all_rules
-    RETURN w{.*} AS webhook,
-           tps{.*} AS tps,
-           impl.identifier_selector AS identifier_selector,
-           [x IN all_rules | x {.filter_expression, .handler, .handler_config}]
-               AS rules
-    """
-    async with neo4j.run(
-        query,
-        slug=slug,
-        org_slug=org_slug,
-    ) as result:
-        records = await result.data()
-
-    if not records:
+    record = await _fetch_webhook(slug, org_slug)
+    if not record:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Webhook with slug {slug!r} not found',
         )
-    return models.WebhookResponse.from_neo4j_record(records[0])
+    return models.WebhookResponse.from_neo4j_record(record)
 
 
 @webhooks_router.put('/{slug}')
@@ -255,18 +244,16 @@ async def update_webhook(
 ) -> models.WebhookResponse:
     """Update a webhook (full replacement including rules)."""
     # Verify exists
-    check_query: typing.LiteralString = """
+    check_q: typing.LiteralString = """
     MATCH (w:Webhook {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN w{.*} AS webhook
+    RETURN properties(w) AS webhook
     """
-    async with neo4j.run(
-        check_query,
+    existing = await age.query(
+        check_q,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        existing = await result.data()
-
+    )
     if not existing:
         raise fastapi.HTTPException(
             status_code=404,
@@ -275,8 +262,6 @@ async def update_webhook(
 
     encryptor = encryption.TokenEncryption.get_instance()
 
-    # Distinguish omitted secret (preserve existing) from explicit
-    # null (clear) or a new value (encrypt and store).
     existing_webhook = existing[0]['webhook']
     if 'secret' not in data.model_fields_set:
         encrypted_secret = existing_webhook.get('secret')
@@ -285,129 +270,44 @@ async def update_webhook(
     else:
         encrypted_secret = encryptor.encrypt(data.secret)
 
-    props: dict[str, typing.Any] = {
-        'name': data.name,
-        'slug': data.slug,
-        'description': data.description,
-        'icon': data.icon,
-        'notification_path': data.notification_path,
-        'secret': encrypted_secret,
-    }
+    # Step 1: Delete old rules
+    del_rules_q: typing.LiteralString = """
+    MATCH (r:WebhookRule)-[:ACTIONS]->(w:Webhook {slug: $slug})
+    DETACH DELETE r
+    RETURN count(r) AS deleted
+    """
+    await age.query(del_rules_q, slug=slug)
 
-    rule_params: list[dict[str, str | int]] = []
-    for idx, rule in enumerate(data.rules):
-        rule_params.append(
-            {
-                'filter_expression': rule.filter_expression,
-                'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
-                'ordinal': idx,
-            }
-        )
+    # Step 2: Remove old IMPLEMENTED_BY
+    del_impl_q: typing.LiteralString = """
+    MATCH (w:Webhook {slug: $slug})-[impl:IMPLEMENTED_BY]->()
+    DELETE impl
+    RETURN count(impl) AS deleted
+    """
+    await age.query(del_impl_q, slug=slug)
 
-    # Delete old rules and IMPLEMENTED_BY, then recreate
-    if data.third_party_service_slug:
-        query: typing.LiteralString = """
-        MATCH (w:Webhook {slug: $old_slug})
-              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-        MATCH (tps:ThirdPartyService {slug: $tps_slug})
-              -[:BELONGS_TO]->(o)
-        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
-        DETACH DELETE old_r
-        WITH DISTINCT w, o, tps
-        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
-        DELETE old_impl
-        WITH DISTINCT w, o, tps
-        SET w = $props
-        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
-        SET impl.identifier_selector = $identifier_selector
-        WITH w, tps, impl
-        UNWIND
-            CASE WHEN size($rules) = 0 THEN [null]
-                 ELSE $rules END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            })
-            CREATE (r)-[:ACTIONS]->(w)
-        )
-        WITH DISTINCT w, tps, impl
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, tps, impl, r
-        ORDER BY r.ordinal
-        WITH w, tps, impl,
-             collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-                AS rules
-        RETURN w{.*} AS webhook,
-               tps{.*} AS tps,
-               impl.identifier_selector AS identifier_selector,
-               [x IN rules | x {.filter_expression, .handler, .handler_config}]
-                   AS rules
-        """
-        params: dict[str, typing.Any] = {
-            'old_slug': slug,
-            'org_slug': org_slug,
-            'tps_slug': data.third_party_service_slug,
-            'props': props,
-            'identifier_selector': data.identifier_selector,
-            'rules': rule_params,
-        }
-    else:
-        query = """
-        MATCH (w:Webhook {slug: $old_slug})
-              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
-        DETACH DELETE old_r
-        WITH DISTINCT w, o
-        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
-        DELETE old_impl
-        WITH DISTINCT w
-        SET w = $props
-        WITH w
-        UNWIND
-            CASE WHEN size($rules) = 0 THEN [null]
-                 ELSE $rules END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            })
-            CREATE (r)-[:ACTIONS]->(w)
-        )
-        WITH DISTINCT w
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, r
-        ORDER BY r.ordinal
-        WITH w,
-             collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
-                AS rules
-        RETURN w{.*} AS webhook,
-               null AS tps,
-               null AS identifier_selector,
-               [x IN rules | x {.filter_expression, .handler, .handler_config}]
-                   AS rules
-        """
-        params = {
-            'old_slug': slug,
-            'org_slug': org_slug,
-            'props': props,
-            'rules': rule_params,
-        }
-
+    # Step 3: Update webhook properties
+    update_q: typing.LiteralString = """
+    MATCH (w:Webhook {slug: $old_slug})
+    SET w.name = $name,
+        w.slug = $new_slug,
+        w.description = $description,
+        w.icon = $icon,
+        w.notification_path = $notification_path,
+        w.secret = $secret
+    RETURN w.slug AS slug
+    """
     try:
-        async with neo4j.run(query, **params) as result:
-            records = await result.data()
+        updated = await age.query(
+            update_q,
+            old_slug=slug,
+            name=data.name,
+            new_slug=data.slug,
+            description=data.description,
+            icon=data.icon,
+            notification_path=data.notification_path,
+            secret=encrypted_secret,
+        )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -418,13 +318,53 @@ async def update_webhook(
             ),
         ) from e
 
-    if not records:
+    if not updated:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Webhook with slug {slug!r} not found',
         )
 
-    return models.WebhookResponse.from_neo4j_record(records[0])
+    new_slug = data.slug
+
+    # Step 4: Link to TPS if provided
+    if data.third_party_service_slug:
+        tps_q: typing.LiteralString = """
+        MATCH (w:Webhook {slug: $slug})
+        MATCH (tps:ThirdPartyService {slug: $tps_slug})
+              -[:BELONGS_TO]->(:Organization {slug: $org_slug})
+        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
+        SET impl.identifier_selector = $identifier_selector
+        RETURN tps.slug AS tps_slug
+        """
+        await age.query(
+            tps_q,
+            slug=new_slug,
+            tps_slug=data.third_party_service_slug,
+            org_slug=org_slug,
+            identifier_selector=data.identifier_selector,
+        )
+
+    # Step 5: Create new rules
+    rule_params: list[dict[str, object]] = []
+    for idx, rule in enumerate(data.rules):
+        rule_params.append(
+            {
+                'filter_expression': rule.filter_expression,
+                'handler': rule.handler,
+                'handler_config': json.dumps(rule.handler_config),
+                'ordinal': idx,
+            }
+        )
+    await _create_rules(new_slug, rule_params)
+
+    # Step 6: Fetch and return
+    result = await _fetch_webhook(new_slug, org_slug)
+    if not result:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Webhook with slug {slug!r} not found',
+        )
+    return models.WebhookResponse.from_neo4j_record(result)
 
 
 @webhooks_router.delete('/{slug}', status_code=204)
@@ -446,14 +386,13 @@ async def delete_webhook(
     DETACH DELETE r, w
     RETURN count(w) AS deleted
     """
-    async with neo4j.run(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
-    ) as result:
-        records = await result.data()
+    )
 
-    if not records or records[0]['deleted'] == 0:
+    if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Webhook with slug {slug!r} not found',
@@ -491,12 +430,11 @@ async def list_project_services(
            ei.canonical_link AS canonical_link
     ORDER BY tps.name
     """
-    async with neo4j.run(
+    records = await age.query(
         query,
         org_slug=org_slug,
         project_id=project_id,
-    ) as result:
-        records = await result.data()
+    )
 
     return [
         models.ExistsInResponse(
@@ -536,15 +474,14 @@ async def create_project_service(
            ei.identifier AS identifier,
            ei.canonical_link AS canonical_link
     """
-    async with neo4j.run(
+    records = await age.query(
         query,
         org_slug=org_slug,
         project_id=project_id,
         tps_slug=data.third_party_service_slug,
         identifier=data.identifier,
         canonical_link=data.canonical_link,
-    ) as result:
-        records = await result.data()
+    )
 
     if not records:
         raise fastapi.HTTPException(
@@ -590,15 +527,14 @@ async def delete_project_service(
     DELETE ei
     RETURN count(ei) AS deleted
     """
-    async with neo4j.run(
+    records = await age.query(
         query,
         org_slug=org_slug,
         project_id=project_id,
         tps_slug=service_slug,
-    ) as result:
-        records = await result.data()
+    )
 
-    if not records or records[0]['deleted'] == 0:
+    if not records or records[0].get('deleted', 0) == 0:
         raise fastapi.HTTPException(
             status_code=404,
             detail=(

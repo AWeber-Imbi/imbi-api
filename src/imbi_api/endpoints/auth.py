@@ -10,7 +10,7 @@ import httpx
 import jwt
 import pydantic
 import pyotp
-from imbi_common import neo4j
+from imbi_common import age
 from imbi_common.auth import core, encryption
 
 from imbi_api import models, settings
@@ -132,7 +132,7 @@ async def token(
           -[:OWNED_BY]->(s:ServiceAccount)
     RETURN c, s
     """
-    async with neo4j.run(query, client_id=client_id) as result:
+    async with age.run(query, client_id=client_id) as result:
         records = await result.data()
 
     if not records:
@@ -141,8 +141,8 @@ async def token(
             detail='Invalid client credentials',
         )
 
-    cred_data = neo4j.convert_neo4j_types(records[0]['c'])
-    sa_data = neo4j.convert_neo4j_types(records[0]['s'])
+    cred_data = age.convert_neo4j_types(records[0]['c'])
+    sa_data = age.convert_neo4j_types(records[0]['s'])
 
     # Check revoked
     if cred_data.get('revoked', False):
@@ -220,7 +220,7 @@ async def token(
         revoked: false
     })-[:ISSUED_TO]->(s)
     """
-    async with neo4j.run(
+    async with age.run(
         access_meta_query,
         jti=access_claims['jti'],
         expires_at=(
@@ -243,7 +243,7 @@ async def token(
         revoked: false
     })-[:ISSUED_TO]->(s)
     """
-    async with neo4j.run(
+    async with age.run(
         refresh_meta_query,
         jti=refresh_claims['jti'],
         expires_at=(
@@ -264,7 +264,7 @@ async def token(
     MATCH (c)-[:OWNED_BY]->(s:ServiceAccount)
     SET s.last_authenticated = datetime()
     """
-    async with neo4j.run(update_query, client_id=client_id) as result:
+    async with age.run(update_query, client_id=client_id) as result:
         await result.consume()
 
     LOGGER.info(
@@ -314,7 +314,7 @@ async def login(
 
     """
     # Fetch user from database
-    user = await neo4j.fetch_node(models.User, {'email': email})
+    user = await age.fetch_node(models.User, {'email': email})
 
     if not user or not user.is_active:
         LOGGER.warning(
@@ -359,7 +359,7 @@ async def login(
     # Check if password needs rehashing
     if password_auth.needs_rehash(user.password_hash):
         user.password_hash = password_auth.hash_password(password)
-        await neo4j.upsert(user, {'email': user.email})
+        await age.upsert(user, {'email': user.email})
         LOGGER.info('Rehashed password for user %s', user.email)
 
     # Phase 5: Check if MFA is enabled
@@ -367,7 +367,7 @@ async def login(
     MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     RETURN t
     """
-    async with neo4j.run(totp_query, email=user.email) as result:
+    async with age.run(totp_query, email=user.email) as result:
         totp_records = await result.data()
 
     if totp_records:
@@ -409,7 +409,7 @@ async def login(
                 MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
                 SET t.last_used = datetime()
                 """
-                async with neo4j.run(update_query, email=user.email) as result:
+                async with age.run(update_query, email=user.email) as result:
                     await result.consume()
 
                 LOGGER.info('MFA verified via TOTP for user %s', user.email)
@@ -427,7 +427,7 @@ async def login(
                               <-[:MFA_FOR]-(t:TOTPSecret)
                         SET t.backup_codes = $backup_codes
                         """
-                        async with neo4j.run(
+                        async with age.run(
                             update_query,
                             email=user.email,
                             backup_codes=backup_codes,
@@ -472,7 +472,7 @@ async def login(
         ),
         user=user,
     )
-    await neo4j.create_node(access_token_meta)
+    await age.create_node(access_token_meta)
 
     # Store token metadata for refresh token
     refresh_token_meta = models.TokenMetadata(
@@ -485,11 +485,11 @@ async def login(
         ),
         user=user,
     )
-    await neo4j.create_node(refresh_token_meta)
+    await age.create_node(refresh_token_meta)
 
     # Update last login timestamp
     user.last_login = now
-    await neo4j.upsert(user, {'email': user.email})
+    await age.upsert(user, {'email': user.email})
 
     LOGGER.info('User %s logged in successfully', user.email)
 
@@ -549,7 +549,7 @@ async def refresh_token(
         )
 
     # Check if refresh token is revoked
-    token_meta = await neo4j.fetch_node(
+    token_meta = await age.fetch_node(
         models.TokenMetadata, {'jti': payload['jti']}
     )
     if not token_meta or token_meta.revoked:
@@ -564,7 +564,7 @@ async def refresh_token(
     # Phase 5: Revoke old refresh token (token rotation)
     token_meta.revoked = True
     token_meta.revoked_at = datetime.datetime.now(datetime.UTC)
-    await neo4j.upsert(token_meta, {'jti': payload['jti']})
+    await age.upsert(token_meta, {'jti': payload['jti']})
 
     # Resolve principal (user or service account)
     subject = payload['sub']
@@ -572,7 +572,7 @@ async def refresh_token(
     extra_claims: dict[str, typing.Any] = {}
 
     if auth_method == 'client_credentials':
-        sa = await neo4j.fetch_node(models.ServiceAccount, {'slug': subject})
+        sa = await age.fetch_node(models.ServiceAccount, {'slug': subject})
         if not sa or not sa.is_active:
             LOGGER.warning(
                 'Token refresh failed: service account '
@@ -586,7 +586,7 @@ async def refresh_token(
         principal_id = sa.slug
         extra_claims = {'auth_method': 'client_credentials'}
     else:
-        user = await neo4j.fetch_node(models.User, {'email': subject})
+        user = await age.fetch_node(models.User, {'email': subject})
         if not user or not user.is_active:
             LOGGER.warning(
                 'Token refresh failed: user not found or inactive (%s)',
@@ -670,7 +670,7 @@ async def refresh_token(
         )
     ).isoformat()
 
-    async with neo4j.run(
+    async with age.run(
         meta_query,
         subject=subject,
         access_jti=access_jti,
@@ -713,7 +713,7 @@ async def logout(
     MATCH (t:TokenMetadata {jti: $jti})
     SET t.revoked = true, t.revoked_at = datetime()
     """
-    async with neo4j.run(query, jti=auth.session_id) as result:
+    async with age.run(query, jti=auth.session_id) as result:
         await result.consume()
 
     if revoke_all_sessions:
@@ -726,7 +726,7 @@ async def logout(
             SET t.revoked = true,
                 t.revoked_at = datetime()
             """
-            async with neo4j.run(
+            async with age.run(
                 query, slug=auth.service_account.slug
             ) as result:
                 await result.consume()
@@ -739,7 +739,7 @@ async def logout(
             SET t.revoked = true,
                 t.revoked_at = datetime()
             """
-            async with neo4j.run(query, email=auth.user.email) as result:
+            async with age.run(query, email=auth.user.email) as result:
                 await result.consume()
 
             # Delete all sessions
@@ -748,7 +748,7 @@ async def logout(
                   <-[:SESSION_FOR]-(s:Session)
             DETACH DELETE s
             """
-            async with neo4j.run(query, email=auth.user.email) as result:
+            async with age.run(query, email=auth.user.email) as result:
                 await result.consume()
     else:
         # Revoke only associated refresh token
@@ -756,7 +756,7 @@ async def logout(
         MATCH (t:TokenMetadata {jti: $jti})
         RETURN t.issued_at as issued_at
         """
-        async with neo4j.run(query, jti=auth.session_id) as result:
+        async with age.run(query, jti=auth.session_id) as result:
             records = await result.data()
 
         if records:
@@ -775,7 +775,7 @@ async def logout(
             SET rt.revoked = true,
                 rt.revoked_at = datetime()
             """
-            async with neo4j.run(
+            async with age.run(
                 revoke_query,
                 jti=auth.session_id,
                 issued_at=issued_at,
@@ -946,7 +946,7 @@ async def oauth_callback(
         )
 
         # Get associated user
-        await neo4j.refresh_relationship(oauth_identity, 'user')
+        await age.refresh_relationship(oauth_identity, 'user')
         user = oauth_identity.user
 
         if user.is_service_account:
@@ -979,7 +979,7 @@ async def oauth_callback(
             ),
             user=user,
         )
-        await neo4j.create_node(access_token_meta)
+        await age.create_node(access_token_meta)
 
         refresh_token_meta = models.TokenMetadata(
             jti=refresh_jti,
@@ -991,15 +991,15 @@ async def oauth_callback(
             ),
             user=user,
         )
-        await neo4j.create_node(refresh_token_meta)
+        await age.create_node(refresh_token_meta)
 
         # Update user last_login
         user.last_login = now
-        await neo4j.upsert(user, {'email': user.email})
+        await age.upsert(user, {'email': user.email})
 
         # Update OAuth identity last_used
         oauth_identity.last_used = now
-        await neo4j.upsert(
+        await age.upsert(
             oauth_identity,
             {'provider': provider, 'provider_user_id': profile['id']},
         )
@@ -1078,7 +1078,7 @@ async def find_or_create_oauth_identity(
             )
 
     # Try to find existing OAuth identity
-    identity = await neo4j.fetch_node(
+    identity = await age.fetch_node(
         models.OAuthIdentity,
         {'provider': provider, 'provider_user_id': profile['id']},
     )
@@ -1094,7 +1094,7 @@ async def find_or_create_oauth_identity(
         identity.token_expires_at = datetime.datetime.now(
             datetime.UTC
         ) + datetime.timedelta(seconds=token_response.get('expires_in', 3600))
-        await neo4j.upsert(
+        await age.upsert(
             identity, {'provider': provider, 'provider_user_id': profile['id']}
         )
 
@@ -1105,7 +1105,7 @@ async def find_or_create_oauth_identity(
     # Check if we should auto-link to existing user by email
     user = None
     if auth_settings.oauth_auto_link_by_email:
-        user = await neo4j.fetch_node(models.User, {'email': profile['email']})
+        user = await age.fetch_node(models.User, {'email': profile['email']})
 
     # Create new user if doesn't exist
     if not user:
@@ -1124,7 +1124,7 @@ async def find_or_create_oauth_identity(
             avatar_url=profile.get('avatar_url'),
         )
 
-        await neo4j.create_node(user)
+        await age.create_node(user)
         LOGGER.info('Created new user %s via OAuth %s', user.email, provider)
 
     # Create OAuth identity (Phase 5: with encrypted tokens)
@@ -1155,8 +1155,8 @@ async def find_or_create_oauth_identity(
         encryptor,
     )
 
-    await neo4j.create_node(identity)
-    await neo4j.create_relationship(identity, user, rel_type='OAUTH_IDENTITY')
+    await age.create_node(identity)
+    await age.create_relationship(identity, user, rel_type='OAUTH_IDENTITY')
 
     LOGGER.info(
         'Created OAuth identity for user %s via %s', user.email, provider

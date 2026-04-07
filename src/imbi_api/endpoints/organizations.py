@@ -5,8 +5,8 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import models, neo4j
-from neo4j import exceptions
+from imbi_common import age, models
+from imbi_common.age import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -110,7 +110,7 @@ async def create_organization(
     org.created_at = now
     org.updated_at = now
     try:
-        created = await neo4j.create_node(org)
+        created = await age.create_node(org)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -145,12 +145,12 @@ async def list_organizations(
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t2)
     WITH o, team_count, member_count,
          count(DISTINCT p) AS project_count
-    RETURN o{.*} AS organization,
+    RETURN properties(o) AS organization,
            team_count, member_count, project_count
     ORDER BY o.name
     """
     organizations: list[dict[str, typing.Any]] = []
-    records = await neo4j.query(query)
+    records = await age.query(query)
     for record in records:
         org = record['organization']
         _add_relationships(
@@ -195,10 +195,10 @@ async def get_organization(
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t2)
     WITH o, team_count, member_count,
          count(DISTINCT p) AS project_count
-    RETURN o{.*} AS organization,
+    RETURN properties(o) AS organization,
            team_count, member_count, project_count
     """
-    records = await neo4j.query(query, slug=slug)
+    records = await age.query(query, slug=slug)
 
     if not records:
         raise fastapi.HTTPException(
@@ -238,7 +238,7 @@ async def update_organization(
         409: Slug rename conflicts with existing organization.
 
     """
-    existing = await neo4j.fetch_node(
+    existing = await age.fetch_node(
         models.Organization,
         {'slug': slug},
     )
@@ -251,7 +251,7 @@ async def update_organization(
     org.created_at = existing.created_at
     org.updated_at = datetime.datetime.now(datetime.UTC)
     try:
-        await neo4j.upsert(org, {'slug': slug})
+        await age.upsert(org, {'slug': slug})
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -271,7 +271,7 @@ async def update_organization(
          count(DISTINCT p) AS project_count
     RETURN team_count, member_count, project_count
     """
-    records = await neo4j.query(
+    records = await age.query(
         count_query,
         slug=org.slug,
     )
@@ -317,7 +317,7 @@ async def list_organization_members(
         role: m.role
     }) AS members
     """
-    records = await neo4j.query(query, slug=slug)
+    records = await age.query(query, slug=slug)
     if not records or not records[0].get('o'):
         raise fastapi.HTTPException(
             status_code=404,
@@ -346,7 +346,7 @@ async def delete_organization(
         404: Organization not found.
 
     """
-    deleted = await neo4j.delete_node(
+    deleted = await age.delete_node(
         models.Organization,
         {'slug': slug},
     )

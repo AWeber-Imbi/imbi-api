@@ -11,7 +11,7 @@ import secrets
 import typing
 
 import fastapi
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import models, settings
 from imbi_api.auth import password, permissions
@@ -41,7 +41,7 @@ async def _get_service_account(slug: str) -> dict[str, typing.Any]:
     MATCH (s:ServiceAccount {slug: $slug})
     RETURN s
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
 
     if not records:
@@ -127,14 +127,17 @@ async def create_client_credential(
         revoked_at=None,
     )
 
-    # Store in Neo4j with relationship to ServiceAccount (atomic)
-    query = """
-    MATCH (s:ServiceAccount {slug: $slug})
-    CREATE (c:ClientCredential $props)-[:OWNED_BY]->(s)
-    RETURN elementId(c) AS element_id
-    """
+    # Store in graph with relationship to ServiceAccount (atomic)
     props = credential.model_dump(mode='json')
-    async with neo4j.run(query, slug=slug, props=props) as result:
+    prop_str = ', '.join(f'{k}: ${k}' for k in props)
+    query = typing.cast(
+        typing.LiteralString,
+        f'MATCH (s:ServiceAccount {{slug: $slug}})'
+        f' CREATE (c:ClientCredential {{{prop_str}}})'
+        f'-[:OWNED_BY]->(s)'
+        f' RETURN id(c) AS element_id',
+    )
+    async with age.run(query, slug=slug, **props) as result:
         record = await result.single()
         if not record:
             raise fastapi.HTTPException(
@@ -190,13 +193,11 @@ async def list_client_credentials(
           <-[:OWNED_BY]-(c:ClientCredential)
     RETURN c ORDER BY c.created_at DESC
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
 
     credentials = [
-        models.ClientCredentialResponse(
-            **neo4j.convert_neo4j_types(record['c'])
-        )
+        models.ClientCredentialResponse(**age.convert_neo4j_types(record['c']))
         for record in records
     ]
 
@@ -242,7 +243,7 @@ async def revoke_client_credential(
     SET c.revoked = true, c.revoked_at = datetime()
     RETURN c
     """
-    async with neo4j.run(query, slug=slug, client_id=client_id) as result:
+    async with age.run(query, slug=slug, client_id=client_id) as result:
         records = await result.data()
 
     if not records:
@@ -300,7 +301,7 @@ async def rotate_client_credential(
           <-[:OWNED_BY]-(c:ClientCredential {client_id: $client_id})
     RETURN c
     """
-    async with neo4j.run(query, slug=slug, client_id=client_id) as result:
+    async with age.run(query, slug=slug, client_id=client_id) as result:
         records = await result.data()
 
     if not records:
@@ -330,7 +331,7 @@ async def rotate_client_credential(
         c.last_rotated = datetime()
     RETURN c
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         client_id=client_id,

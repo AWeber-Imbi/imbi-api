@@ -6,8 +6,8 @@ import typing
 from urllib import parse as urlparse
 
 import fastapi
-from imbi_common import neo4j
-from neo4j import exceptions
+from imbi_common import age
+from imbi_common.age import exceptions
 
 from imbi_api import models
 from imbi_api.auth import password, permissions
@@ -77,7 +77,7 @@ async def create_user(
     )
 
     try:
-        await neo4j.create_node(user)
+        await age.create_node(user)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -94,7 +94,7 @@ async def create_user(
     RETURN o.name AS org_name, o.slug AS org_slug, r.slug AS role
     """
     organizations: list[models.OrgMembership] = []
-    async with neo4j.run(
+    async with age.run(
         membership_query,
         email=user.email,
         org_slug=user_create.organization_slug,
@@ -103,7 +103,7 @@ async def create_user(
         records = await result.data()
         if not records:
             # Rollback: delete the user node
-            await neo4j.delete_node(models.User, {'email': user.email})
+            await age.delete_node(models.User, {'email': user.email})
             raise fastapi.HTTPException(
                 status_code=404,
                 detail=(
@@ -161,7 +161,7 @@ async def list_users(
         parameters['is_admin'] = is_admin
 
     users: list[models.UserResponse] = []
-    async for user in neo4j.fetch_nodes(
+    async for user in age.fetch_nodes(
         models.User,
         parameters if parameters else None,
         order_by='email',
@@ -205,7 +205,7 @@ async def get_user(
     # URL decode email in case it's percent-encoded
     email = urlparse.unquote(email)
 
-    user = await neo4j.fetch_node(models.User, {'email': email})
+    user = await age.fetch_node(models.User, {'email': email})
     if user is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -219,7 +219,7 @@ async def get_user(
     ORDER BY o.name
     """
     organizations: list[models.OrgMembership] = []
-    async with neo4j.run(org_query, email=email) as result:
+    async with age.run(org_query, email=email) as result:
         records = await result.data()
         for record in records:
             organizations.append(
@@ -278,7 +278,7 @@ async def update_user(
         )
 
     # Verify user exists
-    existing_user = await neo4j.fetch_node(models.User, {'email': email})
+    existing_user = await age.fetch_node(models.User, {'email': email})
     if existing_user is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -341,7 +341,7 @@ async def update_user(
         avatar_url=existing_user.avatar_url,
     )
 
-    await neo4j.upsert(updated_user, {'email': email})
+    await age.upsert(updated_user, {'email': email})
 
     return models.UserResponse(
         email=updated_user.email,
@@ -383,7 +383,7 @@ async def delete_user(
             detail='Cannot delete your own account',
         )
 
-    deleted = await neo4j.delete_node(models.User, {'email': email})
+    deleted = await age.delete_node(models.User, {'email': email})
     if not deleted:
         raise fastapi.HTTPException(
             status_code=404,
@@ -428,7 +428,7 @@ async def change_password(
         )
 
     # Fetch user
-    user = await neo4j.fetch_node(models.User, {'email': email})
+    user = await age.fetch_node(models.User, {'email': email})
     if user is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -459,7 +459,7 @@ async def change_password(
 
     # Update password
     user.password_hash = password.hash_password(password_change.new_password)
-    await neo4j.upsert(user, {'email': email})
+    await age.upsert(user, {'email': email})
 
 
 @users_router.post('/{email}/organizations', status_code=204)
@@ -501,7 +501,7 @@ async def add_to_organization(
     SET m.role = $role_slug
     RETURN u, o, r
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         email=email,
         org_slug=org_slug,
@@ -557,7 +557,7 @@ async def update_organization_role(
     SET m.role = $role_slug
     RETURN u, o, r
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         email=email,
         org_slug=org_slug,
@@ -602,7 +602,7 @@ async def remove_from_organization(
     DELETE m
     RETURN count(m) AS deleted
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         email=email,
         org_slug=org_slug,

@@ -6,8 +6,8 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import models, neo4j
-from neo4j import exceptions
+from imbi_common import age, models
+from imbi_common.age import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -132,18 +132,20 @@ async def create_link_definition(
     link_def.updated_at = now
     props = link_def.model_dump(exclude={'organization'})
 
-    query: typing.LiteralString = """
-    MATCH (o:Organization {slug: $org_slug})
-    CREATE (ld:LinkDefinition $props)
+    prop_str = ', '.join(f'{k}: ${k}' for k in props)
+    query: typing.LiteralString = f"""
+    MATCH (o:Organization {{slug: $org_slug}})
+    CREATE (ld:LinkDefinition {{{prop_str}}})
     CREATE (ld)-[:BELONGS_TO]->(o)
-    RETURN ld{.*, organization: o{.*}} AS link_definition,
+    RETURN properties(ld) AS link_definition,
+           properties(o) AS ld_org,
            0 AS project_count
     """
     try:
-        records = await neo4j.query(
+        records = await age.query(
             query,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -160,6 +162,7 @@ async def create_link_definition(
         )
 
     result: dict[str, typing.Any] = records[0]['link_definition']
+    result['organization'] = records[0].get('ld_org')
     _add_relationships(result, records[0]['project_count'])
     return result
 
@@ -192,14 +195,16 @@ async def list_link_definitions(
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
         WHERE p.links CONTAINS ('"' + ld.slug + '":')
     WITH ld, o, count(DISTINCT p) AS project_count
-    RETURN ld{.*, organization: o{.*}} AS link_definition,
+    RETURN properties(ld) AS link_definition,
+           properties(o) AS ld_org,
            project_count
     ORDER BY ld.name
     """
-    records = await neo4j.query(query, org_slug=org_slug)
+    records = await age.query(query, org_slug=org_slug)
     results: list[dict[str, typing.Any]] = []
     for record in records:
         ld = record['link_definition']
+        ld['organization'] = record.get('ld_org')
         _add_relationships(ld, record['project_count'])
         results.append(ld)
     return results
@@ -237,10 +242,11 @@ async def get_link_definition(
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
         WHERE p.links CONTAINS ('"' + ld.slug + '":')
     WITH ld, o, count(DISTINCT p) AS project_count
-    RETURN ld{.*, organization: o{.*}} AS link_definition,
+    RETURN properties(ld) AS link_definition,
+           properties(o) AS ld_org,
            project_count
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -252,6 +258,7 @@ async def get_link_definition(
             detail=(f'Link definition with slug {slug!r} not found'),
         )
     result: dict[str, typing.Any] = records[0]['link_definition']
+    result['organization'] = records[0].get('ld_org')
     _add_relationships(result, records[0]['project_count'])
     return result
 
@@ -292,9 +299,10 @@ async def update_link_definition(
     query: typing.LiteralString = """
     MATCH (ld:LinkDefinition {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN ld{.*, organization: o{.*}} AS link_definition
+    RETURN properties(ld) AS link_definition,
+           properties(o) AS ld_org
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -307,6 +315,7 @@ async def update_link_definition(
         )
 
     existing = records[0]['link_definition']
+    existing['organization'] = records[0].get('ld_org')
 
     try:
         link_def = models.LinkDefinition(
@@ -327,23 +336,25 @@ async def update_link_definition(
     link_def.updated_at = datetime.datetime.now(datetime.UTC)
     props = link_def.model_dump(exclude={'organization'})
 
-    update_query: typing.LiteralString = """
-    MATCH (ld:LinkDefinition {slug: $slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    SET ld = $props
+    set_clause = ', '.join(f'ld.{k} = ${k}' for k in props)
+    update_query: typing.LiteralString = f"""
+    MATCH (ld:LinkDefinition {{slug: $slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    SET {set_clause}
     WITH ld, o
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
         WHERE p.links CONTAINS ('"' + ld.slug + '":')
     WITH ld, o, count(DISTINCT p) AS project_count
-    RETURN ld{.*, organization: o{.*}} AS link_definition,
+    RETURN properties(ld) AS link_definition,
+           properties(o) AS ld_org,
            project_count
     """
     try:
-        updated = await neo4j.query(
+        updated = await age.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -360,6 +371,7 @@ async def update_link_definition(
         )
 
     result: dict[str, typing.Any] = updated[0]['link_definition']
+    result['organization'] = updated[0].get('ld_org')
     _add_relationships(result, updated[0]['project_count'])
     return result
 
@@ -393,7 +405,7 @@ async def delete_link_definition(
     DETACH DELETE ld
     RETURN count(ld) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,

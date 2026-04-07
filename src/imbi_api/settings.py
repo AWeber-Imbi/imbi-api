@@ -216,7 +216,7 @@ class APIConfiguration(settings.Configuration):  # type: ignore[misc]
         """Merge environment variables with config file data."""
         settings_fields: dict[str, type[pydantic_settings.BaseSettings]] = {
             'clickhouse': settings.Clickhouse,
-            'neo4j': settings.Neo4j,
+            'age': settings.AGE,
             'server': ServerConfig,
             'auth': Auth,
             'email': Email,

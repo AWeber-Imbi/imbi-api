@@ -11,8 +11,8 @@ def create_app() -> fastapi.FastAPI:
         title='Imbi',
         lifespan=Lifespan(
             lifespans.clickhouse_hook,
-            lifespans.neo4j_hook,
-            lifespans.neo4j_setup_hook,
+            lifespans.age_hook,
+            lifespans.age_setup_hook,
             lifespans.email_hook,
             lifespans.storage_hook,
         ),

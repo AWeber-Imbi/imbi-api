@@ -5,7 +5,7 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import models
 from imbi_api.auth import permissions
@@ -38,7 +38,7 @@ async def get_admin_settings(
     specific permission since this is read-only metadata.
     """
     all_permissions: list[models.Permission] = []
-    async for perm in neo4j.fetch_nodes(models.Permission, order_by='name'):
+    async for perm in age.fetch_nodes(models.Permission, order_by='name'):
         all_permissions.append(perm)
 
     return AdminSettings(

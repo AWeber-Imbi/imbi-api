@@ -9,7 +9,7 @@ import fastapi
 import jwt
 import pydantic
 from fastapi import security
-from imbi_common import neo4j
+from imbi_common import age
 from imbi_common.auth import core
 
 from imbi_api import models, settings
@@ -81,7 +81,7 @@ async def load_user_permissions(email: str) -> set[str]:
     OPTIONAL MATCH (parent)-[:GRANTS]->(perm:Permission)
     RETURN collect(DISTINCT perm.name) AS permissions
     """
-    async with neo4j.run(query, email=email) as result:
+    async with age.run(query, email=email) as result:
         records = await result.data()
         if not records:
             return set()
@@ -113,7 +113,7 @@ async def load_service_account_permissions(
     OPTIONAL MATCH (parent)-[:GRANTS]->(perm:Permission)
     RETURN collect(DISTINCT perm.name) AS permissions
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
         if not records:
             return set()
@@ -167,7 +167,7 @@ async def authenticate_jwt(
     MATCH (t:TokenMetadata {jti: $jti})
     RETURN t.revoked AS revoked
     """
-    async with neo4j.run(query, jti=jti) as result:
+    async with age.run(query, jti=jti) as result:
         records = await result.data()
         if records and records[0].get('revoked'):
             raise fastapi.HTTPException(
@@ -189,14 +189,14 @@ async def authenticate_jwt(
         MATCH (s:ServiceAccount {slug: $slug})
         RETURN s
         """
-        async with neo4j.run(sa_query, slug=subject) as result:
+        async with age.run(sa_query, slug=subject) as result:
             records = await result.data()
             if not records:
                 raise fastapi.HTTPException(
                     status_code=401,
                     detail='Service account not found',
                 )
-            sa_data = neo4j.convert_neo4j_types(records[0]['s'])
+            sa_data = age.convert_neo4j_types(records[0]['s'])
             sa = models.ServiceAccount(**sa_data)
 
         if not sa.is_active:
@@ -218,13 +218,13 @@ async def authenticate_jwt(
     MATCH (u:User {email: $email})
     RETURN u
     """
-    async with neo4j.run(user_query, email=subject) as result:
+    async with age.run(user_query, email=subject) as result:
         records = await result.data()
         if not records:
             raise fastapi.HTTPException(
                 status_code=401, detail='User not found'
             )
-        user_data = neo4j.convert_neo4j_types(records[0]['u'])
+        user_data = age.convert_neo4j_types(records[0]['u'])
         user = models.User(**user_data)
 
     # Check if user is active
@@ -283,7 +283,7 @@ async def authenticate_api_key(
     OPTIONAL MATCH (k)-[:OWNED_BY]->(s:ServiceAccount)
     RETURN k, u, s
     """
-    async with neo4j.run(query, key_id=key_id) as result:
+    async with age.run(query, key_id=key_id) as result:
         records = await result.data()
 
     if not records:
@@ -291,9 +291,9 @@ async def authenticate_api_key(
             status_code=401, detail='Invalid or revoked API key'
         )
 
-    api_key_data = neo4j.convert_neo4j_types(records[0]['k'])
-    user_data = neo4j.convert_neo4j_types(records[0]['u'])
-    sa_data = neo4j.convert_neo4j_types(records[0]['s'])
+    api_key_data = age.convert_neo4j_types(records[0]['k'])
+    user_data = age.convert_neo4j_types(records[0]['u'])
+    sa_data = age.convert_neo4j_types(records[0]['s'])
 
     if not user_data and not sa_data:
         raise fastapi.HTTPException(
@@ -322,7 +322,7 @@ async def authenticate_api_key(
     MATCH (k:APIKey {key_id: $key_id})
     SET k.last_used = datetime()
     """
-    async with neo4j.run(update_query, key_id=key_id) as result:
+    async with age.run(update_query, key_id=key_id) as result:
         await result.consume()
 
     # Resolve owner and permissions
@@ -478,7 +478,7 @@ async def check_resource_permission(
     UNWIND access.actions AS action_item
     RETURN collect(DISTINCT action_item) AS actions
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         email=email,
         resource_type=resource_type,

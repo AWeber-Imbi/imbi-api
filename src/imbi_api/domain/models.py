@@ -10,9 +10,9 @@ import datetime
 import json
 import typing
 
-import cypherantic
 import pydantic
-from imbi_common import models, neo4j
+from imbi_common import age, models
+from imbi_common.age import relationships
 
 __all__ = [
     'SECRET_FIELDS',
@@ -79,7 +79,7 @@ class User(pydantic.BaseModel):
 
     organizations: typing.Annotated[
         list['OrganizationEdge'],
-        cypherantic.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
+        relationships.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
     ] = []
 
 
@@ -108,7 +108,7 @@ class OAuthIdentity(pydantic.BaseModel):
     # Relationship to User
     user: typing.Annotated[
         User,
-        cypherantic.Relationship(
+        relationships.Relationship(
             rel_type='OAUTH_IDENTITY', direction='OUTGOING'
         ),
     ]
@@ -173,8 +173,8 @@ class OAuthIdentity(pydantic.BaseModel):
 class MembershipProperties(pydantic.BaseModel):
     """Properties on User->Organization MEMBER_OF relationships."""
 
-    cypherantic_config: typing.ClassVar[cypherantic.RelationshipConfig] = (
-        cypherantic.RelationshipConfig(rel_type='MEMBER_OF')
+    cypherantic_config: typing.ClassVar[relationships.RelationshipConfig] = (
+        relationships.RelationshipConfig(rel_type='MEMBER_OF')
     )
     role: str  # Role slug
 
@@ -203,11 +203,11 @@ class Role(models.Node):  # type: ignore[misc]
 
     permissions: typing.Annotated[
         list['Permission'],
-        cypherantic.Relationship(rel_type='GRANTS', direction='OUTGOING'),
+        relationships.Relationship(rel_type='GRANTS', direction='OUTGOING'),
     ] = []  # noqa: RUF012
     parent_role: typing.Annotated[
         'Role | None',
-        cypherantic.Relationship(
+        relationships.Relationship(
             rel_type='INHERITS_FROM', direction='OUTGOING'
         ),
     ] = None
@@ -233,8 +233,8 @@ class Permission(pydantic.BaseModel):
 class ResourcePermission(pydantic.BaseModel):
     """Resource-level permission for CAN_ACCESS relationships."""
 
-    cypherantic_config: typing.ClassVar[cypherantic.RelationshipConfig] = (
-        cypherantic.RelationshipConfig(rel_type='CAN_ACCESS')
+    cypherantic_config: typing.ClassVar[relationships.RelationshipConfig] = (
+        relationships.RelationshipConfig(rel_type='CAN_ACCESS')
     )
     actions: list[str] = []
     granted_at: datetime.datetime
@@ -255,7 +255,7 @@ class TokenMetadata(pydantic.BaseModel):
 
     user: typing.Annotated[
         User | None,
-        cypherantic.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
+        relationships.Relationship(rel_type='ISSUED_TO', direction='OUTGOING'),
     ] = None
 
 
@@ -277,7 +277,7 @@ class TOTPSecret(pydantic.BaseModel):
 
     user: typing.Annotated[
         User,
-        cypherantic.Relationship(rel_type='MFA_FOR', direction='OUTGOING'),
+        relationships.Relationship(rel_type='MFA_FOR', direction='OUTGOING'),
     ]
 
     def set_encrypted_secret(
@@ -333,7 +333,9 @@ class Session(pydantic.BaseModel):
 
     user: typing.Annotated[
         User,
-        cypherantic.Relationship(rel_type='SESSION_FOR', direction='OUTGOING'),
+        relationships.Relationship(
+            rel_type='SESSION_FOR', direction='OUTGOING'
+        ),
     ]
 
 
@@ -360,7 +362,7 @@ class APIKey(pydantic.BaseModel):
 
     user: typing.Annotated[
         User | None,
-        cypherantic.Relationship(rel_type='OWNED_BY', direction='OUTGOING'),
+        relationships.Relationship(rel_type='OWNED_BY', direction='OUTGOING'),
     ] = None
 
 
@@ -479,7 +481,7 @@ class ServiceAccount(pydantic.BaseModel):
 
     organizations: typing.Annotated[
         list['OrganizationEdge'],
-        cypherantic.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
+        relationships.Relationship(rel_type='MEMBER_OF', direction='OUTGOING'),
     ] = []
 
 
@@ -546,7 +548,7 @@ class ClientCredential(pydantic.BaseModel):
 
     service_account: typing.Annotated[
         ServiceAccount | None,
-        cypherantic.Relationship(rel_type='OWNED_BY', direction='OUTGOING'),
+        relationships.Relationship(rel_type='OWNED_BY', direction='OUTGOING'),
     ] = None
 
 
@@ -604,14 +606,14 @@ class ThirdPartyService(models.Node):  # type: ignore[misc]
 
     organization: typing.Annotated[
         models.Organization,
-        cypherantic.Relationship(
+        relationships.Relationship(
             rel_type='BELONGS_TO',
             direction='OUTGOING',
         ),
     ]
     team: typing.Annotated[
         models.Team | None,
-        cypherantic.Relationship(
+        relationships.Relationship(
             rel_type='MANAGED_BY',
             direction='OUTGOING',
         ),
@@ -927,7 +929,7 @@ class WebhookResponse(pydantic.BaseModel):
         record: dict[str, typing.Any],
     ) -> 'WebhookResponse':
         """Build a WebhookResponse from a Neo4j record."""
-        webhook = neo4j.convert_neo4j_types(record['webhook'])
+        webhook = age.convert_neo4j_types(record['webhook'])
 
         raw_rules = record.get('rules', [])
         rules: list[WebhookRuleResponse] = []
@@ -949,7 +951,7 @@ class WebhookResponse(pydantic.BaseModel):
 
         tps = record.get('tps')
         if tps:
-            tps = neo4j.convert_neo4j_types(tps)
+            tps = age.convert_neo4j_types(tps)
 
         return cls(
             name=webhook['name'],

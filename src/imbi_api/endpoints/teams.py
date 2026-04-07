@@ -6,8 +6,8 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import blueprints, models, neo4j
-from neo4j import exceptions
+from imbi_common import age, blueprints, models
+from imbi_common.age import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -95,17 +95,18 @@ async def create_team(
         exclude={'organization'},
     )
 
-    query: typing.LiteralString = """
-    MATCH (o:Organization {slug: $org_slug})
-    CREATE (t:Team $props)
+    prop_str = ', '.join(f'{k}: ${k}' for k in props)
+    query: typing.LiteralString = f"""
+    MATCH (o:Organization {{slug: $org_slug}})
+    CREATE (t:Team {{{prop_str}}})
     CREATE (t)-[:BELONGS_TO]->(o)
-    RETURN t{.*, organization: o{.*}} AS team
+    RETURN properties(t) AS team, properties(o) AS team_org
     """
     try:
-        records = await neo4j.query(
+        records = await age.query(
             query,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -119,7 +120,9 @@ async def create_team(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return _add_relationships(records[0]['team'], org_slug)
+    team = records[0]['team']
+    team['organization'] = records[0].get('team_org')
+    return _add_relationships(team, org_slug)
 
 
 @teams_router.get('/')
@@ -146,14 +149,15 @@ async def list_teams(
     OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
     WITH t, o, count(DISTINCT p) AS project_count,
                 count(DISTINCT u) AS member_count
-    RETURN t{.*, organization: o{.*}} AS team,
+    RETURN properties(t) AS team, properties(o) AS team_org,
            project_count, member_count
     ORDER BY t.name
     """
     teams: list[dict[str, typing.Any]] = []
-    records = await neo4j.query(query, org_slug=org_slug)
+    records = await age.query(query, org_slug=org_slug)
     for record in records:
         team = record['team']
+        team['organization'] = record.get('team_org')
         _add_relationships(
             team,
             org_slug,
@@ -193,10 +197,10 @@ async def get_team(
     OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
     WITH t, o, count(DISTINCT p) AS project_count,
                 count(DISTINCT u) AS member_count
-    RETURN t{.*, organization: o{.*}} AS team,
+    RETURN properties(t) AS team, properties(o) AS team_org,
            project_count, member_count
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -207,8 +211,10 @@ async def get_team(
             status_code=404,
             detail=f'Team with slug {slug!r} not found',
         )
+    team = records[0]['team']
+    team['organization'] = records[0].get('team_org')
     return _add_relationships(
-        records[0]['team'],
+        team,
         org_slug,
         records[0]['project_count'],
         records[0]['member_count'],
@@ -257,9 +263,9 @@ async def update_team(
     query: typing.LiteralString = """
     MATCH (t:Team {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN t{.*, organization: o{.*}} AS team
+    RETURN properties(t) AS team, properties(o) AS team_org
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -272,6 +278,7 @@ async def update_team(
         )
 
     existing = records[0]['team']
+    existing['organization'] = records[0].get('team_org')
 
     try:
         team = dynamic_model(
@@ -293,24 +300,25 @@ async def update_team(
     team.updated_at = datetime.datetime.now(datetime.UTC)
     props = team.model_dump(exclude={'organization'})
 
-    update_query: typing.LiteralString = """
-    MATCH (t:Team {slug: $slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    SET t = $props
+    set_clause = ', '.join(f't.{k} = ${k}' for k in props)
+    update_query: typing.LiteralString = f"""
+    MATCH (t:Team {{slug: $slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    SET {set_clause}
     WITH t, o
     OPTIONAL MATCH (p:Project)-[:OWNED_BY]->(t)
     OPTIONAL MATCH (u:User)-[:MEMBER_OF]->(t)
     WITH t, o, count(DISTINCT p) AS project_count,
                 count(DISTINCT u) AS member_count
-    RETURN t{.*, organization: o{.*}} AS team,
+    RETURN properties(t) AS team, properties(o) AS team_org,
            project_count, member_count
     """
     try:
-        updated = await neo4j.query(
+        updated = await age.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -324,8 +332,10 @@ async def update_team(
             detail=f'Team with slug {slug!r} not found',
         )
 
+    team = updated[0]['team']
+    team['organization'] = updated[0].get('team_org')
     return _add_relationships(
-        updated[0]['team'],
+        team,
         org_slug,
         updated[0]['project_count'],
         updated[0]['member_count'],
@@ -357,7 +367,7 @@ async def delete_team(
     DETACH DELETE t
     RETURN count(t) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -403,7 +413,7 @@ async def list_team_members(
         is_admin: COALESCE(u.is_admin, false)
     }) AS members
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -457,7 +467,7 @@ async def add_team_member(
     MERGE (u)-[:MEMBER_OF]->(t)
     RETURN u, t
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         email=email,
         slug=slug,
@@ -502,7 +512,7 @@ async def remove_team_member(
     DELETE m
     RETURN count(m) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         email=email,
         slug=slug,

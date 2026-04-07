@@ -16,7 +16,7 @@ import fastapi
 import pydantic
 import pyotp
 import qrcode
-from imbi_common import neo4j
+from imbi_common import age
 from imbi_common.auth import encryption
 
 from imbi_api import models, settings
@@ -81,7 +81,7 @@ async def get_mfa_status(
     MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     RETURN t
     """
-    async with neo4j.run(query, email=auth.require_user.email) as result:
+    async with age.run(query, email=auth.require_user.email) as result:
         records = await result.data()
 
     if not records:
@@ -156,9 +156,7 @@ async def setup_mfa(
     MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     DETACH DELETE t
     """
-    async with neo4j.run(
-        delete_query, email=auth.require_user.email
-    ) as result:
+    async with age.run(delete_query, email=auth.require_user.email) as result:
         await result.consume()
 
     # Encrypt TOTP secret before storage
@@ -173,7 +171,7 @@ async def setup_mfa(
     )
     totp_secret.set_encrypted_secret(secret, encryptor)
 
-    await neo4j.create_node(totp_secret)
+    await age.create_node(totp_secret)
     # Relationship created automatically by create_node via model annotation
 
     LOGGER.info('MFA setup initiated for user %s', auth.require_user.email)
@@ -214,7 +212,7 @@ async def verify_and_enable_mfa(
     MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     RETURN t
     """
-    async with neo4j.run(query, email=auth.require_user.email) as result:
+    async with age.run(query, email=auth.require_user.email) as result:
         records = await result.data()
 
     if not records:
@@ -272,7 +270,7 @@ async def verify_and_enable_mfa(
             t.last_used = datetime(),
             t.backup_codes = $backup_codes
         """
-        async with neo4j.run(
+        async with age.run(
             update_query,
             email=auth.require_user.email,
             backup_codes=backup_codes,
@@ -287,7 +285,7 @@ async def verify_and_enable_mfa(
         MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
         SET t.enabled = true, t.last_used = datetime()
         """
-        async with neo4j.run(
+        async with age.run(
             update_query, email=auth.require_user.email
         ) as result:
             await result.consume()
@@ -349,7 +347,7 @@ async def disable_mfa(
         MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
         RETURN t
         """
-        async with neo4j.run(
+        async with age.run(
             totp_query, email=auth.require_user.email
         ) as result:
             totp_records = await result.data()
@@ -403,7 +401,7 @@ async def disable_mfa(
     MATCH (u:User {email: $email})<-[:MFA_FOR]-(t:TOTPSecret)
     DETACH DELETE t
     """
-    async with neo4j.run(query, email=auth.require_user.email) as result:
+    async with age.run(query, email=auth.require_user.email) as result:
         await result.consume()
 
     LOGGER.info('MFA disabled for user %s', auth.require_user.email)

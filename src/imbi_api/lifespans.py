@@ -9,7 +9,7 @@ import contextlib
 import logging
 from collections import abc
 
-from imbi_common import clickhouse, neo4j
+from imbi_common import age, clickhouse
 
 from imbi_api import openapi
 from imbi_api.email.client import EmailClient
@@ -30,19 +30,19 @@ async def clickhouse_hook() -> abc.AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
-async def neo4j_hook() -> abc.AsyncIterator[None]:
-    """Initialize and manage the Neo4j connection."""
-    await neo4j.initialize()
-    async with contextlib.aclosing(neo4j):
+async def age_hook() -> abc.AsyncIterator[None]:
+    """Initialize and manage the Apache AGE connection."""
+    await age.initialize()
+    async with contextlib.aclosing(age):
         yield
 
 
 @contextlib.asynccontextmanager
-async def neo4j_setup_hook() -> abc.AsyncIterator[None]:
-    """Refresh blueprint models after Neo4j is initialized.
+async def age_setup_hook() -> abc.AsyncIterator[None]:
+    """Refresh blueprint models after AGE is initialized.
 
-    Must run after :func:`neo4j_hook`. Index/constraint creation is
-    handled by :func:`imbi_common.neo4j.initialize`.
+    Must run after :func:`age_hook`. Index/constraint creation is
+    handled by :func:`imbi_common.age.initialize`.
     """
     try:
         await openapi.refresh_blueprint_models()

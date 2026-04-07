@@ -5,8 +5,8 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import neo4j
-from neo4j import exceptions
+from imbi_common import age
+from imbi_common.age import exceptions
 
 from imbi_api import models
 from imbi_api.auth import permissions
@@ -40,7 +40,7 @@ async def create_service_account(
     )
 
     try:
-        await neo4j.create_node(sa)
+        await age.create_node(sa)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -57,7 +57,7 @@ async def create_service_account(
     RETURN o.name AS org_name, o.slug AS org_slug, r.slug AS role
     """
     organizations: list[models.OrgMembership] = []
-    async with neo4j.run(
+    async with age.run(
         membership_query,
         slug=sa.slug,
         org_slug=sa_create.organization_slug,
@@ -70,7 +70,7 @@ async def create_service_account(
             MATCH (s:ServiceAccount {slug: $slug})
             DETACH DELETE s
             """
-            async with neo4j.run(query, slug=sa.slug) as _:
+            async with age.run(query, slug=sa.slug) as _:
                 pass
             raise fastapi.HTTPException(
                 status_code=404,
@@ -116,7 +116,7 @@ async def list_service_accounts(
         parameters['is_active'] = is_active
 
     accounts: list[models.ServiceAccountResponse] = []
-    async for sa in neo4j.fetch_nodes(
+    async for sa in age.fetch_nodes(
         models.ServiceAccount,
         parameters if parameters else None,
         order_by='slug',
@@ -147,7 +147,7 @@ async def get_service_account(
     ],
 ) -> models.ServiceAccountResponse:
     """Get a service account by slug."""
-    sa = await neo4j.fetch_node(models.ServiceAccount, {'slug': slug})
+    sa = await age.fetch_node(models.ServiceAccount, {'slug': slug})
     if sa is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -164,7 +164,7 @@ async def get_service_account(
     ORDER BY o.name
     """
     organizations: list[models.OrgMembership] = []
-    async with neo4j.run(org_query, slug=slug) as result:
+    async with age.run(org_query, slug=slug) as result:
         records = await result.data()
         for record in records:
             organizations.append(
@@ -207,7 +207,7 @@ async def update_service_account(
             f'slug in body ({sa_update.slug!r})',
         )
 
-    existing = await neo4j.fetch_node(models.ServiceAccount, {'slug': slug})
+    existing = await age.fetch_node(models.ServiceAccount, {'slug': slug})
     if existing is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -222,7 +222,7 @@ async def update_service_account(
         created_at=existing.created_at,
         last_authenticated=existing.last_authenticated,
     )
-    await neo4j.upsert(updated, {'slug': slug})
+    await age.upsert(updated, {'slug': slug})
 
     return models.ServiceAccountResponse(
         slug=updated.slug,
@@ -251,7 +251,7 @@ async def delete_service_account(
     DETACH DELETE owned, s
     RETURN count(s) AS deleted
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
 
     if not records or records[0]['deleted'] == 0:
@@ -289,7 +289,7 @@ async def add_to_organization(
     SET m.role = $role_slug
     RETURN s, o, r
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -335,7 +335,7 @@ async def update_organization_role(
     SET m.role = $role_slug
     RETURN s, o, r
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -372,7 +372,7 @@ async def remove_from_organization(
     DELETE m
     RETURN count(m) AS deleted
     """
-    async with neo4j.run(query, slug=slug, org_slug=org_slug) as result:
+    async with age.run(query, slug=slug, org_slug=org_slug) as result:
         records = await result.data()
         if not records or records[0].get('deleted', 0) == 0:
             raise fastapi.HTTPException(

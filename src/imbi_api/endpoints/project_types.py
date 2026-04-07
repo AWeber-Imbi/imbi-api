@@ -6,8 +6,8 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import blueprints, models, neo4j
-from neo4j import exceptions
+from imbi_common import age, blueprints, models
+from imbi_common.age import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -90,17 +90,19 @@ async def create_project_type(
         exclude={'organization'},
     )
 
-    query: typing.LiteralString = """
-    MATCH (o:Organization {slug: $org_slug})
-    CREATE (pt:ProjectType $props)
+    prop_str = ', '.join(f'{k}: ${k}' for k in props)
+    query: typing.LiteralString = f"""
+    MATCH (o:Organization {{slug: $org_slug}})
+    CREATE (pt:ProjectType {{{prop_str}}})
     CREATE (pt)-[:BELONGS_TO]->(o)
-    RETURN pt{.*, organization: o{.*}} AS project_type
+    RETURN properties(pt) AS project_type,
+           properties(o) AS pt_org
     """
     try:
-        records = await neo4j.query(
+        records = await age.query(
             query,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -116,7 +118,9 @@ async def create_project_type(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return _add_relationships(records[0]['project_type'])
+    pt = records[0]['project_type']
+    pt['organization'] = records[0].get('pt_org')
+    return _add_relationships(pt)
 
 
 @project_types_router.get('/')
@@ -144,14 +148,16 @@ async def list_project_types(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
     WITH pt, o, count(DISTINCT p) AS project_count
-    RETURN pt{.*, organization: o{.*}} AS project_type,
+    RETURN properties(pt) AS project_type,
+           properties(o) AS pt_org,
            project_count
     ORDER BY pt.name
     """
     project_types: list[dict[str, typing.Any]] = []
-    records = await neo4j.query(query, org_slug=org_slug)
+    records = await age.query(query, org_slug=org_slug)
     for record in records:
         pt = record['project_type']
+        pt['organization'] = record.get('pt_org')
         _add_relationships(pt, record['project_count'])
         project_types.append(pt)
     return project_types
@@ -186,10 +192,11 @@ async def get_project_type(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
     WITH pt, o, count(DISTINCT p) AS project_count
-    RETURN pt{.*, organization: o{.*}} AS project_type,
+    RETURN properties(pt) AS project_type,
+           properties(o) AS pt_org,
            project_count
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -200,8 +207,10 @@ async def get_project_type(
             status_code=404,
             detail=(f'Project type with slug {slug!r} not found'),
         )
+    pt = records[0]['project_type']
+    pt['organization'] = records[0].get('pt_org')
     return _add_relationships(
-        records[0]['project_type'],
+        pt,
         records[0]['project_count'],
     )
 
@@ -247,9 +256,10 @@ async def update_project_type(
     query: typing.LiteralString = """
     MATCH (pt:ProjectType {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN pt{.*, organization: o{.*}} AS project_type
+    RETURN properties(pt) AS project_type,
+           properties(o) AS pt_org
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -262,6 +272,7 @@ async def update_project_type(
         )
 
     existing = records[0]['project_type']
+    existing['organization'] = records[0].get('pt_org')
 
     try:
         project_type = dynamic_model(
@@ -284,22 +295,24 @@ async def update_project_type(
         exclude={'organization'},
     )
 
-    update_query: typing.LiteralString = """
-    MATCH (pt:ProjectType {slug: $slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    SET pt = $props
+    set_clause = ', '.join(f'pt.{k} = ${k}' for k in props)
+    update_query: typing.LiteralString = f"""
+    MATCH (pt:ProjectType {{slug: $slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    SET {set_clause}
     WITH pt, o
     OPTIONAL MATCH (p:Project)-[:TYPE]->(pt)
     WITH pt, o, count(DISTINCT p) AS project_count
-    RETURN pt{.*, organization: o{.*}} AS project_type,
+    RETURN properties(pt) AS project_type,
+           properties(o) AS pt_org,
            project_count
     """
     try:
-        updated = await neo4j.query(
+        updated = await age.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -315,8 +328,10 @@ async def update_project_type(
             detail=(f'Project type with slug {slug!r} not found'),
         )
 
+    pt = updated[0]['project_type']
+    pt['organization'] = updated[0].get('pt_org')
     return _add_relationships(
-        updated[0]['project_type'],
+        pt,
         updated[0]['project_count'],
     )
 
@@ -350,7 +365,7 @@ async def delete_project_type(
     DETACH DELETE pt
     RETURN count(pt) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,

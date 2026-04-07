@@ -6,8 +6,8 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import blueprints, models, neo4j
-from neo4j import exceptions
+from imbi_common import age, blueprints, models
+from imbi_common.age import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -86,17 +86,19 @@ async def create_environment(
     environment.updated_at = now
     props = environment.model_dump(exclude={'organization'})
 
-    query: typing.LiteralString = """
-    MATCH (o:Organization {slug: $org_slug})
-    CREATE (e:Environment $props)
+    prop_str = ', '.join(f'{k}: ${k}' for k in props)
+    query: typing.LiteralString = f"""
+    MATCH (o:Organization {{slug: $org_slug}})
+    CREATE (e:Environment {{{prop_str}}})
     CREATE (e)-[:BELONGS_TO]->(o)
-    RETURN e{.*, organization: o{.*}} AS environment
+    RETURN properties(e) AS environment,
+           properties(o) AS env_org
     """
     try:
-        records = await neo4j.query(
+        records = await age.query(
             query,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -110,7 +112,9 @@ async def create_environment(
             detail=(f'Organization with slug {org_slug!r} not found'),
         )
 
-    return _add_relationships(records[0]['environment'])
+    env = records[0]['environment']
+    env['organization'] = records[0].get('env_org')
+    return _add_relationships(env)
 
 
 @environments_router.get('/')
@@ -138,15 +142,17 @@ async def list_environments(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
-             organization: o{.*}} AS environment,
+    RETURN properties(e) AS environment,
+           properties(o) AS env_org,
            project_count
     ORDER BY coalesce(e.sort_order, 0), e.name
     """
     environments: list[dict[str, typing.Any]] = []
-    records = await neo4j.query(query, org_slug=org_slug)
+    records = await age.query(query, org_slug=org_slug)
     for record in records:
         env = record['environment']
+        env['sort_order'] = env.get('sort_order') or 0
+        env['organization'] = record.get('env_org')
         _add_relationships(env, record['project_count'])
         environments.append(env)
     return environments
@@ -181,11 +187,11 @@ async def get_environment(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
-             organization: o{.*}} AS environment,
+    RETURN properties(e) AS environment,
+           properties(o) AS env_org,
            project_count
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -196,8 +202,11 @@ async def get_environment(
             status_code=404,
             detail=(f'Environment with slug {slug!r} not found'),
         )
+    env = records[0]['environment']
+    env['sort_order'] = env.get('sort_order') or 0
+    env['organization'] = records[0].get('env_org')
     return _add_relationships(
-        records[0]['environment'],
+        env,
         records[0]['project_count'],
     )
 
@@ -241,9 +250,10 @@ async def update_environment(
     query: typing.LiteralString = """
     MATCH (e:Environment {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN e{.*, organization: o{.*}} AS environment
+    RETURN properties(e) AS environment,
+           properties(o) AS env_org
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -256,6 +266,7 @@ async def update_environment(
         )
 
     existing = records[0]['environment']
+    existing['organization'] = records[0].get('env_org')
 
     try:
         environment = dynamic_model(
@@ -276,23 +287,24 @@ async def update_environment(
     environment.updated_at = datetime.datetime.now(datetime.UTC)
     props = environment.model_dump(exclude={'organization'})
 
-    update_query: typing.LiteralString = """
-    MATCH (e:Environment {slug: $slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    SET e = $props
+    set_clause = ', '.join(f'e.{k} = ${k}' for k in props)
+    update_query: typing.LiteralString = f"""
+    MATCH (e:Environment {{slug: $slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    SET {set_clause}
     WITH e, o
     OPTIONAL MATCH (p:Project)-[:DEPLOYED_IN]->(e)
     WITH e, o, count(DISTINCT p) AS project_count
-    RETURN e{.*, sort_order: coalesce(e.sort_order, 0),
-             organization: o{.*}} AS environment,
+    RETURN properties(e) AS environment,
+           properties(o) AS env_org,
            project_count
     """
     try:
-        updated = await neo4j.query(
+        updated = await age.query(
             update_query,
             slug=slug,
             org_slug=org_slug,
-            props=props,
+            **props,
         )
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -308,8 +320,11 @@ async def update_environment(
             detail=(f'Environment with slug {slug!r} not found'),
         )
 
+    env = updated[0]['environment']
+    env['sort_order'] = env.get('sort_order') or 0
+    env['organization'] = updated[0].get('env_org')
     return _add_relationships(
-        updated[0]['environment'],
+        env,
         updated[0]['project_count'],
     )
 
@@ -341,7 +356,7 @@ async def delete_environment(
     DETACH DELETE e
     RETURN count(e) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query,
         slug=slug,
         org_slug=org_slug,

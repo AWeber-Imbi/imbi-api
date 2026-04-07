@@ -6,7 +6,7 @@ concurrent session limits, and tracking session activity.
 
 import logging
 
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import settings
 
@@ -32,7 +32,7 @@ async def enforce_session_limit(
     RETURN s.session_id as session_id, s.last_activity as last_activity
     ORDER BY s.last_activity DESC
     """
-    async with neo4j.run(query, username=username) as result:
+    async with age.run(query, username=username) as result:
         sessions = await result.data()
 
     if len(sessions) > auth_settings.max_concurrent_sessions:
@@ -45,7 +45,7 @@ async def enforce_session_limit(
         WHERE s.session_id IN $session_ids
         DETACH DELETE s
         """
-        async with neo4j.run(delete_query, session_ids=session_ids) as result:
+        async with age.run(delete_query, session_ids=session_ids) as result:
             await result.consume()
 
         LOGGER.info(
@@ -66,7 +66,7 @@ async def update_session_activity(session_id: str) -> None:
     MATCH (s:Session {session_id: $session_id})
     SET s.last_activity = datetime()
     """
-    async with neo4j.run(query, session_id=session_id) as result:
+    async with age.run(query, session_id=session_id) as result:
         await result.consume()
 
 
@@ -86,7 +86,7 @@ async def delete_expired_sessions() -> int:
     DETACH DELETE s
     RETURN count(s) as deleted_count
     """
-    async with neo4j.run(query) as result:
+    async with age.run(query) as result:
         records = await result.data()
         count = records[0]['deleted_count'] if records else 0
 

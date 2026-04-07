@@ -12,8 +12,8 @@ import typing
 
 import fastapi
 import pydantic
-from imbi_common import neo4j
-from imbi_common.neo4j import convert_neo4j_types
+from imbi_common import age
+from imbi_common.age import convert_neo4j_types
 
 from imbi_api import models, settings
 from imbi_api.auth import password, permissions
@@ -152,8 +152,8 @@ async def create_api_key(
     )
 
     # Store in Neo4j
-    await neo4j.create_node(api_key)
-    await neo4j.create_relationship(
+    await age.create_node(api_key)
+    await age.create_relationship(
         api_key, auth.require_user, rel_type='OWNED_BY'
     )
 
@@ -196,7 +196,7 @@ async def list_api_keys(
     MATCH (u:User {email: $email})<-[:OWNED_BY]-(k:APIKey)
     RETURN k ORDER BY k.created_at DESC
     """
-    async with neo4j.run(query, email=auth.require_user.email) as result:
+    async with age.run(query, email=auth.require_user.email) as result:
         records = await result.data()
 
     api_keys = [
@@ -250,7 +250,7 @@ async def revoke_api_key(
           <-[:OWNED_BY]-(k:APIKey {key_id: $key_id})
     RETURN k
     """
-    async with neo4j.run(
+    async with age.run(
         query, username=auth.require_user.email, key_id=key_id
     ) as result:
         records = await result.data()
@@ -265,7 +265,7 @@ async def revoke_api_key(
     MATCH (k:APIKey {key_id: $key_id})
     SET k.revoked = true, k.revoked_at = datetime()
     """
-    async with neo4j.run(query, key_id=key_id) as result:
+    async with age.run(query, key_id=key_id) as result:
         await result.consume()
 
     LOGGER.info(
@@ -304,7 +304,7 @@ async def rotate_api_key(
           <-[:OWNED_BY]-(k:APIKey {key_id: $key_id})
     RETURN k
     """
-    async with neo4j.run(
+    async with age.run(
         query, username=auth.require_user.email, key_id=key_id
     ) as result:
         records = await result.data()
@@ -331,9 +331,7 @@ async def rotate_api_key(
     SET k.key_hash = $key_hash, k.last_rotated = datetime()
     RETURN k
     """
-    async with neo4j.run(
-        query, key_id=key_id, key_hash=new_key_hash
-    ) as result:
+    async with age.run(query, key_id=key_id, key_hash=new_key_hash) as result:
         await result.consume()
 
     LOGGER.info(

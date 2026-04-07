@@ -5,8 +5,8 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import neo4j
-from neo4j import exceptions
+from imbi_common import age
+from imbi_common.age import exceptions
 
 from imbi_api import models
 from imbi_api.auth import permissions
@@ -59,7 +59,7 @@ async def create_role(
     role.created_at = now
     role.updated_at = now
     try:
-        created = await neo4j.create_node(role)
+        created = await age.create_node(role)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -91,12 +91,12 @@ async def list_roles(
     WHERE m.role = r.slug
     WITH r, permission_count,
          count(DISTINCT u) AS user_count
-    RETURN r{.*} AS role,
+    RETURN properties(r) AS role,
            permission_count, user_count
     ORDER BY r.priority DESC, r.name
     """
     roles: list[dict[str, typing.Any]] = []
-    records = await neo4j.query(query)
+    records = await age.query(query)
     for record in records:
         role = record['role']
         role['relationships'] = _build_relationships(
@@ -129,7 +129,7 @@ async def get_role(
         404: If no role with the given slug exists.
 
     """
-    role = await neo4j.fetch_node(models.Role, {'slug': slug})
+    role = await age.fetch_node(models.Role, {'slug': slug})
     if role is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -142,7 +142,7 @@ async def get_role(
     RETURN p
     ORDER BY p.name
     """
-    records = await neo4j.query(perm_query, slug=slug)
+    records = await age.query(perm_query, slug=slug)
     role.permissions = [models.Permission(**r['p']) for r in records]
 
     permission_count = len(role.permissions)
@@ -152,7 +152,7 @@ async def get_role(
     MATCH (r:Role {slug: $slug})-[:INHERITS_FROM]->(parent:Role)
     RETURN parent
     """
-    records = await neo4j.query(parent_query, slug=slug)
+    records = await age.query(parent_query, slug=slug)
     if records:
         role.parent_role = models.Role(**records[0]['parent'])
 
@@ -162,7 +162,7 @@ async def get_role(
     WHERE m.role = $slug
     RETURN count(DISTINCT u) AS user_count
     """
-    records = await neo4j.query(user_count_query, slug=slug)
+    records = await age.query(user_count_query, slug=slug)
     user_count = records[0]['user_count'] if records else 0
 
     role_dict = role.model_dump()
@@ -204,7 +204,7 @@ async def list_role_users(
     WHERE m.role = $slug
     RETURN r, collect(DISTINCT u) AS users
     """
-    records = await neo4j.query(query, slug=slug)
+    records = await age.query(query, slug=slug)
     if not records or not records[0].get('r'):
         raise fastapi.HTTPException(
             status_code=404,
@@ -245,7 +245,7 @@ async def list_role_service_accounts(
     WHERE m.role = $slug
     RETURN r, collect(DISTINCT s) AS service_accounts
     """
-    records = await neo4j.query(query, slug=slug)
+    records = await age.query(query, slug=slug)
     if not records or not records[0].get('r'):
         raise fastapi.HTTPException(
             status_code=404,
@@ -279,7 +279,7 @@ async def update_role(
 
     """
     # Check if role is a system role
-    existing_role = await neo4j.fetch_node(
+    existing_role = await age.fetch_node(
         models.Role,
         {'slug': slug},
     )
@@ -295,7 +295,7 @@ async def update_role(
     else:
         role.created_at = now
     role.updated_at = now
-    await neo4j.upsert(role, {'slug': slug})
+    await age.upsert(role, {'slug': slug})
 
     # Fetch actual relationship counts from the database
     count_query: typing.LiteralString = """
@@ -307,7 +307,7 @@ async def update_role(
     RETURN count(DISTINCT u) AS user_count,
            permission_count
     """
-    records = await neo4j.query(count_query, slug=slug)
+    records = await age.query(count_query, slug=slug)
     permission_count = records[0]['permission_count'] if records else 0
     user_count = records[0]['user_count'] if records else 0
 
@@ -341,7 +341,7 @@ async def delete_role(
 
     """
     # Check if role exists and is not a system role
-    role = await neo4j.fetch_node(models.Role, {'slug': slug})
+    role = await age.fetch_node(models.Role, {'slug': slug})
     if role is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -354,7 +354,7 @@ async def delete_role(
             detail='Cannot delete system role',
         )
 
-    deleted = await neo4j.delete_node(
+    deleted = await age.delete_node(
         models.Role,
         {'slug': slug},
     )
@@ -385,7 +385,7 @@ async def grant_permission(
 
     """
     # Check if role exists
-    role = await neo4j.fetch_node(
+    role = await age.fetch_node(
         models.Role,
         {'slug': slug},
     )
@@ -396,7 +396,7 @@ async def grant_permission(
         )
 
     # Check if permission exists
-    perm = await neo4j.fetch_node(
+    perm = await age.fetch_node(
         models.Permission,
         {'name': permission_name},
     )
@@ -412,7 +412,7 @@ async def grant_permission(
     MATCH (perm:Permission {name: $permission_name})
     MERGE (role)-[:GRANTS]->(perm)
     """
-    await neo4j.query(query, slug=slug, permission_name=permission_name)
+    await age.query(query, slug=slug, permission_name=permission_name)
 
     LOGGER.info(
         'Granted permission %s to role %s',
@@ -445,7 +445,7 @@ async def revoke_permission(
 
     """
     # Check if role exists
-    role = await neo4j.fetch_node(
+    role = await age.fetch_node(
         models.Role,
         {'slug': slug},
     )
@@ -462,7 +462,7 @@ async def revoke_permission(
     DELETE r
     RETURN count(r) AS deleted
     """
-    records = await neo4j.query(
+    records = await age.query(
         query, slug=slug, permission_name=permission_name
     )
     if not records or records[0]['deleted'] == 0:

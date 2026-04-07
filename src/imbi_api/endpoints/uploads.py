@@ -9,7 +9,7 @@ import fastapi
 from botocore import (  # pyright: ignore[reportMissingTypeStubs]
     exceptions as botocore_exceptions,
 )
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import models, settings, storage
 from imbi_api.auth import permissions
@@ -132,7 +132,7 @@ async def create_upload(
     )
 
     try:
-        await neo4j.upsert(upload_model, {'id': upload_id})
+        await age.upsert(upload_model, {'id': upload_id})
     except Exception:
         LOGGER.exception(
             'Failed to save upload metadata for %s, rolling back S3 objects',
@@ -180,7 +180,7 @@ async def list_uploads(
         parameters['uploaded_by'] = uploaded_by
 
     uploads: list[UploadResponse] = []
-    async for upload in neo4j.fetch_nodes(
+    async for upload in age.fetch_nodes(
         models.Upload,
         parameters if parameters else None,
         order_by='created_at',
@@ -205,7 +205,7 @@ async def get_upload(
         404: If the upload does not exist.
 
     """
-    upload = await neo4j.fetch_node(
+    upload = await age.fetch_node(
         models.Upload,
         {'id': upload_id},
     )
@@ -246,7 +246,7 @@ async def get_upload_meta(
         404: If the upload does not exist.
 
     """
-    upload = await neo4j.fetch_node(
+    upload = await age.fetch_node(
         models.Upload,
         {'id': upload_id},
     )
@@ -274,7 +274,7 @@ async def get_upload_thumbnail(
         404: If the upload does not exist or has no thumbnail.
 
     """
-    upload = await neo4j.fetch_node(
+    upload = await age.fetch_node(
         models.Upload,
         {'id': upload_id},
     )
@@ -328,7 +328,7 @@ async def delete_upload(
         404: If the upload does not exist.
 
     """
-    upload = await neo4j.fetch_node(
+    upload = await age.fetch_node(
         models.Upload,
         {'id': upload_id},
     )
@@ -339,7 +339,7 @@ async def delete_upload(
         )
 
     # Delete Neo4j node first to avoid broken metadata on S3 failure
-    await neo4j.delete_node(models.Upload, {'id': upload_id})
+    await age.delete_node(models.Upload, {'id': upload_id})
 
     # Delete S3 objects (orphans can be cleaned up later if this fails)
     await storage_client.delete(upload.s3_key)

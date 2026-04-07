@@ -5,9 +5,9 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import neo4j
+from imbi_common import age
+from imbi_common.age import exceptions
 from imbi_common.auth import encryption
-from neo4j import exceptions
 
 from imbi_api.auth import permissions
 from imbi_api.domain import models
@@ -28,9 +28,11 @@ _APP_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
 def _build_service_response(
     record: dict[str, typing.Any],
 ) -> models.ThirdPartyServiceResponse:
-    """Build a ThirdPartyServiceResponse from a Neo4j record."""
-    service = neo4j.convert_neo4j_types(record['service'])
+    """Build a ThirdPartyServiceResponse from an AGE record."""
+    service = age.convert_neo4j_types(record['service'])
     service = _deserialize_json_fields(service, _SERVICE_JSON_FIELDS)
+    service['organization'] = record.get('svc_org')
+    service['team'] = record.get('svc_team')
     return models.ThirdPartyServiceResponse(**service)
 
 
@@ -145,36 +147,39 @@ async def create_third_party_service(
 
     neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
+    prop_str = ', '.join(f'{k}: ${k}' for k in neo4j_props)
     if data.team_slug:
-        query: typing.LiteralString = """
-        MATCH (o:Organization {slug: $org_slug})
-        MATCH (t:Team {slug: $team_slug})-[:BELONGS_TO]->(o)
-        CREATE (s:ThirdPartyService $props)
+        query: typing.LiteralString = f"""
+        MATCH (o:Organization {{slug: $org_slug}})
+        MATCH (t:Team {{slug: $team_slug}})-[:BELONGS_TO]->(o)
+        CREATE (s:ThirdPartyService {{{prop_str}}})
         CREATE (s)-[:BELONGS_TO]->(o)
         CREATE (s)-[:MANAGED_BY]->(t)
-        RETURN s{.*, organization: o{.*}, team: t{.*}}
-            AS service
+        RETURN properties(s) AS service,
+               properties(o) AS svc_org,
+               properties(t) AS svc_team
         """
         params: dict[str, typing.Any] = {
             'org_slug': org_slug,
             'team_slug': data.team_slug,
-            'props': neo4j_props,
+            **neo4j_props,
         }
     else:
-        query = """
-        MATCH (o:Organization {slug: $org_slug})
-        CREATE (s:ThirdPartyService $props)
+        query = f"""
+        MATCH (o:Organization {{slug: $org_slug}})
+        CREATE (s:ThirdPartyService {{{prop_str}}})
         CREATE (s)-[:BELONGS_TO]->(o)
-        RETURN s{.*, organization: o{.*}, team: null}
-            AS service
+        RETURN properties(s) AS service,
+               properties(o) AS svc_org,
+               null AS svc_team
         """
         params = {
             'org_slug': org_slug,
-            'props': neo4j_props,
+            **neo4j_props,
         }
 
     try:
-        async with neo4j.run(query, **params) as result:
+        async with age.run(query, **params) as result:
             records = await result.data()
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
@@ -224,11 +229,12 @@ async def list_third_party_services(
     MATCH (s:ThirdPartyService)-[:BELONGS_TO]->
           (o:Organization {slug: $org_slug})
     OPTIONAL MATCH (s)-[:MANAGED_BY]->(t:Team)
-    RETURN s{.*, organization: o{.*}, team: t{.*}}
-        AS service
+    RETURN properties(s) AS service,
+           properties(o) AS svc_org,
+           properties(t) AS svc_team
     ORDER BY s.name
     """
-    async with neo4j.run(query, org_slug=org_slug) as result:
+    async with age.run(query, org_slug=org_slug) as result:
         records = await result.data()
     return [_build_service_response(record) for record in records]
 
@@ -262,10 +268,11 @@ async def get_third_party_service(
     MATCH (s:ThirdPartyService {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (s)-[:MANAGED_BY]->(t:Team)
-    RETURN s{.*, organization: o{.*}, team: t{.*}}
-        AS service
+    RETURN properties(s) AS service,
+           properties(o) AS svc_org,
+           properties(t) AS svc_team
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -313,10 +320,11 @@ async def update_third_party_service(
     MATCH (s:ThirdPartyService {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     OPTIONAL MATCH (s)-[:MANAGED_BY]->(t:Team)
-    RETURN s{.*, organization: o{.*}, team: t{.*}}
-        AS service
+    RETURN properties(s) AS service,
+           properties(o) AS svc_org,
+           properties(t) AS svc_team
     """
-    async with neo4j.run(
+    async with age.run(
         fetch_query,
         slug=slug,
         org_slug=org_slug,
@@ -344,44 +352,47 @@ async def update_third_party_service(
 
     neo4j_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
 
+    set_clause = ', '.join(f's.{k} = ${k}' for k in neo4j_props)
     if data.team_slug:
-        update_query: typing.LiteralString = """
-        MATCH (s:ThirdPartyService {slug: $slug})
-              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        update_query: typing.LiteralString = f"""
+        MATCH (s:ThirdPartyService {{slug: $slug}})
+              -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
         OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
         DELETE old_mgr
         WITH s, o
-        MATCH (t:Team {slug: $team_slug})-[:BELONGS_TO]->(o)
-        SET s = $props
+        MATCH (t:Team {{slug: $team_slug}})-[:BELONGS_TO]->(o)
+        SET {set_clause}
         CREATE (s)-[:MANAGED_BY]->(t)
-        RETURN s{.*, organization: o{.*}, team: t{.*}}
-            AS service
+        RETURN properties(s) AS service,
+               properties(o) AS svc_org,
+               properties(t) AS svc_team
         """
         update_params: dict[str, typing.Any] = {
             'slug': slug,
             'org_slug': org_slug,
             'team_slug': data.team_slug,
-            'props': neo4j_props,
+            **neo4j_props,
         }
     else:
-        update_query = """
-        MATCH (s:ThirdPartyService {slug: $slug})
-              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        update_query = f"""
+        MATCH (s:ThirdPartyService {{slug: $slug}})
+              -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
         OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
         DELETE old_mgr
         WITH s, o
-        SET s = $props
-        RETURN s{.*, organization: o{.*}, team: null}
-            AS service
+        SET {set_clause}
+        RETURN properties(s) AS service,
+               properties(o) AS svc_org,
+               null AS svc_team
         """
         update_params = {
             'slug': slug,
             'org_slug': org_slug,
-            'props': neo4j_props,
+            **neo4j_props,
         }
 
     try:
-        async with neo4j.run(
+        async with age.run(
             update_query,
             **update_params,
         ) as result:
@@ -433,7 +444,7 @@ async def delete_third_party_service(
     DETACH DELETE a, s
     RETURN count(s) AS deleted
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -471,19 +482,23 @@ async def list_service_webhooks(
     MATCH (w)-[:BELONGS_TO]->(o)
     OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
     WITH w, tps, impl,
-         collect(r{
-                .filter_expression, .handler,
-                .handler_config, .ordinal})
+         collect({
+                filter_expression: r.filter_expression,
+                handler: r.handler,
+                handler_config: r.handler_config,
+                ordinal: r.ordinal})
             AS all_rules
-    RETURN w{.*} AS webhook,
-           tps{.*} AS tps,
+    RETURN properties(w) AS webhook,
+           properties(tps) AS tps,
            impl.identifier_selector AS identifier_selector,
            [x IN all_rules
-            | x {.filter_expression, .handler, .handler_config}]
+            | {filter_expression: x.filter_expression,
+               handler: x.handler,
+               handler_config: x.handler_config}]
                AS rules
     ORDER BY w.name
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -515,10 +530,10 @@ async def list_service_applications(
     MATCH (a:ServiceApplication)-[:REGISTERED_IN]->
           (s:ThirdPartyService {slug: $slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN a{.*} AS app
+    RETURN properties(a) AS app
     ORDER BY a.name
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         org_slug=org_slug,
@@ -527,7 +542,7 @@ async def list_service_applications(
 
     apps: list[models.ServiceApplicationResponse] = []
     for record in records:
-        app = neo4j.convert_neo4j_types(record['app'])
+        app = age.convert_neo4j_types(record['app'])
         app = _deserialize_json_fields(app, _APP_JSON_FIELDS)
         _strip_secrets(app)
         apps.append(models.ServiceApplicationResponse(**app))
@@ -559,7 +574,7 @@ async def create_service_application(
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
     RETURN count(a) AS cnt
     """
-    async with neo4j.run(
+    async with age.run(
         check_query,
         app_slug=data.slug,
         svc_slug=slug,
@@ -592,18 +607,19 @@ async def create_service_application(
 
     neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
-    create_query: typing.LiteralString = """
-    MATCH (s:ThirdPartyService {slug: $svc_slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    CREATE (a:ServiceApplication $props)
+    app_prop_str = ', '.join(f'{k}: ${k}' for k in neo4j_props)
+    create_query: typing.LiteralString = f"""
+    MATCH (s:ThirdPartyService {{slug: $svc_slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    CREATE (a:ServiceApplication {{{app_prop_str}}})
     CREATE (a)-[:REGISTERED_IN]->(s)
-    RETURN a{.*} AS app
+    RETURN properties(a) AS app
     """
-    async with neo4j.run(
+    async with age.run(
         create_query,
         svc_slug=slug,
         org_slug=org_slug,
-        props=neo4j_props,
+        **neo4j_props,
     ) as result:
         records = await result.data()
 
@@ -613,7 +629,7 @@ async def create_service_application(
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
 
-    app = neo4j.convert_neo4j_types(records[0]['app'])
+    app = age.convert_neo4j_types(records[0]['app'])
     app = _deserialize_json_fields(app, _APP_JSON_FIELDS)
     _strip_secrets(app)
     return models.ServiceApplicationResponse(**app)
@@ -629,9 +645,9 @@ async def _fetch_application(
     MATCH (a:ServiceApplication {slug: $app_slug})
           -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
           -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    RETURN a{.*} AS app
+    RETURN properties(a) AS app
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         app_slug=app_slug,
         svc_slug=svc_slug,
@@ -646,7 +662,7 @@ async def _fetch_application(
                 f'Application {app_slug!r} not found in service {svc_slug!r}'
             ),
         )
-    app = neo4j.convert_neo4j_types(records[0]['app'])
+    app = age.convert_neo4j_types(records[0]['app'])
     return _deserialize_json_fields(app, _APP_JSON_FIELDS)
 
 
@@ -707,19 +723,20 @@ async def update_service_application(
 
     neo4j_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
 
-    update_query: typing.LiteralString = """
-    MATCH (a:ServiceApplication {slug: $app_slug})
-          -[:REGISTERED_IN]->(s:ThirdPartyService {slug: $svc_slug})
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    SET a = $props
-    RETURN a{.*} AS app
+    app_set_clause = ', '.join(f'a.{k} = ${k}' for k in neo4j_props)
+    update_query: typing.LiteralString = f"""
+    MATCH (a:ServiceApplication {{slug: $app_slug}})
+          -[:REGISTERED_IN]->(s:ThirdPartyService {{slug: $svc_slug}})
+          -[:BELONGS_TO]->(o:Organization {{slug: $org_slug}})
+    SET {app_set_clause}
+    RETURN properties(a) AS app
     """
-    async with neo4j.run(
+    async with age.run(
         update_query,
         app_slug=app_slug,
         svc_slug=slug,
         org_slug=org_slug,
-        props=neo4j_props,
+        **neo4j_props,
     ) as result:
         updated = await result.data()
 
@@ -729,7 +746,7 @@ async def update_service_application(
             detail=(f'Application {app_slug!r} not found in service {slug!r}'),
         )
 
-    app = neo4j.convert_neo4j_types(updated[0]['app'])
+    app = age.convert_neo4j_types(updated[0]['app'])
     app = _deserialize_json_fields(app, _APP_JSON_FIELDS)
     _strip_secrets(app)
     return models.ServiceApplicationResponse(**app)
@@ -760,7 +777,7 @@ async def delete_service_application(
     DETACH DELETE a
     RETURN count(a) AS deleted
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         app_slug=app_slug,
         svc_slug=slug,
@@ -857,9 +874,9 @@ async def update_application_secrets(
         a.webhook_secret = $webhook_secret,
         a.private_key = $private_key,
         a.signing_secret = $signing_secret
-    RETURN a{.*} AS app
+    RETURN properties(a) AS app
     """
-    async with neo4j.run(
+    async with age.run(
         update_query,
         app_slug=app_slug,
         svc_slug=slug,

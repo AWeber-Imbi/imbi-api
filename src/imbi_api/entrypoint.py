@@ -3,7 +3,7 @@ import datetime
 import getpass
 
 import typer
-from imbi_common import clickhouse, neo4j, server
+from imbi_common import age, clickhouse, server
 
 from imbi_api import models
 from imbi_api.auth import password as password_auth
@@ -33,7 +33,7 @@ async def _setup_async() -> None:
 
     # Initialize Neo4j connection
     try:
-        await neo4j.initialize()
+        await age.initialize()
     except Exception as e:
         typer.echo(f'✗ Failed to connect to Neo4j: {e}', err=True)
         raise typer.Exit(code=1) from e
@@ -43,7 +43,7 @@ async def _setup_async() -> None:
         await clickhouse.initialize()
     except Exception as e:
         typer.echo(f'✗ Failed to connect to ClickHouse: {e}', err=True)
-        await neo4j.aclose()
+        await age.aclose()
         raise typer.Exit(code=1) from e
 
     try:
@@ -140,7 +140,7 @@ async def _setup_async() -> None:
         typer.echo(f'\nYou can now log in with: {email}')
 
     finally:
-        await neo4j.aclose()
+        await age.aclose()
         await clickhouse.aclose()
 
 
@@ -156,7 +156,7 @@ async def _check_admin_exists() -> bool:
     RETURN count(u) AS count
     """
 
-    async with neo4j.run(query) as result:
+    async with age.run(query) as result:
         records = await result.data()
         if records and records[0].get('count', 0) > 0:
             return True
@@ -216,7 +216,7 @@ async def _create_admin_user(
     RETURN u
     """
 
-    async with neo4j.run(
+    async with age.run(
         query=query,
         email=user.email,
         display_name=user.display_name,
@@ -238,7 +238,7 @@ async def _create_admin_user(
     SET m.role = 'admin'
     """
 
-    async with neo4j.run(
+    async with age.run(
         query=membership_query,
         email=email,
         org_slug=org_slug,

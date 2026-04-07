@@ -11,7 +11,7 @@ import secrets
 import typing
 
 import fastapi
-from imbi_common import neo4j
+from imbi_common import age
 
 from imbi_api import settings
 from imbi_api.auth import password, permissions
@@ -42,7 +42,7 @@ async def _get_service_account(slug: str) -> dict[str, typing.Any]:
     MATCH (s:ServiceAccount {slug: $slug})
     RETURN s
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
 
     if not records:
@@ -130,7 +130,7 @@ async def create_sa_api_key(
     })-[:OWNED_BY]->(s)
     RETURN k
     """
-    async with neo4j.run(
+    async with age.run(
         query,
         slug=slug,
         key_id=key_id,
@@ -189,11 +189,11 @@ async def list_sa_api_keys(
           <-[:OWNED_BY]-(k:APIKey)
     RETURN k ORDER BY k.created_at DESC
     """
-    async with neo4j.run(query, slug=slug) as result:
+    async with age.run(query, slug=slug) as result:
         records = await result.data()
 
     keys = [
-        api_keys.APIKeyResponse(**neo4j.convert_neo4j_types(record['k']))
+        api_keys.APIKeyResponse(**age.convert_neo4j_types(record['k']))
         for record in records
     ]
 
@@ -239,7 +239,7 @@ async def revoke_sa_api_key(
     SET k.revoked = true, k.revoked_at = datetime()
     RETURN k
     """
-    async with neo4j.run(query, slug=slug, key_id=key_id) as result:
+    async with age.run(query, slug=slug, key_id=key_id) as result:
         records = await result.data()
 
     if not records:
@@ -296,7 +296,7 @@ async def rotate_sa_api_key(
           <-[:OWNED_BY]-(k:APIKey {key_id: $key_id})
     RETURN k
     """
-    async with neo4j.run(query, slug=slug, key_id=key_id) as result:
+    async with age.run(query, slug=slug, key_id=key_id) as result:
         records = await result.data()
 
     if not records:
@@ -324,7 +324,7 @@ async def rotate_sa_api_key(
     SET k.key_hash = $key_hash, k.last_rotated = datetime()
     RETURN k
     """
-    async with neo4j.run(
+    async with age.run(
         query, slug=slug, key_id=key_id, key_hash=new_key_hash
     ) as result:
         await result.consume()

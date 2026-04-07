@@ -4,8 +4,8 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import models, neo4j
-from neo4j import exceptions
+from imbi_common import age, models
+from imbi_common.age import exceptions
 
 from imbi_api import openapi
 from imbi_api.auth import permissions
@@ -39,7 +39,7 @@ async def create_blueprint(
         409: Blueprint with the same name and type already exists.
     """
     try:
-        result = await neo4j.create_node(blueprint)
+        result = await age.create_node(blueprint)
     except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -76,7 +76,7 @@ async def list_blueprints(
         parameters['enabled'] = enabled
 
     blueprints: list[models.Blueprint] = []
-    async for blueprint in neo4j.fetch_nodes(
+    async for blueprint in age.fetch_nodes(
         models.Blueprint,
         parameters if parameters else None,
         order_by='name',
@@ -115,7 +115,7 @@ async def list_blueprints_by_type(
         parameters['enabled'] = enabled
 
     blueprints: list[models.Blueprint] = []
-    async for blueprint in neo4j.fetch_nodes(
+    async for blueprint in age.fetch_nodes(
         models.Blueprint, parameters, order_by='name'
     ):
         blueprints.append(blueprint)
@@ -146,7 +146,7 @@ async def get_blueprint(
     Raises:
         404: If no blueprint exists with the given type and slug.
     """
-    blueprint = await neo4j.fetch_node(
+    blueprint = await age.fetch_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if blueprint is None:
@@ -189,7 +189,7 @@ async def update_blueprint(
         400: If the URL `slug` does not match `blueprint.slug` or the
             URL `type` does not match `blueprint.type`.
     """
-    await neo4j.upsert(
+    await age.upsert(
         blueprint,
         {'slug': slug, 'type': blueprint_type},
         auto_increment=['version'],
@@ -224,7 +224,7 @@ async def delete_blueprint(
     Raises:
         404: If no blueprint with the given type and slug exists.
     """
-    deleted = await neo4j.delete_node(
+    deleted = await age.delete_node(
         models.Blueprint, {'slug': slug, 'type': blueprint_type}
     )
     if not deleted:
