@@ -304,10 +304,7 @@ async def create_project(
             props=props,
             env_entries=env_entries,
         )
-    except (
-        exceptions.ConstraintError,
-        exceptions.ClientError,
-    ) as e:
+    except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=(f'Project with id {project_id!r} already exists'),
@@ -764,10 +761,7 @@ async def update_project(
                 for s, u in (data.environments or {}).items()
             ],
         )
-    except (
-        exceptions.ConstraintError,
-        exceptions.ClientError,
-    ) as e:
+    except exceptions.ConstraintError as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=str(e),

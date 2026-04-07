@@ -222,7 +222,9 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             ) as mock_get_model,
             mock.patch(
                 'imbi_common.neo4j.query',
-                side_effect=exceptions.ClientError('Project already exists'),
+                side_effect=exceptions.ConstraintError(
+                    'Project already exists',
+                ),
             ),
         ):
             mock_get_model.return_value = models.Project
@@ -497,7 +499,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                             'current_type_slugs': ['api-service'],
                         },
                     ],
-                    exceptions.ClientError(
+                    exceptions.ConstraintError(
                         'Project with slug "conflicting-slug" already'
                         ' exists for project type "api-service"'
                     ),

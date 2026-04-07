@@ -8,8 +8,8 @@ Re-exports all shared settings for convenience.
 """
 
 import os
-import re
 import typing
+import urllib.parse
 
 import pydantic
 import pydantic_settings
@@ -24,9 +24,9 @@ def _parse_k8s_port(value: typing.Any) -> typing.Any:
     env prefix matches. Detect that format and pull out the port number.
     """
     if isinstance(value, str):
-        m = re.fullmatch(r'(?:tcp|udp)://[^:]+:(\d+)', value)
-        if m:
-            return int(m.group(1))
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme in ('tcp', 'udp') and parsed.port is not None:
+            return parsed.port
     return value
 
 
