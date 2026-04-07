@@ -604,26 +604,26 @@ class GetModelIntegrationTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         self.org = models.Organization(name='Test Org', slug='test-org')
-        # Initialize Neo4j connection
+        # Initialize AGE connection
         await age.initialize()
         # Clean up any existing test blueprints before starting
         async with age.session() as session:
-            await session.run(
+            await session.execute(
                 "MATCH (b:Blueprint {type: 'Environment'}) DETACH DELETE b"
             )
 
     async def asyncTearDown(self) -> None:
         # Clean up test blueprints
         async with age.session() as session:
-            await session.run(
+            await session.execute(
                 "MATCH (b:Blueprint {name: 'test-rtt'}) DETACH DELETE b"
             )
-        # Close Neo4j connection
+        # Close AGE connection
         await age.aclose()
         await super().asyncTearDown()
 
-    async def test_round_trip_with_neo4j(self) -> None:
-        """Test round-trip: create blueprint in Neo4j and build model."""
+    async def test_round_trip_with_age(self) -> None:
+        """Test round-trip: create blueprint in AGE and build model."""
         # Create a test blueprint
         blueprint = models.Blueprint(
             name='test-rtt',

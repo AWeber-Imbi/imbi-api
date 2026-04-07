@@ -329,11 +329,23 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
             user=self.test_user,
         )
 
+        mock_run_result = mock.AsyncMock()
+        mock_run_result.__aenter__ = mock.AsyncMock(
+            return_value=mock_run_result
+        )
+        mock_run_result.__aexit__ = mock.AsyncMock(return_value=None)
+        mock_run_result.consume = mock.AsyncMock()
+        mock_run_result.data = mock.AsyncMock(return_value=[])
+
         with (
             mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
             mock.patch('imbi_common.age.fetch_node') as mock_fetch,
             mock.patch('imbi_common.age.create_node'),
             mock.patch('imbi_common.age.upsert'),
+            mock.patch(
+                'imbi_common.age.run',
+                return_value=mock_run_result,
+            ),
         ):
             # Mock settings to use our test JWT secret
             mock_settings.return_value = self.auth_settings

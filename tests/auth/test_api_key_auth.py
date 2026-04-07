@@ -323,20 +323,14 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn('read:projects', auth_context.permissions)
             self.assertNotIn('write:projects', auth_context.permissions)
 
-    async def test_authenticate_api_key_neo4j_datetime_expiration(
+    async def test_authenticate_api_key_datetime_expiration(
         self,
     ) -> None:
-        """Test API key expiration with Neo4j DateTime object."""
-
-        # Create Neo4j DateTime-like object with to_native() method
-        class MockNeo4jDateTime:
-            def to_native(self):
-                return datetime.datetime.now(
-                    datetime.UTC
-                ) - datetime.timedelta(days=1)
-
+        """Test API key expiration with datetime object."""
         expired_key_data = self.api_key_data.copy()
-        expired_key_data['expires_at'] = MockNeo4jDateTime()  # type: ignore[assignment]
+        expired_key_data['expires_at'] = datetime.datetime.now(
+            datetime.UTC
+        ) - datetime.timedelta(days=1)
 
         def mock_run(query: str, **params):
             mock_result = mock.AsyncMock()
@@ -366,20 +360,14 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cm.exception.status_code, 401)
         self.assertEqual(cm.exception.detail, 'API key expired')
 
-    async def test_authenticate_api_key_neo4j_datetime_not_expired(
+    async def test_authenticate_api_key_datetime_not_expired(
         self,
     ) -> None:
-        """Test API key with Neo4j DateTime that is NOT expired."""
-
-        # Create Neo4j DateTime-like object with future expiration
-        class MockNeo4jDateTime:
-            def to_native(self):
-                return datetime.datetime.now(
-                    datetime.UTC
-                ) + datetime.timedelta(days=30)
-
+        """Test API key with future expiration datetime."""
         valid_key_data = self.api_key_data.copy()
-        valid_key_data['expires_at'] = MockNeo4jDateTime()  # type: ignore[assignment]
+        valid_key_data['expires_at'] = datetime.datetime.now(
+            datetime.UTC
+        ) + datetime.timedelta(days=30)
 
         def mock_run(query: str, **params):
             mock_result = mock.AsyncMock()

@@ -32,7 +32,7 @@ def _parse_k8s_port(value: typing.Any) -> typing.Any:
 
 # Re-export shared settings
 Clickhouse = settings.Clickhouse
-Neo4j = settings.Neo4j
+AGE = settings.AGE
 base_settings_config = settings.base_settings_config
 
 

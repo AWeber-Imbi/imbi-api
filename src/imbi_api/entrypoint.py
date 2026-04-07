@@ -31,11 +31,11 @@ async def _setup_async() -> None:
     """Async implementation of setup command."""
     typer.echo('=== Imbi Setup ===\n')
 
-    # Initialize Neo4j connection
+    # Initialize AGE connection
     try:
         await age.initialize()
     except Exception as e:
-        typer.echo(f'✗ Failed to connect to Neo4j: {e}', err=True)
+        typer.echo(f'✗ Failed to connect to AGE: {e}', err=True)
         raise typer.Exit(code=1) from e
 
     # Initialize ClickHouse connection

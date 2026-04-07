@@ -182,14 +182,14 @@ class SetupTestCase(unittest.TestCase):
         self.assertIn('Organization already exists: aweber', result.output)
         self.assertIn('already exist', result.output)
 
-    def test_setup_neo4j_connection_failure(self) -> None:
-        """Test setup when Neo4j connection fails."""
+    def test_setup_age_connection_failure(self) -> None:
+        """Test setup when AGE connection fails."""
         self.mock_neo4j_init.side_effect = ConnectionError('refused')
 
         result = self.runner.invoke(entrypoint.main, ['setup'])
 
         self.assertEqual(result.exit_code, 1)
-        self.assertIn('Failed to connect to Neo4j', result.output)
+        self.assertIn('Failed to connect to AGE', result.output)
         self.mock_ch_init.assert_not_awaited()
 
     def test_setup_clickhouse_connection_failure(self) -> None:
