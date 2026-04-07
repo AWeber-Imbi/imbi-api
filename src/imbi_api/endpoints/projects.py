@@ -659,7 +659,7 @@ async def update_project(
             ),
             project_types=[],
             environments=[],
-            **merged,
+            **merged,  # type: ignore[arg-type]
             **extra_fields,
         )
     except pydantic.ValidationError as e:
