@@ -11,9 +11,9 @@ import typing
 
 import fastapi
 import nanoid
+import psycopg
 import pydantic
-from imbi_common import blueprints, models, neo4j
-from neo4j import exceptions
+from imbi_common import blueprints, graph, models
 
 from imbi_api.auth import permissions
 from imbi_api.relationships import relationship_link
@@ -130,7 +130,7 @@ class ProjectResponse(pydantic.BaseModel):
         cls,
         value: typing.Any,
     ) -> typing.Any:
-        """Neo4j stores dicts as JSON strings."""
+        """Graph stores dicts as JSON strings."""
         if isinstance(value, str):
             return json.loads(value)
         return value
@@ -180,26 +180,26 @@ def _add_relationships(
 # -- Return fragment used by all read queries ---------------------------
 
 _RETURN_FRAGMENT: typing.LiteralString = """
-    CALL {
+    CALL {{
         WITH p, o
         MATCH (p)-[:OWNED_BY]->(t:Team)
-        RETURN t{.*, organization: o{.*}} AS team
+        RETURN t{{.*, organization: o{{.*}}}} AS team
         LIMIT 1
-    }
-    CALL {
+    }}
+    CALL {{
         WITH p, o
         MATCH (p)-[:TYPE]->(pt:ProjectType)
-        RETURN collect(pt{.*, organization: o{.*}}) AS pts
-    }
-    CALL {
+        RETURN collect(pt{{.*, organization: o{{.*}}}}) AS pts
+    }}
+    CALL {{
         WITH p, o
         OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
-        RETURN collect(env{.*,
+        RETURN collect(env{{.*,
                            sort_order: coalesce(env.sort_order, 0),
                            url: d.url,
-                           organization: o{.*}}) AS envs
-    }
-    CALL {
+                           organization: o{{.*}}}}) AS envs
+    }}
+    CALL {{
         WITH p
         OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
               -[:OWNED_BY]->(:Team)
@@ -214,13 +214,13 @@ _RETURN_FRAGMENT: typing.LiteralString = """
                              + dep.id
                    END
                ) WHERE x IS NOT NULL] AS dependency_uris
-    }
-    RETURN p{.*,
+    }}
+    RETURN p{{.*,
         team: team,
         project_types: pts,
         environments: envs,
         dependency_uris: dependency_uris
-    } AS project,
+    }} AS project,
     dependency_count
 """
 
@@ -232,6 +232,7 @@ _RETURN_FRAGMENT: typing.LiteralString = """
 async def create_project(
     org_slug: str,
     data: ProjectCreate,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -241,6 +242,7 @@ async def create_project(
 ) -> ProjectResponse:
     """Create a new project in an organization."""
     dynamic_model = await blueprints.get_model(
+        db,
         models.Project,
         context={'project_type': data.project_type_slugs},
     )
@@ -296,18 +298,25 @@ async def create_project(
     # Pre-validate that all project type slugs exist before creating
     # anything, to avoid orphaned Project nodes when slugs are invalid.
     validate_query: typing.LiteralString = """
-    MATCH (o:Organization {slug: $org_slug})
-    UNWIND $pt_slugs AS pt_slug
-    OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
+    MATCH (o:Organization {{slug: {org_slug}}})
+    UNWIND {pt_slugs} AS pt_slug
+    OPTIONAL MATCH (pt:ProjectType {{slug: pt_slug}})
              -[:BELONGS_TO]->(o)
     RETURN pt_slug, pt IS NOT NULL AS found
     """
-    validation = await neo4j.query(
+    validation = await db.execute(
         validate_query,
-        org_slug=org_slug,
-        pt_slugs=data.project_type_slugs,
+        {
+            'org_slug': org_slug,
+            'pt_slugs': data.project_type_slugs,
+        },
+        ['pt_slug', 'found'],
     )
-    missing = [r['pt_slug'] for r in validation if not r['found']]
+    missing = [
+        graph.parse_agtype(r['pt_slug'])
+        for r in validation
+        if not graph.parse_agtype(r['found'])
+    ]
     if missing:
         raise fastapi.HTTPException(
             status_code=422,
@@ -316,14 +325,14 @@ async def create_project(
 
     query: typing.LiteralString = (
         """
-    MATCH (o:Organization {slug: $org_slug})
-    MATCH (t:Team {slug: $team_slug})
+    MATCH (o:Organization {{slug: {org_slug}}})
+    MATCH (t:Team {{slug: {team_slug}}})
           -[:BELONGS_TO]->(o)
-    CREATE (p:Project $props)
+    CREATE (p:Project {props})
     CREATE (p)-[:OWNED_BY]->(t)
     WITH p, t, o
-    UNWIND $pt_slugs AS pt_slug
-    OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
+    UNWIND {pt_slugs} AS pt_slug
+    OPTIONAL MATCH (pt:ProjectType {{slug: pt_slug}})
           -[:BELONGS_TO]->(o)
     FOREACH (_ IN CASE WHEN pt IS NOT NULL
                        THEN [1] ELSE [] END |
@@ -331,15 +340,15 @@ async def create_project(
     )
     WITH DISTINCT p, t, o
     UNWIND
-        CASE WHEN size($env_entries) = 0
+        CASE WHEN size({env_entries}) = 0
              THEN [null]
-             ELSE $env_entries
+             ELSE {env_entries}
         END AS entry
-    OPTIONAL MATCH (e:Environment {slug: entry.slug})
+    OPTIONAL MATCH (e:Environment {{slug: entry.slug}})
              -[:BELONGS_TO]->(o)
     FOREACH (_ IN CASE WHEN e IS NOT NULL
                        THEN [1] ELSE [] END |
-        CREATE (p)-[:DEPLOYED_IN {url: entry.url}]->(e)
+        CREATE (p)-[:DEPLOYED_IN {{url: entry.url}}]->(e)
     )
     WITH DISTINCT p, t, o
     """
@@ -349,15 +358,18 @@ async def create_project(
         {'slug': slug, 'url': url} for slug, url in data.environments.items()
     ]
     try:
-        records = await neo4j.query(
+        records = await db.execute(
             query,
-            org_slug=org_slug,
-            team_slug=data.team_slug,
-            pt_slugs=data.project_type_slugs,
-            props=props,
-            env_entries=env_entries,
+            {
+                'org_slug': org_slug,
+                'team_slug': data.team_slug,
+                'pt_slugs': data.project_type_slugs,
+                'props': props,
+                'env_entries': env_entries,
+            },
+            ['project', 'dependency_count'],
         )
-    except exceptions.ConstraintError as e:
+    except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=(f'Project with id {project_id!r} already exists'),
@@ -373,14 +385,15 @@ async def create_project(
             ),
         )
 
-    project = records[0]['project']
-    result = _add_relationships(project, org_slug)
+    project_data = graph.parse_agtype(records[0]['project'])
+    result = _add_relationships(project_data, org_slug)
     return ProjectResponse.model_validate(result)
 
 
 @projects_router.get('/')
 async def list_projects(
     org_slug: str,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -391,14 +404,14 @@ async def list_projects(
 ) -> list[ProjectResponse]:
     """List all projects, optionally filtered by type."""
     type_filter: typing.LiteralString = (
-        'MATCH (p)-[:TYPE]->(filter_pt:ProjectType {slug: $project_type})'
+        'MATCH (p)-[:TYPE]->(filter_pt:ProjectType {{slug: {project_type}}})'
         if project_type
         else ''
     )
     query: typing.LiteralString = (
         """
     MATCH (p:Project)-[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p, o
     """
         + type_filter
@@ -408,16 +421,19 @@ async def list_projects(
     """
     )
     results: list[ProjectResponse] = []
-    records = await neo4j.query(
+    records = await db.execute(
         query,
-        org_slug=org_slug,
-        project_type=project_type,
+        {
+            'org_slug': org_slug,
+            'project_type': project_type,
+        },
+        ['project', 'dependency_count'],
     )
     for record in records:
         proj = _add_relationships(
-            record['project'],
+            graph.parse_agtype(record['project']),
             org_slug,
-            record['dependency_count'],
+            graph.parse_agtype(record['dependency_count']),
         )
         results.append(
             ProjectResponse.model_validate(proj),
@@ -464,6 +480,7 @@ class ProjectSchemaResponse(pydantic.BaseModel):
 async def get_project_schema(
     org_slug: str,
     project_id: str,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -479,25 +496,28 @@ async def get_project_schema(
     """
     # Fetch the project's type slugs and environment slugs
     lookup: typing.LiteralString = """
-    MATCH (p:Project {id: $project_id})
+    MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
-    CALL {
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
+    CALL {{
         WITH p
         MATCH (p)-[:TYPE]->(pt:ProjectType)
         RETURN collect(pt.slug) AS type_slugs
-    }
-    CALL {
+    }}
+    CALL {{
         WITH p
         OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
         RETURN collect(env.slug) AS env_slugs
-    }
+    }}
     RETURN type_slugs, env_slugs
     """
-    records = await neo4j.query(
+    records = await db.execute(
         lookup,
-        project_id=project_id,
-        org_slug=org_slug,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['type_slugs', 'env_slugs'],
     )
     if not records:
         raise fastapi.HTTPException(
@@ -505,22 +525,24 @@ async def get_project_schema(
             detail=f'Project {project_id!r} not found',
         )
 
-    type_slugs: set[str] = set(records[0]['type_slugs'] or [])
-    env_slugs: set[str] = set(records[0]['env_slugs'] or [])
+    type_slugs: set[str] = set(
+        graph.parse_agtype(records[0]['type_slugs']) or []
+    )
+    env_slugs: set[str] = set(
+        graph.parse_agtype(records[0]['env_slugs']) or []
+    )
 
     # Fetch all enabled Project blueprints ordered by priority
-    all_blueprints: list[models.Blueprint] = []
-    async for bp in neo4j.fetch_nodes(
+    all_blueprints = await db.match(
         models.Blueprint,
         {'type': 'Project', 'enabled': True},
         order_by='priority',
-    ):
-        all_blueprints.append(bp)
+    )
 
-    # Match blueprints whose filters intersect the project's own types/envs.
-    # A blueprint with no filter matches everything.
-    # A blueprint with a project_type filter matches if any of the project's
-    # types appear in that list (same for environment).
+    # Match blueprints whose filters intersect the project's own
+    # types/envs. A blueprint with no filter matches everything.
+    # A blueprint with a project_type filter matches if any of
+    # the project's types appear in that list (same for environment).
     sections: list[BlueprintSection] = []
     for bp in all_blueprints:
         f = bp.filter
@@ -569,6 +591,7 @@ async def get_project_schema(
 async def get_project(
     org_slug: str,
     project_id: str,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -579,17 +602,20 @@ async def get_project(
     """Get a project by ID."""
     query: typing.LiteralString = (
         """
-    MATCH (p:Project {id: $project_id})
+    MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p, o
     """
         + _RETURN_FRAGMENT
     )
-    records = await neo4j.query(
+    records = await db.execute(
         query,
-        project_id=project_id,
-        org_slug=org_slug,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['project', 'dependency_count'],
     )
 
     if not records:
@@ -598,9 +624,9 @@ async def get_project(
             detail=f'Project {project_id!r} not found',
         )
     result = _add_relationships(
-        records[0]['project'],
+        graph.parse_agtype(records[0]['project']),
         org_slug,
-        records[0]['dependency_count'],
+        graph.parse_agtype(records[0]['dependency_count']),
     )
     return ProjectResponse.model_validate(result)
 
@@ -610,6 +636,7 @@ async def update_project(
     org_slug: str,
     project_id: str,
     data: ProjectUpdate,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -620,29 +647,32 @@ async def update_project(
     """Update a project."""
     # Fetch existing project to determine current types
     fetch_query: typing.LiteralString = """
-    MATCH (p:Project {id: $project_id})
+    MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p
-    CALL {
+    CALL {{
         WITH p
         MATCH (p)-[:OWNED_BY]->(t:Team)
         RETURN t.slug AS team_slug
         LIMIT 1
-    }
-    CALL {
+    }}
+    CALL {{
         WITH p
         MATCH (p)-[:TYPE]->(pt:ProjectType)
         RETURN collect(pt.slug) AS type_slugs
-    }
-    RETURN p{.*} AS project,
+    }}
+    RETURN p{{.*}} AS project,
            team_slug AS current_team_slug,
            type_slugs AS current_type_slugs
     """
-    records = await neo4j.query(
+    records = await db.execute(
         fetch_query,
-        project_id=project_id,
-        org_slug=org_slug,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['project', 'current_team_slug', 'current_type_slugs'],
     )
 
     if not records:
@@ -651,14 +681,15 @@ async def update_project(
             detail=f'Project {project_id!r} not found',
         )
 
-    existing = records[0]['project']
-    current_team = records[0]['current_team_slug']
-    current_types = records[0]['current_type_slugs']
+    existing = graph.parse_agtype(records[0]['project'])
+    current_team = graph.parse_agtype(records[0]['current_team_slug'])
+    current_types = graph.parse_agtype(records[0]['current_type_slugs'])
 
     effective_team = data.team_slug or current_team
     effective_types = data.project_type_slugs or current_types
 
     dynamic_model = await blueprints.get_model(
+        db,
         models.Project,
         context={'project_type': effective_types},
     )
@@ -747,14 +778,17 @@ async def update_project(
     # subsequent strict MATCH on the team returns 0 rows).
     if data.team_slug:
         team_check: typing.LiteralString = """
-        MATCH (t:Team {slug: $team_slug})
-              -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+        MATCH (t:Team {{slug: {team_slug}}})
+              -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
         RETURN t.slug AS slug
         """
-        team_records = await neo4j.query(
+        team_records = await db.execute(
             team_check,
-            team_slug=data.team_slug,
-            org_slug=org_slug,
+            {
+                'team_slug': data.team_slug,
+                'org_slug': org_slug,
+            },
+            ['slug'],
         )
         if not team_records:
             raise fastapi.HTTPException(
@@ -769,18 +803,25 @@ async def update_project(
     # silently deleting existing TYPE edges with no replacements.
     if data.project_type_slugs is not None:
         pt_check: typing.LiteralString = """
-        MATCH (o:Organization {slug: $org_slug})
-        UNWIND $pt_slugs AS pt_slug
-        OPTIONAL MATCH (pt:ProjectType {slug: pt_slug})
+        MATCH (o:Organization {{slug: {org_slug}}})
+        UNWIND {pt_slugs} AS pt_slug
+        OPTIONAL MATCH (pt:ProjectType {{slug: pt_slug}})
                  -[:BELONGS_TO]->(o)
         RETURN pt_slug, pt IS NOT NULL AS found
         """
-        pt_records = await neo4j.query(
+        pt_records = await db.execute(
             pt_check,
-            org_slug=org_slug,
-            pt_slugs=data.project_type_slugs,
+            {
+                'org_slug': org_slug,
+                'pt_slugs': data.project_type_slugs,
+            },
+            ['pt_slug', 'found'],
         )
-        missing = [r['pt_slug'] for r in pt_records if not r['found']]
+        missing = [
+            graph.parse_agtype(r['pt_slug'])
+            for r in pt_records
+            if not graph.parse_agtype(r['found'])
+        ]
         if missing:
             raise fastapi.HTTPException(
                 status_code=422,
@@ -794,7 +835,7 @@ async def update_project(
     if data.team_slug:
         rel_clauses += """
     WITH p, o
-    MATCH (new_t:Team {slug: $new_team_slug})
+    MATCH (new_t:Team {{slug: {new_team_slug}}})
           -[:BELONGS_TO]->(o)
     OPTIONAL MATCH (p)-[old_own:OWNED_BY]->(:Team)
     DELETE old_own
@@ -806,8 +847,8 @@ async def update_project(
     OPTIONAL MATCH (p)-[old_type:TYPE]->(:ProjectType)
     DELETE old_type
     WITH DISTINCT p, o
-    UNWIND $new_type_slugs AS new_pt_slug
-    MATCH (new_pt:ProjectType {slug: new_pt_slug})
+    UNWIND {new_type_slugs} AS new_pt_slug
+    MATCH (new_pt:ProjectType {{slug: new_pt_slug}})
           -[:BELONGS_TO]->(o)
     CREATE (p)-[:TYPE]->(new_pt)
     """
@@ -818,25 +859,25 @@ async def update_project(
     DELETE old_env
     WITH DISTINCT p, o
     UNWIND
-        CASE WHEN size($new_env_entries) = 0
+        CASE WHEN size({new_env_entries}) = 0
              THEN [null]
-             ELSE $new_env_entries
+             ELSE {new_env_entries}
         END AS entry
-    OPTIONAL MATCH (e:Environment {slug: entry.slug})
+    OPTIONAL MATCH (e:Environment {{slug: entry.slug}})
              -[:BELONGS_TO]->(o)
     FOREACH (_ IN CASE WHEN e IS NOT NULL
                        THEN [1] ELSE [] END |
-        CREATE (p)-[:DEPLOYED_IN {url: entry.url}]->(e)
+        CREATE (p)-[:DEPLOYED_IN {{url: entry.url}}]->(e)
     )
     """
 
     update_query: typing.LiteralString = (
         """
-    MATCH (p:Project {id: $project_id})
+    MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {slug: $org_slug})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p, o
-    SET p = $props
+    SET p = {props}
     """
         + rel_clauses
         + """
@@ -846,19 +887,22 @@ async def update_project(
     )
 
     try:
-        updated = await neo4j.query(
+        updated = await db.execute(
             update_query,
-            project_id=project_id,
-            org_slug=org_slug,
-            props=props,
-            new_team_slug=data.team_slug or '',
-            new_type_slugs=data.project_type_slugs or [],
-            new_env_entries=[
-                {'slug': s, 'url': u}
-                for s, u in (data.environments or {}).items()
-            ],
+            {
+                'project_id': project_id,
+                'org_slug': org_slug,
+                'props': props,
+                'new_team_slug': data.team_slug or '',
+                'new_type_slugs': data.project_type_slugs or [],
+                'new_env_entries': [
+                    {'slug': s, 'url': u}
+                    for s, u in (data.environments or {}).items()
+                ],
+            },
+            ['project', 'dependency_count'],
         )
-    except exceptions.ConstraintError as e:
+    except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=str(e),
@@ -871,9 +915,9 @@ async def update_project(
         )
 
     result = _add_relationships(
-        updated[0]['project'],
+        graph.parse_agtype(updated[0]['project']),
         org_slug,
-        updated[0]['dependency_count'],
+        graph.parse_agtype(updated[0]['dependency_count']),
     )
     return ProjectResponse.model_validate(result)
 
@@ -882,6 +926,7 @@ async def update_project(
 async def delete_project(
     org_slug: str,
     project_id: str,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -891,19 +936,23 @@ async def delete_project(
 ) -> None:
     """Delete a project."""
     query: typing.LiteralString = """
-    MATCH (p:Project {id: $project_id})
+    MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(:Organization {slug: $org_slug})
+          -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
     DETACH DELETE p
     RETURN count(p) AS deleted
     """
-    records = await neo4j.query(
+    records = await db.execute(
         query,
-        project_id=project_id,
-        org_slug=org_slug,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['deleted'],
     )
 
-    if not records or records[0].get('deleted', 0) == 0:
+    deleted = graph.parse_agtype(records[0]['deleted']) if records else 0
+    if not records or deleted == 0:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Project {project_id!r} not found',
