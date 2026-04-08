@@ -9,7 +9,7 @@ import contextlib
 import logging
 from collections import abc
 
-from imbi_common import clickhouse, neo4j
+from imbi_common import clickhouse, graph
 
 from imbi_api import openapi
 from imbi_api.email.client import EmailClient
@@ -30,24 +30,20 @@ async def clickhouse_hook() -> abc.AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
-async def neo4j_hook() -> abc.AsyncIterator[None]:
-    """Initialize and manage the Neo4j connection."""
-    await neo4j.initialize()
-    async with contextlib.aclosing(neo4j):
-        yield
+async def graph_setup_hook() -> abc.AsyncIterator[None]:
+    """Refresh blueprint models at startup.
 
-
-@contextlib.asynccontextmanager
-async def neo4j_setup_hook() -> abc.AsyncIterator[None]:
-    """Refresh blueprint models after Neo4j is initialized.
-
-    Must run after :func:`neo4j_hook`. Index/constraint creation is
-    handled by :func:`imbi_common.neo4j.initialize`.
+    Uses a temporary Graph pool — runs once during app init so
+    the overhead of a second pool is negligible.
     """
+    db = graph.Graph()
+    await db.open()
     try:
-        await openapi.refresh_blueprint_models()
+        await openapi.refresh_blueprint_models(db)
     except Exception as err:  # noqa: BLE001
         LOGGER.warning('Failed to refresh blueprint models: %s', err)
+    finally:
+        await db.close()
     yield
 
 
