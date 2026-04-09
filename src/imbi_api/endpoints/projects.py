@@ -276,46 +276,35 @@ def _add_relationships(
 # -- Return fragment used by all read queries ---------------------------
 
 _RETURN_FRAGMENT: typing.LiteralString = """
-    CALL {{
-        WITH p, o
-        MATCH (p)-[:OWNED_BY]->(t:Team)
-        RETURN t{{.*, organization: o{{.*}}}} AS team
-        LIMIT 1
-    }}
-    CALL {{
-        WITH p, o
-        MATCH (p)-[:TYPE]->(pt:ProjectType)
-        RETURN collect(pt{{.*, organization: o{{.*}}}}) AS pts
-    }}
-    CALL {{
-        WITH p, o
-        OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
-        RETURN collect(env{{.*,
-                           sort_order: coalesce(env.sort_order, 0),
-                           url: d.url,
-                           organization: o{{.*}}}}) AS envs
-    }}
-    CALL {{
-        WITH p
-        OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
-              -[:OWNED_BY]->(:Team)
-              -[:BELONGS_TO]->(depOrg:Organization)
-        RETURN count(dep) AS dependency_count,
-               [x IN collect(DISTINCT
-                   CASE WHEN dep IS NOT NULL
-                             AND depOrg IS NOT NULL
-                             AND dep.id IS NOT NULL
-                        THEN '/organizations/' + depOrg.slug
-                             + '/projects/'
-                             + dep.id
-                   END
-               ) WHERE x IS NOT NULL] AS dependency_uris
-    }}
+    MATCH (p)-[:OWNED_BY]->(t:Team)
+    WITH p, o, t LIMIT 1
+    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    WITH p, o, t, collect(pt{{.*, organization: o{{.*}}}}) AS pts
+    OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
+    WITH p, o, t, pts,
+         collect(env{{.*,
+                     sort_order: coalesce(env.sort_order, 0),
+                     url: d.url,
+                     organization: o{{.*}}}}) AS envs
+    OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
+          -[:OWNED_BY]->(:Team)
+          -[:BELONGS_TO]->(depOrg:Organization)
+    WITH p, o, t, pts, envs,
+         count(dep) AS dependency_count,
+         collect(DISTINCT
+             CASE WHEN dep IS NOT NULL
+                       AND depOrg IS NOT NULL
+                       AND dep.id IS NOT NULL
+                  THEN '/organizations/' + depOrg.slug
+                       + '/projects/'
+                       + dep.id
+             END
+         ) AS dep_uris_raw
     RETURN p{{.*,
-        team: team,
+        team: t{{.*, organization: o{{.*}}}},
         project_types: pts,
         environments: envs,
-        dependency_uris: dependency_uris
+        dependency_uris: [x IN dep_uris_raw WHERE x IS NOT NULL]
     }} AS project,
     dependency_count
 """

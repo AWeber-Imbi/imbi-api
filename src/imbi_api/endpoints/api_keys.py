@@ -92,6 +92,22 @@ class APIKeyCreateResponse(pydantic.BaseModel):
     )
 
 
+def _parse_scopes(value: typing.Any) -> list[str]:
+    """Convert AGE scope values to a Python list.
+
+    AGE may store list properties as PostgreSQL array strings
+    (e.g. ``'{}'`` or ``'{read,write}'``) when they were
+    written before the Cypher list-serialization fix.
+
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        inner = value.strip('{}')
+        return inner.split(',') if inner else []
+    return []
+
+
 @api_keys_router.post('', response_model=APIKeyCreateResponse, status_code=201)
 async def create_api_key(
     key_request: APIKeyCreate,
@@ -228,7 +244,7 @@ async def list_api_keys(
             key_id=k['key_id'],
             name=k['name'],
             description=k.get('description'),
-            scopes=k.get('scopes', []),
+            scopes=_parse_scopes(k.get('scopes', [])),
             created_at=k['created_at'],
             expires_at=k.get('expires_at'),
             last_used=k.get('last_used'),
@@ -398,6 +414,6 @@ async def rotate_api_key(
         key_secret=f'{key_id}_{new_secret}',  # Full key format
         name=api_key_data['name'],
         description=api_key_data.get('description'),
-        scopes=api_key_data.get('scopes', []),
+        scopes=_parse_scopes(api_key_data.get('scopes', [])),
         expires_at=api_key_data.get('expires_at'),
     )
