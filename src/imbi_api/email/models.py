@@ -6,6 +6,7 @@ import secrets
 import typing
 
 import pydantic
+from imbi_common import models as common_models
 
 
 class EmailMessage(pydantic.BaseModel):
@@ -73,13 +74,11 @@ class EmailAudit(pydantic.BaseModel):
         return data
 
 
-class PasswordResetToken(pydantic.BaseModel):
-    """Password reset token (stored in Neo4j).
+class PasswordResetToken(common_models.GraphModel):
+    """Password reset token stored in the graph database.
 
     Tokens are cryptographically secure, single-use, and expire after 24 hours.
     """
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     token: str
     username: str
