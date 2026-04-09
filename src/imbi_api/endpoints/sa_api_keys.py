@@ -13,7 +13,7 @@ import typing
 import fastapi
 from imbi_common import graph
 
-from imbi_api import settings
+from imbi_api import models, settings
 from imbi_api.auth import password, permissions
 from imbi_api.endpoints import api_keys
 
@@ -123,36 +123,27 @@ async def create_sa_api_key(
             days=key_request.expires_in_days
         )
 
-    now_str = datetime.datetime.now(datetime.UTC).isoformat()
+    # Create API key model
+    api_key = models.APIKey(
+        key_id=key_id,
+        key_hash=key_hash,
+        name=key_request.name,
+        description=key_request.description,
+        scopes=key_request.scopes,
+        expires_at=expires_at,
+        revoked=False,
+    )
 
-    # Create API key node in graph
-    query: typing.LiteralString = """
-    MATCH (s:ServiceAccount {{slug: {slug}}})
-    CREATE (k:APIKey {{
-        key_id: {key_id},
-        key_hash: {key_hash},
-        name: {name},
-        description: {description},
-        scopes: {scopes},
-        created_at: {created_at},
-        expires_at: {expires_at},
-        revoked: false
-    }})-[:OWNED_BY]->(s)
-    RETURN k
-    """
+    # Create API key node with relationship to ServiceAccount
+    props = api_key.model_dump(mode='json')
+    props.pop('user', None)
+    keys = list(props.keys())
+    prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
     await db.execute(
-        query,
-        {
-            'slug': slug,
-            'key_id': key_id,
-            'key_hash': key_hash,
-            'name': key_request.name,
-            'description': key_request.description,
-            'scopes': key_request.scopes,
-            'created_at': now_str,
-            'expires_at': (expires_at.isoformat() if expires_at else None),
-        },
-        ['k'],
+        f'MATCH (s:ServiceAccount {{{{slug: {{slug}}}}}})'
+        f' CREATE (k:APIKey {{{{{prop_map}}}}})'
+        f'-[:OWNED_BY]->(s) RETURN k',
+        {**props, 'slug': slug},
     )
 
     LOGGER.info(

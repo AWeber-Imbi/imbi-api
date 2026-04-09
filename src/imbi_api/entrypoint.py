@@ -152,10 +152,14 @@ async def _setup_async() -> None:
 
 async def _check_admin_exists(db: graph.Graph) -> bool:
     """Check if any admin users exist in the system."""
-    query = 'OPTIONAL MATCH (n:User) WHERE n.is_admin = true RETURN count(n)'
-    records = await db.execute(query)
+    query = (
+        'OPTIONAL MATCH (n:User) '
+        'WHERE n.is_admin = true '
+        'RETURN count(n) AS cnt'
+    )
+    records = await db.execute(query, columns=['cnt'])
     if records:
-        count = graph.parse_agtype(records[0]['n'])
+        count = graph.parse_agtype(records[0]['cnt'])
         if count and count > 0:
             return True
     return False

@@ -129,7 +129,6 @@ async def create_client_credential(
         name=credential_request.name,
         description=credential_request.description,
         scopes=credential_request.scopes,
-        created_at=datetime.datetime.now(datetime.UTC),
         expires_at=expires_at,
         last_used=None,
         last_rotated=None,
@@ -137,17 +136,16 @@ async def create_client_credential(
         revoked_at=None,
     )
 
-    # Store in graph with relationship to ServiceAccount (atomic)
-    query: typing.LiteralString = """
-    MATCH (s:ServiceAccount {{slug: {slug}}})
-    CREATE (c:ClientCredential {props})-[:OWNED_BY]->(s)
-    RETURN elementId(c) AS element_id
-    """
+    # Store in graph with relationship to ServiceAccount
     props = credential.model_dump(mode='json')
+    props.pop('service_account', None)
+    keys = list(props.keys())
+    prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
     records = await db.execute(
-        query,
-        {'slug': slug, 'props': props},
-        ['element_id'],
+        f'MATCH (s:ServiceAccount {{{{slug: {{slug}}}}}})'
+        f' CREATE (c:ClientCredential {{{{{prop_map}}}}})'
+        f'-[:OWNED_BY]->(s) RETURN c',
+        {**props, 'slug': slug},
     )
     if not records:
         raise fastapi.HTTPException(

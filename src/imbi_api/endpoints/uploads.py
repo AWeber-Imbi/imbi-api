@@ -348,10 +348,7 @@ async def delete_upload(
 
     # Delete graph node first to avoid broken metadata on
     # S3 failure
-    query: typing.LiteralString = (
-        'MATCH (n:Upload {{id: {upload_id}}}) DETACH DELETE n RETURN n'
-    )
-    await db.execute(query, {'upload_id': upload_id})
+    await db.delete(upload)
 
     # Delete S3 objects (orphans can be cleaned up later
     # if this fails)

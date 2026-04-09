@@ -61,10 +61,8 @@ __all__ = [
 ]
 
 
-class User(pydantic.BaseModel):
+class User(models.GraphModel):
     """User account for authentication and authorization."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     email: pydantic.EmailStr
     display_name: str
@@ -72,20 +70,17 @@ class User(pydantic.BaseModel):
     is_active: bool = True
     is_admin: bool = False
     is_service_account: bool = False
-    created_at: datetime.datetime
     last_login: datetime.datetime | None = None
     avatar_url: pydantic.HttpUrl | None = None
 
     organizations: typing.Annotated[
         list['OrganizationEdge'],
         models.Edge(rel_type='MEMBER_OF', direction='OUTGOING'),
-    ] = []
+    ] = []  # noqa: RUF012
 
 
-class OAuthIdentity(pydantic.BaseModel):
+class OAuthIdentity(models.GraphModel):
     """OAuth provider identity linked to a user."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     provider: typing.Literal['google', 'github', 'oidc']
     provider_user_id: str
@@ -211,10 +206,8 @@ class EmptyRelationship(pydantic.BaseModel):
     pass  # Explicitly empty - no relationship properties needed
 
 
-class Permission(pydantic.BaseModel):
+class Permission(models.GraphModel):
     """Permission for a specific resource action."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     name: str
     resource_type: str
@@ -230,10 +223,8 @@ class ResourcePermission(pydantic.BaseModel):
     granted_by: str
 
 
-class TokenMetadata(pydantic.BaseModel):
+class TokenMetadata(models.GraphModel):
     """Metadata for JWT tokens to enable revocation."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     jti: str
     token_type: typing.Literal['access', 'refresh']
@@ -248,7 +239,7 @@ class TokenMetadata(pydantic.BaseModel):
     ] = None
 
 
-class TOTPSecret(pydantic.BaseModel):
+class TOTPSecret(models.GraphModel):
     """TOTP secret for MFA/2FA (Phase 5).
 
     The secret field is encrypted at rest using Fernet symmetric
@@ -256,12 +247,9 @@ class TOTPSecret(pydantic.BaseModel):
     get_decrypted_secret() to handle encryption/decryption.
     """
 
-    model_config = pydantic.ConfigDict(extra='ignore')
-
     secret: str  # Encrypted Base32-encoded TOTP secret
     enabled: bool = False
-    backup_codes: list[str] = []  # Hashed backup codes (Argon2)
-    created_at: datetime.datetime
+    backup_codes: list[str] = []  # noqa: RUF012 — Argon2 hashed
     last_used: datetime.datetime | None = None
 
     user: typing.Annotated[
@@ -308,15 +296,12 @@ class TOTPSecret(pydantic.BaseModel):
         return str(decrypted)
 
 
-class Session(pydantic.BaseModel):
+class Session(models.GraphModel):
     """User session for tracking concurrent sessions (Phase 5)."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     session_id: str  # Unique session identifier (UUID)
     ip_address: str | None = None
     user_agent: str | None = None
-    created_at: datetime.datetime
     last_activity: datetime.datetime
     expires_at: datetime.datetime
 
@@ -326,10 +311,8 @@ class Session(pydantic.BaseModel):
     ]
 
 
-class APIKey(pydantic.BaseModel):
+class APIKey(models.GraphModel):
     """API key for programmatic access (Phase 5)."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     key_id: str  # Public key identifier (format: 'ik_...')
     key_hash: str  # Hashed secret (Argon2)
@@ -337,10 +320,9 @@ class APIKey(pydantic.BaseModel):
     description: str | None = None
 
     # Permissions
-    scopes: list[str] = []
+    scopes: list[str] = []  # noqa: RUF012
 
     # Lifecycle
-    created_at: datetime.datetime
     expires_at: datetime.datetime | None = None
     last_used: datetime.datetime | None = None
     last_rotated: datetime.datetime | None = None
@@ -353,12 +335,9 @@ class APIKey(pydantic.BaseModel):
     ] = None
 
 
-class Upload(pydantic.BaseModel):
+class Upload(models.GraphModel):
     """Metadata for an uploaded file stored in S3."""
 
-    model_config = pydantic.ConfigDict(extra='ignore')
-
-    id: str
     filename: str
     content_type: str
     size: int
@@ -366,7 +345,6 @@ class Upload(pydantic.BaseModel):
     has_thumbnail: bool = False
     thumbnail_s3_key: str | None = None
     uploaded_by: str
-    created_at: datetime.datetime
 
     @pydantic.field_validator('size')
     @classmethod
@@ -454,22 +432,19 @@ class PasswordChangeRequest(pydantic.BaseModel):
         return value
 
 
-class ServiceAccount(pydantic.BaseModel):
+class ServiceAccount(models.GraphModel):
     """Service account for machine-to-machine authentication."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     slug: str
     display_name: str
     description: str | None = None
     is_active: bool = True
-    created_at: datetime.datetime
     last_authenticated: datetime.datetime | None = None
 
     organizations: typing.Annotated[
         list['OrganizationEdge'],
         models.Edge(rel_type='MEMBER_OF', direction='OUTGOING'),
-    ] = []
+    ] = []  # noqa: RUF012
 
 
 class ServiceAccountCreate(pydantic.BaseModel):
@@ -516,17 +491,14 @@ class ServiceAccountResponse(pydantic.BaseModel):
     organizations: list[OrgMembership] = []
 
 
-class ClientCredential(pydantic.BaseModel):
+class ClientCredential(models.GraphModel):
     """OAuth2 client credential for service accounts."""
-
-    model_config = pydantic.ConfigDict(extra='ignore')
 
     client_id: str
     client_secret_hash: str
     name: str
     description: str | None = None
-    scopes: list[str] = []
-    created_at: datetime.datetime
+    scopes: list[str] = []  # noqa: RUF012
     expires_at: datetime.datetime | None = None
     last_used: datetime.datetime | None = None
     last_rotated: datetime.datetime | None = None

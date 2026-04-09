@@ -446,11 +446,11 @@ async def grant_permission(
         )
 
     # Check if permission exists
-    results = await db.match(
+    perm_results = await db.match(
         models.Permission,
         {'name': permission_name},
     )
-    perm = results[0] if results else None
+    perm = perm_results[0] if perm_results else None
     if perm is None:
         raise fastapi.HTTPException(
             status_code=404,

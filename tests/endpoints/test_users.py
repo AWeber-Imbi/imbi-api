@@ -69,19 +69,14 @@ class UserEndpointsTestCase(unittest.TestCase):
 
     def test_create_user_success_with_password(self) -> None:
         """Test successful user creation with password."""
-        self.mock_db.execute.side_effect = [
-            # existence check returns empty (user not found)
-            [],
-            # CREATE user node
-            [{'n': 'true'}],
-            # membership query returns records
-            [
-                {
-                    'org_name': 'Default',
-                    'org_slug': 'default',
-                    'role': 'developer',
-                },
-            ],
+        self.mock_db.match.return_value = []
+        self.mock_db.create.return_value = mock.AsyncMock()
+        self.mock_db.execute.return_value = [
+            {
+                'org_name': 'Default',
+                'org_slug': 'default',
+                'role': 'developer',
+            },
         ]
 
         with mock.patch(
@@ -120,19 +115,14 @@ class UserEndpointsTestCase(unittest.TestCase):
 
     def test_create_user_oauth_only(self) -> None:
         """Test creating user without password (OAuth-only)."""
-        self.mock_db.execute.side_effect = [
-            # existence check returns empty (user not found)
-            [],
-            # CREATE user node
-            [{'n': 'true'}],
-            # membership query returns records
-            [
-                {
-                    'org_name': 'Default',
-                    'org_slug': 'default',
-                    'role': 'developer',
-                },
-            ],
+        self.mock_db.match.return_value = []
+        self.mock_db.create.return_value = mock.AsyncMock()
+        self.mock_db.execute.return_value = [
+            {
+                'org_name': 'Default',
+                'org_slug': 'default',
+                'role': 'developer',
+            },
         ]
 
         with mock.patch(
@@ -154,9 +144,7 @@ class UserEndpointsTestCase(unittest.TestCase):
 
     def test_create_user_duplicate_username(self) -> None:
         """Test creating user with duplicate username."""
-        self.mock_db.execute.return_value = [
-            {'u': {'email': 'dup@example.com'}},
-        ]
+        self.mock_db.match.return_value = [self.test_user]
 
         response = self.client.post(
             '/users/',
@@ -199,12 +187,10 @@ class UserEndpointsTestCase(unittest.TestCase):
 
     def test_create_user_invalid_org_rollback(self) -> None:
         """Test user is deleted when org/role not found."""
-        self.mock_db.execute.side_effect = [
-            [],  # existence check returns empty (user not found)
-            [{'n': 'true'}],  # CREATE user node
-            [],  # membership query returns empty
-            [{'n': 'true'}],  # rollback delete query
-        ]
+        self.mock_db.match.return_value = []
+        self.mock_db.create.return_value = mock.AsyncMock()
+        self.mock_db.execute.return_value = []
+        self.mock_db.delete.return_value = None
 
         response = self.client.post(
             '/users/',
@@ -218,8 +204,12 @@ class UserEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
-        # Verify all four execute calls were made
-        self.assertEqual(self.mock_db.execute.call_count, 4)
+        # Verify: match (existence), create, execute (membership),
+        # delete (rollback)
+        self.mock_db.match.assert_called_once()
+        self.mock_db.create.assert_called_once()
+        self.mock_db.execute.assert_called_once()
+        self.mock_db.delete.assert_called_once()
 
     def test_list_users(self) -> None:
         """Test listing all users."""

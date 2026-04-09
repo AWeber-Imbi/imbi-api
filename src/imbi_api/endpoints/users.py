@@ -1,6 +1,5 @@
 """User management endpoints."""
 
-import datetime
 import logging
 import typing
 from urllib import parse as urlparse
@@ -74,15 +73,13 @@ async def create_user(
         is_active=user_create.is_active,
         is_admin=user_create.is_admin,
         is_service_account=user_create.is_service_account,
-        created_at=datetime.datetime.now(datetime.UTC),
     )
 
     # Check if user already exists before creating to avoid
     # silent upsert (merge would overwrite a pre-existing user)
-    existing = await db.execute(
-        'MATCH (u:User {{email: {email}}}) RETURN u',
+    existing = await db.match(
+        models.User,
         {'email': user.email},
-        columns=['u'],
     )
     if existing:
         raise fastapi.HTTPException(
@@ -90,13 +87,8 @@ async def create_user(
             detail=(f'User with email {user.email!r} already exists'),
         )
 
-    props = user.model_dump(mode='json')
-    props.pop('organizations', None)
     try:
-        await db.execute(
-            'CREATE (n:User {props}) RETURN n',
-            {'props': props},
-        )
+        await db.create(user)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -125,10 +117,7 @@ async def create_user(
     organizations: list[models.OrgMembership] = []
     if not records:
         # Rollback: delete the user node
-        await db.execute(
-            'MATCH (n:User {{email: {email}}}) DETACH DELETE n RETURN n',
-            {'email': user.email},
-        )
+        await db.delete(user)
         raise fastapi.HTTPException(
             status_code=404,
             detail=(
