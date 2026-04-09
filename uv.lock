@@ -1084,7 +1084,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fgraph-model-base-class" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
     { name = "jinja2" },
     { name = "nanoid", specifier = ">=2.0.0" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
@@ -1130,7 +1130,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fgraph-model-base-class#3501d82d1305a2daa086ab57871343f291afb36c" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#243646b375a03f924c295173d8a02b095d841336" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "cryptography" },
