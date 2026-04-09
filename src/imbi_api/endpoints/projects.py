@@ -277,7 +277,7 @@ def _add_relationships(
 
 _RETURN_FRAGMENT: typing.LiteralString = """
     MATCH (p)-[:OWNED_BY]->(t:Team)
-    WITH p, o, t LIMIT 1
+    WITH p, o, t
     MATCH (p)-[:TYPE]->(pt:ProjectType)
     WITH p, o, t, collect(pt{{.*, organization: o{{.*}}}}) AS pts
     OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
