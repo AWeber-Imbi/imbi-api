@@ -113,7 +113,7 @@ async def delete_expired_sessions(db: graph.Graph) -> int:
         'MATCH (s:Session) '
         'WHERE s.expires_at < {now} '
         'DETACH DELETE s '
-        'RETURN count(s)'
+        'RETURN count(s) AS deleted_count'
     )
     records = await db.execute(query, {'now': now}, columns=['deleted_count'])
     raw = graph.parse_agtype(
