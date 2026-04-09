@@ -10,7 +10,7 @@ and response schemas:
 
 Usage:
     # In app.py lifespan:
-    await openapi.refresh_blueprint_models()
+    await openapi.refresh_blueprint_models(db)
 
     # In create_app():
     app.openapi = openapi.create_custom_openapi(app)

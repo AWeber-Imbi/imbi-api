@@ -43,8 +43,6 @@ The `docker` recipe (run automatically by `just serve` and `just test`) starts D
 
 ```bash
 POSTGRES_URL=postgresql://postgres:secret@localhost:5432/imbi
-NEO4J_USER=username
-NEO4J_PASSWORD=password
 ```
 
 **PostgreSQL connection**: Settings use `POSTGRES_URL` environment variable with standard PostgreSQL DSN format. Pool size configured via `POSTGRES_MIN_POOL_SIZE` and `POSTGRES_MAX_POOL_SIZE`.

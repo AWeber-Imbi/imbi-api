@@ -380,12 +380,12 @@ async def seed_default_roles(db: graph.Graph) -> int:
             perm_query = (
                 'MATCH (r:Role {{slug: {slug}}}), '
                 '(p:Permission {{name: {perm_name}}}) '
-                'MERGE (r)-[:GRANTS]->(p)'
+                'MERGE (r)-[g:GRANTS]->(p) '
+                'RETURN g'
             )
             await db.execute(
                 perm_query,
                 {'slug': slug, 'perm_name': perm_name},
-                columns=['n'],
             )
 
     LOGGER.info('Seeded %d default roles', created_count)

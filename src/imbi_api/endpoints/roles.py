@@ -459,12 +459,12 @@ async def grant_permission(
     query: typing.LiteralString = (
         'MATCH (role:Role {{slug: {slug}}})'
         ' MATCH (perm:Permission {{name: {permission_name}}})'
-        ' MERGE (role)-[:GRANTS]->(perm)'
+        ' MERGE (role)-[g:GRANTS]->(perm)'
+        ' RETURN g'
     )
     await db.execute(
         query,
         {'slug': slug, 'permission_name': permission_name},
-        columns=['role'],
     )
 
     LOGGER.info(

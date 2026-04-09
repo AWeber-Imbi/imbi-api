@@ -264,13 +264,39 @@ async def update_organization(
 
     org.created_at = existing.created_at
     org.updated_at = datetime.datetime.now(datetime.UTC)
+
+    # Match on the original URL slug to avoid creating a duplicate
+    # node when the slug is being renamed.
+    update_query: typing.LiteralString = (
+        'MATCH (n:Organization {{slug: {original_slug}}})'
+        ' SET n.name = {name},'
+        ' n.slug = {slug},'
+        ' n.description = {description},'
+        ' n.icon = {icon},'
+        ' n.updated_at = {updated_at}'
+        ' RETURN n'
+    )
+    props = org.model_dump(mode='json')
+    params: dict[str, typing.Any] = {
+        'original_slug': slug,
+        'name': props['name'],
+        'slug': props['slug'],
+        'description': props.get('description'),
+        'icon': props.get('icon'),
+        'updated_at': props['updated_at'],
+    }
     try:
-        await db.merge(org, match_on=['slug'])
+        records = await db.execute(update_query, params)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
             detail=(f'Organization with slug {org.slug!r} already exists'),
         ) from e
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(f'Organization with slug {slug!r} not found'),
+        )
 
     # Return with relationship counts
     count_query: typing.LiteralString = (
