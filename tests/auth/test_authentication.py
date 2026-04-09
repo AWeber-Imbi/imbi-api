@@ -495,14 +495,12 @@ class LogoutEndpointTestCase(unittest.TestCase):
             # the permissions query also contains 'User')
             elif 'MEMBER_OF' in query:
                 return [{'permissions': []}]
-            # Load user (authenticate_jwt)
-            elif 'User' in query:
-                user_dict = self.test_user.model_dump(mode='json')
-                return [{'n': user_dict}]
             # Logout operations (revoke token, delete sessions)
             return []
 
         self.mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for user lookup
+        self.mock_db.match.return_value = [self.test_user]
 
         with (
             mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,

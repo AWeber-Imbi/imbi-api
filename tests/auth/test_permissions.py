@@ -307,12 +307,12 @@ class ServiceAccountPermissionTestCase(
             auth_settings=auth_settings,
         )
 
-        sa_data = {
-            'slug': 'deploy-bot',
-            'display_name': 'Deploy Bot',
-            'is_active': True,
-            'created_at': datetime.datetime.now(datetime.UTC).isoformat(),
-        }
+        test_sa = models.ServiceAccount(
+            slug='deploy-bot',
+            display_name='Deploy Bot',
+            is_active=True,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
 
         mock_db = mock.AsyncMock()
 
@@ -323,11 +323,11 @@ class ServiceAccountPermissionTestCase(
                 # Permissions query (contains both ServiceAccount
                 # and MEMBER_OF)
                 return [{'permissions': ['project:read']}]
-            elif 'ServiceAccount' in query:
-                return [{'n': sa_data}]
             return []
 
         mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for SA lookup
+        mock_db.match.return_value = [test_sa]
 
         with mock.patch(
             'imbi_common.graph.parse_agtype',

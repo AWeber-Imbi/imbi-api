@@ -205,7 +205,14 @@ class OAuthFlowTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """Set up test client."""
         settings._auth_settings = None
-        self.client = testclient.TestClient(app.create_app())
+        self.test_app = app.create_app()
+
+        self.mock_db = mock.AsyncMock(spec=graph.Graph)
+        self.test_app.dependency_overrides[graph._inject_graph] = (
+            lambda: self.mock_db
+        )
+
+        self.client = testclient.TestClient(self.test_app)
 
     def tearDown(self) -> None:
         """Reset settings singleton after tests."""

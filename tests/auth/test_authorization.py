@@ -77,28 +77,17 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         jti = payload['jti']
 
         mock_db = mock.AsyncMock()
-        execute_calls: list[str] = []
 
         def execute_side_effect(query, params=None, columns=None):
-            execute_calls.append(query)
             if 'TokenMetadata' in query:
                 return [{'revoked': False}]
             elif 'MEMBER_OF' in query or 'GRANTS' in query:
                 return [{'permissions': ['blueprint:read']}]
-            elif 'User' in query:
-                user_data = {
-                    'email': 'test@example.com',
-                    'display_name': 'Test User',
-                    'password_hash': self.test_user.password_hash,
-                    'is_active': True,
-                    'is_admin': False,
-                    'is_service_account': False,
-                    'created_at': self.test_user.created_at.isoformat(),
-                }
-                return [{'n': user_data}]
             return []
 
         mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for user lookup
+        mock_db.match.return_value = [self.test_user]
 
         with mock.patch(
             'imbi_common.graph.parse_agtype',
@@ -173,25 +162,26 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
             'testuser', auth_settings=self.auth_settings
         )
 
+        inactive_user = models.User(
+            email='test@example.com',
+            display_name='Test User',
+            password_hash=self.test_user.password_hash,
+            is_active=False,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+
         mock_db = mock.AsyncMock()
 
         def execute_side_effect(query, params=None, columns=None):
             if 'TokenMetadata' in query:
                 return [{'revoked': False}]
-            elif 'User' in query:
-                user_data = {
-                    'email': 'test@example.com',
-                    'display_name': 'Test User',
-                    'password_hash': self.test_user.password_hash,
-                    'is_active': False,
-                    'is_admin': False,
-                    'is_service_account': False,
-                    'created_at': self.test_user.created_at.isoformat(),
-                }
-                return [{'n': user_data}]
             return []
 
         mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for user lookup
+        mock_db.match.return_value = [inactive_user]
 
         with (
             mock.patch(
@@ -267,12 +257,11 @@ class AuthenticateJWTTestCase(unittest.IsolatedAsyncioTestCase):
         def execute_side_effect(query, params=None, columns=None):
             if 'TokenMetadata' in query:
                 return [{'revoked': False}]
-            elif 'User' in query:
-                # User not found
-                return []
             return []
 
         mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for user lookup
+        mock_db.match.return_value = []
 
         with (
             mock.patch(
@@ -342,22 +331,14 @@ class ProtectedEndpointTestCase(unittest.TestCase):
                 return [{'revoked': False}]
             elif 'MEMBER_OF' in query or 'GRANTS' in query:
                 return [{'permissions': ['blueprint:read']}]
-            elif 'User' in query:
-                user_data = {
-                    'email': 'test@example.com',
-                    'display_name': 'Test User',
-                    'password_hash': test_user.password_hash,
-                    'is_active': True,
-                    'is_admin': False,
-                    'is_service_account': False,
-                    'created_at': test_user.created_at.isoformat(),
-                }
-                return [{'n': user_data}]
             return []
 
         self.mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
-        # match() is used for blueprint listing
-        self.mock_db.match.return_value = []
+        # match() is called for user lookup then blueprint listing
+        self.mock_db.match.side_effect = [
+            [test_user],  # authenticate_jwt user lookup
+            [],  # blueprint listing
+        ]
 
         with (
             mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,
@@ -401,20 +382,11 @@ class ProtectedEndpointTestCase(unittest.TestCase):
             elif 'MEMBER_OF' in query or 'GRANTS' in query:
                 # No permissions
                 return [{'permissions': []}]
-            elif 'User' in query:
-                user_data = {
-                    'email': 'test@example.com',
-                    'display_name': 'Test User',
-                    'password_hash': test_user.password_hash,
-                    'is_active': True,
-                    'is_admin': False,
-                    'is_service_account': False,
-                    'created_at': test_user.created_at.isoformat(),
-                }
-                return [{'n': user_data}]
             return []
 
         self.mock_db.execute = mock.AsyncMock(side_effect=execute_side_effect)
+        # authenticate_jwt uses db.match() for user lookup
+        self.mock_db.match.return_value = [test_user]
 
         with (
             mock.patch('imbi_api.settings.get_auth_settings') as mock_settings,

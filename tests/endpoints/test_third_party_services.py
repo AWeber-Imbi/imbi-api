@@ -1207,7 +1207,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         # Verify existing encrypted values were preserved
         update_call = self.mock_db.execute.call_args_list[1]
-        props = update_call.kwargs['props']
+        props = update_call.args[1]['props']
         self.assertEqual(
             props['client_secret'],
             self.app_data['client_secret'],
@@ -1385,7 +1385,7 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
         # Existing client_secret should be preserved
         update_call = self.mock_db.execute.call_args_list[1]
         self.assertEqual(
-            update_call.kwargs['client_secret'],
+            update_call.args[1]['client_secret'],
             self.app_data['client_secret'],
         )
 
