@@ -14,6 +14,115 @@ from imbi_api.domain import models
 
 LOGGER = logging.getLogger(__name__)
 
+
+def _props_template(props: dict[str, typing.Any]) -> str:
+    """Build a Cypher property-map template with double-escaped braces.
+
+    Each key becomes ``key: {key}`` inside doubled braces so that
+    ``psycopg.sql.SQL.format()`` resolves them correctly::
+
+        >>> _props_template({'name': 'x', 'slug': 'y'})
+        '{{name: {name}, slug: {slug}}}'
+
+    """
+    if not props:
+        return ''
+    pairs = [f'{k}: {{{k}}}' for k in props]
+    return '{{' + ', '.join(pairs) + '}}'
+
+
+def _set_clause(
+    alias: str,
+    props: dict[str, typing.Any],
+) -> str:
+    """Build a Cypher SET clause from a property dict.
+
+    Returns a string like ``SET w.name = {name}, w.slug = {slug}``.
+
+    """
+    if not props:
+        return ''
+    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
+    return f'SET {assignments}'
+
+
+def _rules_template(
+    rules: list[dict[str, str | int]],
+) -> tuple[str, dict[str, typing.Any]]:
+    """Build an inline Cypher list of maps for webhook rules.
+
+    Returns a tuple of (template_fragment, params_dict) where
+    the template uses indexed placeholders and the params dict
+    maps those keys to scalar values.
+
+    """
+    if not rules:
+        return '[]', {}
+    maps: list[str] = []
+    params: dict[str, typing.Any] = {}
+    for i, rule in enumerate(rules):
+        maps.append(
+            f'{{{{filter_expression: {{rule_{i}_fe}},'
+            f' handler: {{rule_{i}_handler}},'
+            f' handler_config: {{rule_{i}_hc}},'
+            f' ordinal: {{rule_{i}_ord}}}}}}'
+        )
+        params[f'rule_{i}_fe'] = rule['filter_expression']
+        params[f'rule_{i}_handler'] = rule['handler']
+        params[f'rule_{i}_hc'] = rule['handler_config']
+        params[f'rule_{i}_ord'] = rule['ordinal']
+    return '[' + ', '.join(maps) + ']', params
+
+
+def _rule_unwind(rules_tpl: str) -> str:
+    """Build the UNWIND + FOREACH clause for rule creation."""
+    return (
+        f' UNWIND CASE WHEN size({rules_tpl}) = 0'
+        f' THEN [null] ELSE {rules_tpl}'
+        ' END AS rule_data'
+        ' FOREACH (_ IN CASE WHEN rule_data IS NOT NULL'
+        ' THEN [1] ELSE [] END |'
+        ' CREATE (r:WebhookRule'
+        ' {{{{filter_expression:'
+        ' rule_data.filter_expression,'
+        ' handler: rule_data.handler,'
+        ' handler_config: rule_data.handler_config,'
+        ' ordinal: rule_data.ordinal}}}})'
+        ' CREATE (r)-[:ACTIONS]->(w))'
+    )
+
+
+_RULE_RETURN_TPS: typing.LiteralString = (
+    ' WITH DISTINCT w, tps, impl'
+    ' OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)'
+    ' WITH w, tps, impl, r'
+    ' ORDER BY r.ordinal'
+    ' WITH w, tps, impl,'
+    ' collect(r{{.filter_expression, .handler,'
+    ' .handler_config, .ordinal}}) AS rules'
+    ' RETURN w{{.*}} AS webhook,'
+    ' tps{{.*}} AS tps,'
+    ' impl.identifier_selector AS identifier_selector,'
+    ' [x IN rules | x {{.filter_expression,'
+    ' .handler, .handler_config}}] AS rules'
+)
+
+_RULE_RETURN_NO_TPS: typing.LiteralString = (
+    ' WITH DISTINCT w'
+    ' OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)'
+    ' WITH w, r'
+    ' ORDER BY r.ordinal'
+    ' WITH w,'
+    ' collect(r{{.filter_expression, .handler,'
+    ' .handler_config, .ordinal}}) AS rules'
+    ' RETURN w{{.*}} AS webhook,'
+    ' null AS tps,'
+    ' null AS identifier_selector,'
+    ' [x IN rules | x {{.filter_expression,'
+    ' .handler, .handler_config}}] AS rules'
+)
+
+
 webhooks_router = fastapi.APIRouter(tags=['Webhooks'])
 
 
@@ -42,107 +151,54 @@ async def create_webhook(
             encryptor.encrypt(data.secret) if data.secret is not None else None
         ),
     }
+    create_tpl = _props_template(props)
 
-    # Build rule creation clauses
-    rule_params: list[dict[str, object]] = []
+    # Build rule creation params as scalars
+    rule_dicts: list[dict[str, str | int]] = []
     for idx, rule in enumerate(data.rules):
-        rule_params.append(
+        rule_dicts.append(
             {
                 'filter_expression': rule.filter_expression,
                 'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
+                'handler_config': json.dumps(
+                    rule.handler_config,
+                ),
                 'ordinal': idx,
             }
         )
+    rules_tpl, rules_params = _rules_template(rule_dicts)
+    unwind = _rule_unwind(rules_tpl)
 
     if data.third_party_service_slug:
-        query: typing.LiteralString = """
-        MATCH (o:Organization {{slug: {org_slug}}})
-        MATCH (tps:ThirdPartyService {{slug: {tps_slug}}})
-              -[:BELONGS_TO]->(o)
-        CREATE (w:Webhook {props})
-        CREATE (w)-[:BELONGS_TO]->(o)
-        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
-        SET impl.identifier_selector = {identifier_selector}
-        WITH w, tps, o, impl
-        UNWIND
-            CASE WHEN size({rules}) = 0 THEN [null]
-                 ELSE {rules} END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {{
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            }})
-            CREATE (r)-[:ACTIONS]->(w)
+        query: str = (
+            'MATCH (o:Organization {{slug: {org_slug}}})'
+            ' MATCH (tps:ThirdPartyService'
+            ' {{slug: {tps_slug}}})-[:BELONGS_TO]->(o)'
+            f' CREATE (w:Webhook {create_tpl})'
+            ' CREATE (w)-[:BELONGS_TO]->(o)'
+            ' CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)'
+            ' SET impl.identifier_selector'
+            ' = {identifier_selector}'
+            ' WITH w, tps, o, impl' + unwind + _RULE_RETURN_TPS
         )
-        WITH DISTINCT w, tps, impl
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, tps, impl, r
-        ORDER BY r.ordinal
-        WITH w, tps, impl,
-             collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
-                AS rules
-        RETURN w{{.*}} AS webhook,
-               tps{{.*}} AS tps,
-               impl.identifier_selector
-                   AS identifier_selector,
-               [x IN rules
-                | x {{.filter_expression, .handler,
-                      .handler_config}}]
-                   AS rules
-        """
         params: dict[str, typing.Any] = {
             'org_slug': org_slug,
             'tps_slug': data.third_party_service_slug,
-            'props': props,
+            **props,
             'identifier_selector': data.identifier_selector,
-            'rules': rule_params,
+            **rules_params,
         }
     else:
-        query = """
-        MATCH (o:Organization {{slug: {org_slug}}})
-        CREATE (w:Webhook {props})
-        CREATE (w)-[:BELONGS_TO]->(o)
-        WITH w, o
-        UNWIND
-            CASE WHEN size({rules}) = 0 THEN [null]
-                 ELSE {rules} END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {{
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            }})
-            CREATE (r)-[:ACTIONS]->(w)
+        query = (
+            'MATCH (o:Organization {{slug: {org_slug}}})'
+            f' CREATE (w:Webhook {create_tpl})'
+            ' CREATE (w)-[:BELONGS_TO]->(o)'
+            ' WITH w, o' + unwind + _RULE_RETURN_NO_TPS
         )
-        WITH DISTINCT w
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        WITH w, r
-        ORDER BY r.ordinal
-        With w,
-             collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
-                AS rules
-        RETURN w{{.*}} AS webhook,
-               null AS tps,
-               null AS identifier_selector,
-               [x IN rules
-                | x {{.filter_expression, .handler,
-                      .handler_config}}]
-                   AS rules
-        """
         params = {
             'org_slug': org_slug,
-            'props': props,
-            'rules': rule_params,
+            **props,
+            **rules_params,
         }
 
     try:
@@ -233,7 +289,7 @@ async def get_webhook(
     OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
     WITH w, tps, impl, r
     ORDER BY r.ordinal
-    With w, tps, impl,
+    WITH w, tps, impl,
          collect(r{{
                 .filter_expression, .handler,
                 .handler_config, .ordinal}})
@@ -296,7 +352,9 @@ async def update_webhook(
 
     # Distinguish omitted secret (preserve existing) from explicit
     # null (clear) or a new value (encrypt and store).
-    existing_webhook = graph.parse_agtype(existing[0]['webhook'])
+    existing_webhook = graph.parse_agtype(
+        existing[0]['webhook'],
+    )
     if 'secret' not in data.model_fields_set:
         encrypted_secret = existing_webhook.get('secret')
     elif data.secret is None:
@@ -312,123 +370,74 @@ async def update_webhook(
         'notification_path': data.notification_path,
         'secret': encrypted_secret,
     }
+    set_clause = _set_clause('w', props)
 
-    rule_params: list[dict[str, str | int]] = []
+    rule_dicts: list[dict[str, str | int]] = []
     for idx, rule in enumerate(data.rules):
-        rule_params.append(
+        rule_dicts.append(
             {
                 'filter_expression': rule.filter_expression,
                 'handler': rule.handler,
-                'handler_config': json.dumps(rule.handler_config),
+                'handler_config': json.dumps(
+                    rule.handler_config,
+                ),
                 'ordinal': idx,
             }
         )
+    rules_tpl, rules_params = _rules_template(rule_dicts)
+    unwind = _rule_unwind(rules_tpl)
 
     # Delete old rules and IMPLEMENTED_BY, then recreate
     if data.third_party_service_slug:
-        query: typing.LiteralString = """
-        MATCH (w:Webhook {{slug: {old_slug}}})
-              -[:BELONGS_TO]->(o:Organization
-                               {{slug: {org_slug}}})
-        MATCH (tps:ThirdPartyService {{slug: {tps_slug}}})
-              -[:BELONGS_TO]->(o)
-        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
-        DETACH DELETE old_r
-        WITH DISTINCT w, o, tps
-        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
-        DELETE old_impl
-        WITH DISTINCT w, o, tps
-        SET w = {props}
-        CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)
-        SET impl.identifier_selector = {identifier_selector}
-        WITH w, tps, impl
-        UNWIND
-            CASE WHEN size({rules}) = 0 THEN [null]
-                 ELSE {rules} END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {{
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            }})
-            CREATE (r)-[:ACTIONS]->(w)
+        query: str = (
+            'MATCH (w:Webhook {{slug: {old_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' MATCH (tps:ThirdPartyService'
+            ' {{slug: {tps_slug}}})-[:BELONGS_TO]->(o)'
+            ' OPTIONAL MATCH'
+            ' (old_r:WebhookRule)-[:ACTIONS]->(w)'
+            ' DETACH DELETE old_r'
+            ' WITH DISTINCT w, o, tps'
+            ' OPTIONAL MATCH'
+            ' (w)-[old_impl:IMPLEMENTED_BY]->()'
+            ' DELETE old_impl'
+            ' WITH DISTINCT w, o, tps'
+            f' {set_clause}'
+            ' CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)'
+            ' SET impl.identifier_selector'
+            ' = {identifier_selector}'
+            ' WITH w, tps, impl' + unwind + _RULE_RETURN_TPS
         )
-        WITH DISTINCT w, tps, impl
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        With w, tps, impl, r
-        ORDER BY r.ordinal
-        With w, tps, impl,
-             collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
-                AS rules
-        RETURN w{{.*}} AS webhook,
-               tps{{.*}} AS tps,
-               impl.identifier_selector
-                   AS identifier_selector,
-               [x IN rules
-                | x {{.filter_expression, .handler,
-                      .handler_config}}]
-                   AS rules
-        """
         params: dict[str, typing.Any] = {
             'old_slug': slug,
             'org_slug': org_slug,
             'tps_slug': data.third_party_service_slug,
-            'props': props,
+            **props,
             'identifier_selector': data.identifier_selector,
-            'rules': rule_params,
+            **rules_params,
         }
     else:
-        query = """
-        MATCH (w:Webhook {{slug: {old_slug}}})
-              -[:BELONGS_TO]->(o:Organization
-                               {{slug: {org_slug}}})
-        OPTIONAL MATCH (old_r:WebhookRule)-[:ACTIONS]->(w)
-        DETACH DELETE old_r
-        With DISTINCT w, o
-        OPTIONAL MATCH (w)-[old_impl:IMPLEMENTED_BY]->()
-        DELETE old_impl
-        With DISTINCT w
-        SET w = {props}
-        With w
-        UNWIND
-            CASE WHEN size({rules}) = 0 THEN [null]
-                 ELSE {rules} END AS rule_data
-        FOREACH (_ IN CASE WHEN rule_data IS NOT NULL
-                           THEN [1] ELSE [] END |
-            CREATE (r:WebhookRule {{
-                filter_expression: rule_data.filter_expression,
-                handler: rule_data.handler,
-                handler_config: rule_data.handler_config,
-                ordinal: rule_data.ordinal
-            }})
-            CREATE (r)-[:ACTIONS]->(w)
+        query = (
+            'MATCH (w:Webhook {{slug: {old_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' OPTIONAL MATCH'
+            ' (old_r:WebhookRule)-[:ACTIONS]->(w)'
+            ' DETACH DELETE old_r'
+            ' WITH DISTINCT w, o'
+            ' OPTIONAL MATCH'
+            ' (w)-[old_impl:IMPLEMENTED_BY]->()'
+            ' DELETE old_impl'
+            ' WITH DISTINCT w'
+            f' {set_clause}'
+            ' WITH w' + unwind + _RULE_RETURN_NO_TPS
         )
-        With DISTINCT w
-        OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
-        With w, r
-        ORDER BY r.ordinal
-        With w,
-             collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
-                AS rules
-        RETURN w{{.*}} AS webhook,
-               null AS tps,
-               null AS identifier_selector,
-               [x IN rules
-                | x {{.filter_expression, .handler,
-                      .handler_config}}]
-                   AS rules
-        """
         params = {
             'old_slug': slug,
             'org_slug': org_slug,
-            'props': props,
-            'rules': rule_params,
+            **props,
+            **rules_params,
         }
 
     try:
@@ -535,10 +544,16 @@ async def list_project_services(
 
     return [
         models.ExistsInResponse(
-            third_party_service_slug=graph.parse_agtype(r['service_slug']),
-            third_party_service_name=graph.parse_agtype(r['service_name']),
+            third_party_service_slug=graph.parse_agtype(
+                r['service_slug'],
+            ),
+            third_party_service_name=graph.parse_agtype(
+                r['service_name'],
+            ),
             identifier=graph.parse_agtype(r['identifier']),
-            canonical_link=graph.parse_agtype(r.get('canonical_link')),
+            canonical_link=graph.parse_agtype(
+                r.get('canonical_link'),
+            ),
         )
         for r in records
     ]
@@ -601,10 +616,16 @@ async def create_project_service(
 
     r = records[0]
     return models.ExistsInResponse(
-        third_party_service_slug=graph.parse_agtype(r['service_slug']),
-        third_party_service_name=graph.parse_agtype(r['service_name']),
+        third_party_service_slug=graph.parse_agtype(
+            r['service_slug'],
+        ),
+        third_party_service_name=graph.parse_agtype(
+            r['service_name'],
+        ),
         identifier=graph.parse_agtype(r['identifier']),
-        canonical_link=graph.parse_agtype(r.get('canonical_link')),
+        canonical_link=graph.parse_agtype(
+            r.get('canonical_link'),
+        ),
     )
 
 

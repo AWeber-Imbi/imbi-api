@@ -1206,14 +1206,15 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         # Verify existing encrypted values were preserved
+        # (props are now expanded as individual scalar params)
         update_call = self.mock_db.execute.call_args_list[1]
-        props = update_call.args[1]['props']
+        params = update_call.args[1]
         self.assertEqual(
-            props['client_secret'],
+            params['client_secret'],
             self.app_data['client_secret'],
         )
         self.assertEqual(
-            props['webhook_secret'],
+            params['webhook_secret'],
             self.app_data['webhook_secret'],
         )
 

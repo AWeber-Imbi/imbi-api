@@ -8,6 +8,7 @@ for account recovery.
 import base64
 import datetime
 import io
+import json
 import logging
 import secrets
 import typing
@@ -304,7 +305,7 @@ async def verify_and_enable_mfa(
             update_query,
             {
                 'email': auth.require_user.email,
-                'backup_codes': backup_codes,
+                'backup_codes': json.dumps(backup_codes),
                 'now': now_str,
             },
         )

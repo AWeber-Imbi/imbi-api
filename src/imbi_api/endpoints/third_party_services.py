@@ -25,6 +25,37 @@ _APP_JSON_FIELDS: dict[str, list[str] | dict[str, typing.Any]] = {
 }
 
 
+def _props_template(props: dict[str, typing.Any]) -> str:
+    """Build a Cypher property-map template with double-escaped braces.
+
+    Each key becomes ``key: {key}`` inside doubled braces so that
+    ``psycopg.sql.SQL.format()`` resolves them correctly::
+
+        >>> _props_template({'name': 'x', 'slug': 'y'})
+        '{{name: {name}, slug: {slug}}}'
+
+    """
+    if not props:
+        return ''
+    pairs = [f'{k}: {{{k}}}' for k in props]
+    return '{{' + ', '.join(pairs) + '}}'
+
+
+def _set_clause(
+    alias: str,
+    props: dict[str, typing.Any],
+) -> str:
+    """Build a Cypher SET clause from a property dict.
+
+    Returns a string like ``SET s.name = {name}, s.slug = {slug}``.
+
+    """
+    if not props:
+        return ''
+    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
+    return f'SET {assignments}'
+
+
 def _build_service_response(
     record: dict[str, typing.Any],
 ) -> models.ThirdPartyServiceResponse:
@@ -145,33 +176,35 @@ async def create_third_party_service(
     }
 
     graph_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
+    create_tpl = _props_template(graph_props)
 
     if data.team_slug:
-        query: typing.LiteralString = """
-        MATCH (o:Organization {{slug: {org_slug}}})
-        MATCH (t:Team {{slug: {team_slug}}})-[:BELONGS_TO]->(o)
-        CREATE (s:ThirdPartyService {props})
-        CREATE (s)-[:BELONGS_TO]->(o)
-        CREATE (s)-[:MANAGED_BY]->(t)
-        RETURN s{{.*, organization: o{{.*}}, team: t{{.*}}}}
-            AS service
-        """
+        query: str = (
+            'MATCH (o:Organization {{slug: {org_slug}}})'
+            ' MATCH (t:Team {{slug: {team_slug}}})'
+            '-[:BELONGS_TO]->(o)'
+            f' CREATE (s:ThirdPartyService {create_tpl})'
+            ' CREATE (s)-[:BELONGS_TO]->(o)'
+            ' CREATE (s)-[:MANAGED_BY]->(t)'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: t{{.*}}}} AS service'
+        )
         params: dict[str, typing.Any] = {
             'org_slug': org_slug,
             'team_slug': data.team_slug,
-            'props': graph_props,
+            **graph_props,
         }
     else:
-        query = """
-        MATCH (o:Organization {{slug: {org_slug}}})
-        CREATE (s:ThirdPartyService {props})
-        CREATE (s)-[:BELONGS_TO]->(o)
-        RETURN s{{.*, organization: o{{.*}}, team: null}}
-            AS service
-        """
+        query = (
+            'MATCH (o:Organization {{slug: {org_slug}}})'
+            f' CREATE (s:ThirdPartyService {create_tpl})'
+            ' CREATE (s)-[:BELONGS_TO]->(o)'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: null}} AS service'
+        )
         params = {
             'org_slug': org_slug,
-            'props': graph_props,
+            **graph_props,
         }
 
     try:
@@ -351,43 +384,45 @@ async def update_third_party_service(
     }
 
     graph_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
+    set_clause = _set_clause('s', graph_props)
 
     if data.team_slug:
-        update_query: typing.LiteralString = """
-        MATCH (s:ThirdPartyService {{slug: {slug}}})
-              -[:BELONGS_TO]->(o:Organization
-                               {{slug: {org_slug}}})
-        MATCH (t:Team {{slug: {team_slug}}})-[:BELONGS_TO]->(o)
-        OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
-        DELETE old_mgr
-        WITH s, o, t
-        SET s = {props}
-        CREATE (s)-[:MANAGED_BY]->(t)
-        RETURN s{{.*, organization: o{{.*}}, team: t{{.*}}}}
-            AS service
-        """
+        update_query: str = (
+            'MATCH (s:ThirdPartyService {{slug: {cur_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' MATCH (t:Team {{slug: {team_slug}}})'
+            '-[:BELONGS_TO]->(o)'
+            ' OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()'
+            ' DELETE old_mgr'
+            ' WITH s, o, t'
+            f' {set_clause}'
+            ' CREATE (s)-[:MANAGED_BY]->(t)'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: t{{.*}}}} AS service'
+        )
         update_params: dict[str, typing.Any] = {
-            'slug': slug,
+            'cur_slug': slug,
             'org_slug': org_slug,
             'team_slug': data.team_slug,
-            'props': graph_props,
+            **graph_props,
         }
     else:
-        update_query = """
-        MATCH (s:ThirdPartyService {{slug: {slug}}})
-              -[:BELONGS_TO]->(o:Organization
-                               {{slug: {org_slug}}})
-        OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
-        DELETE old_mgr
-        With s, o
-        SET s = {props}
-        RETURN s{{.*, organization: o{{.*}}, team: null}}
-            AS service
-        """
+        update_query = (
+            'MATCH (s:ThirdPartyService {{slug: {cur_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()'
+            ' DELETE old_mgr'
+            ' WITH s, o'
+            f' {set_clause}'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: null}} AS service'
+        )
         update_params = {
-            'slug': slug,
+            'cur_slug': slug,
             'org_slug': org_slug,
-            'props': graph_props,
+            **graph_props,
         }
 
     try:
@@ -608,20 +643,21 @@ async def create_service_application(
         )
 
     graph_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
+    app_tpl = _props_template(graph_props)
 
-    create_query: typing.LiteralString = """
-    MATCH (s:ThirdPartyService {{slug: {svc_slug}}})
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    CREATE (a:ServiceApplication {props})
-    CREATE (a)-[:REGISTERED_IN]->(s)
-    RETURN a{{.*}} AS app
-    """
+    create_query: str = (
+        'MATCH (s:ThirdPartyService {{slug: {svc_slug}}})'
+        ' -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})'
+        f' CREATE (a:ServiceApplication {app_tpl})'
+        ' CREATE (a)-[:REGISTERED_IN]->(s)'
+        ' RETURN a{{.*}} AS app'
+    )
     records = await db.execute(
         create_query,
         {
             'svc_slug': slug,
             'org_slug': org_slug,
-            'props': graph_props,
+            **graph_props,
         },
         ['app'],
     )
@@ -731,22 +767,23 @@ async def update_service_application(
         props[field] = existing.get(field)
 
     graph_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
+    app_set = _set_clause('a', graph_props)
 
-    update_query: typing.LiteralString = """
-    MATCH (a:ServiceApplication {{slug: {app_slug}}})
-          -[:REGISTERED_IN]->(s:ThirdPartyService
-                              {{slug: {svc_slug}}})
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    SET a = {props}
-    RETURN a{{.*}} AS app
-    """
+    update_query: str = (
+        'MATCH (a:ServiceApplication {{slug: {cur_app_slug}}})'
+        ' -[:REGISTERED_IN]->(s:ThirdPartyService'
+        ' {{slug: {svc_slug}}})'
+        ' -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})'
+        f' {app_set}'
+        ' RETURN a{{.*}} AS app'
+    )
     updated = await db.execute(
         update_query,
         {
-            'app_slug': app_slug,
+            'cur_app_slug': app_slug,
             'svc_slug': slug,
             'org_slug': org_slug,
-            'props': graph_props,
+            **graph_props,
         },
         ['app'],
     )

@@ -1,6 +1,7 @@
 """Authentication endpoints for login, token refresh, and logout."""
 
 import datetime
+import json
 import logging
 import typing
 from urllib import parse as urlparse
@@ -460,7 +461,7 @@ async def login(
                             update_q2,
                             {
                                 'email': user.email,
-                                'backup_codes': backup_codes,
+                                'backup_codes': json.dumps(backup_codes),
                             },
                         )
 

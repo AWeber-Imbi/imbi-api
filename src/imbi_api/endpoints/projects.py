@@ -138,6 +138,59 @@ class ProjectResponse(pydantic.BaseModel):
 
 # -- Helpers ------------------------------------------------------------
 
+
+def _props_template(props: dict[str, typing.Any]) -> str:
+    """Build a Cypher property-map template with double-escaped braces.
+
+    Each key becomes ``key: {key}`` inside doubled braces so that
+    ``psycopg.sql.SQL.format()`` resolves them correctly::
+
+        >>> _props_template({'name': 'x', 'slug': 'y'})
+        '{{name: {name}, slug: {slug}}}'
+
+    """
+    if not props:
+        return ''
+    pairs = [f'{k}: {{{k}}}' for k in props]
+    return '{{' + ', '.join(pairs) + '}}'
+
+
+def _set_clause(
+    alias: str,
+    props: dict[str, typing.Any],
+) -> str:
+    """Build a Cypher SET clause from a property dict.
+
+    Returns a string like ``SET p.name = {name}, p.slug = {slug}``.
+
+    """
+    if not props:
+        return ''
+    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
+    return f'SET {assignments}'
+
+
+def _env_entries_template(
+    entries: list[dict[str, str | None]],
+) -> tuple[str, dict[str, typing.Any]]:
+    """Build an inline Cypher list of maps for env entries.
+
+    Returns a tuple of (template_fragment, params_dict) where the
+    template uses indexed placeholders like ``{env_0_slug}`` and
+    the params dict maps those keys to scalar values.
+
+    """
+    if not entries:
+        return '[]', {}
+    maps: list[str] = []
+    params: dict[str, typing.Any] = {}
+    for i, entry in enumerate(entries):
+        maps.append(f'{{{{slug: {{env_{i}_slug}}, url: {{env_{i}_url}}}}}}')
+        params[f'env_{i}_slug'] = entry['slug']
+        params[f'env_{i}_url'] = entry.get('url')
+    return '[' + ', '.join(maps) + ']', params
+
+
 _RESERVED_FIELDS = frozenset(
     {
         'id',
@@ -299,6 +352,10 @@ async def create_project(
             'environments',
         },
     )
+    # Serialize dict/list fields to JSON strings for graph storage
+    for key in ('links', 'identifiers'):
+        if key in props and not isinstance(props[key], str):
+            props[key] = json.dumps(props[key])
 
     # Pre-validate that all project type slugs exist before creating
     # anything, to avoid orphaned Project nodes when slugs are invalid.
@@ -328,12 +385,18 @@ async def create_project(
             detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
         )
 
-    query: typing.LiteralString = (
+    create_tpl = _props_template(props)
+    env_entries = [{'slug': s, 'url': u} for s, u in data.environments.items()]
+    env_tpl, env_params = _env_entries_template(env_entries)
+
+    query: str = (
         """
     MATCH (o:Organization {{slug: {org_slug}}})
     MATCH (t:Team {{slug: {team_slug}}})
           -[:BELONGS_TO]->(o)
-    CREATE (p:Project {props})
+    CREATE (p:Project """
+        + create_tpl
+        + """)
     CREATE (p)-[:OWNED_BY]->(t)
     WITH p, t, o
     UNWIND {pt_slugs} AS pt_slug
@@ -345,10 +408,13 @@ async def create_project(
     )
     WITH DISTINCT p, t, o
     UNWIND
-        CASE WHEN size({env_entries}) = 0
+        CASE WHEN size("""
+        + env_tpl
+        + """) = 0
              THEN [null]
-             ELSE {env_entries}
-        END AS entry
+             ELSE """
+        + env_tpl
+        + """ END AS entry
     OPTIONAL MATCH (e:Environment {{slug: entry.slug}})
              -[:BELONGS_TO]->(o)
     FOREACH (_ IN CASE WHEN e IS NOT NULL
@@ -359,9 +425,6 @@ async def create_project(
     """
         + _RETURN_FRAGMENT
     )
-    env_entries = [
-        {'slug': slug, 'url': url} for slug, url in data.environments.items()
-    ]
     try:
         records = await db.execute(
             query,
@@ -369,8 +432,8 @@ async def create_project(
                 'org_slug': org_slug,
                 'team_slug': data.team_slug,
                 'pt_slugs': data.project_type_slugs,
-                'props': props,
-                'env_entries': env_entries,
+                **props,
+                **env_params,
             },
             ['project', 'dependency_count'],
         )
@@ -777,6 +840,10 @@ async def update_project(
             'environments',
         },
     )
+    # Serialize dict/list fields to JSON strings for graph storage
+    for key in ('links', 'identifiers'):
+        if key in props and not isinstance(props[key], str):
+            props[key] = json.dumps(props[key])
 
     # Pre-validate team slug exists before executing the update to
     # prevent partial writes (SET p = $props commits even when a
@@ -836,7 +903,7 @@ async def update_project(
             )
 
     # Build update query with optional relationship changes
-    rel_clauses: typing.LiteralString = ''
+    rel_clauses: str = ''
     if data.team_slug:
         rel_clauses += """
     WITH p, o
@@ -857,33 +924,41 @@ async def update_project(
           -[:BELONGS_TO]->(o)
     CREATE (p)-[:TYPE]->(new_pt)
     """
-    if data.environments is not None:
-        rel_clauses += """
-    WITH DISTINCT p, o
-    OPTIONAL MATCH (p)-[old_env:DEPLOYED_IN]->(:Environment)
-    DELETE old_env
-    WITH DISTINCT p, o
-    UNWIND
-        CASE WHEN size({new_env_entries}) = 0
-             THEN [null]
-             ELSE {new_env_entries}
-        END AS entry
-    OPTIONAL MATCH (e:Environment {{slug: entry.slug}})
-             -[:BELONGS_TO]->(o)
-    FOREACH (_ IN CASE WHEN e IS NOT NULL
-                       THEN [1] ELSE [] END |
-        CREATE (p)-[:DEPLOYED_IN {{url: entry.url}}]->(e)
+    new_env_entries = [
+        {'slug': s, 'url': u} for s, u in (data.environments or {}).items()
+    ]
+    new_env_tpl, new_env_params = _env_entries_template(
+        new_env_entries,
     )
-    """
 
-    update_query: typing.LiteralString = (
+    if data.environments is not None:
+        rel_clauses += (
+            ' WITH DISTINCT p, o'
+            ' OPTIONAL MATCH'
+            ' (p)-[old_env:DEPLOYED_IN]->(:Environment)'
+            ' DELETE old_env'
+            ' WITH DISTINCT p, o'
+            f' UNWIND CASE WHEN size({new_env_tpl}) = 0'
+            f' THEN [null] ELSE {new_env_tpl}'
+            ' END AS entry'
+            ' OPTIONAL MATCH (e:Environment'
+            ' {{slug: entry.slug}})-[:BELONGS_TO]->(o)'
+            ' FOREACH (_ IN CASE WHEN e IS NOT NULL'
+            ' THEN [1] ELSE [] END |'
+            ' CREATE (p)-[:DEPLOYED_IN'
+            ' {{url: entry.url}}]->(e))'
+        )
+
+    set_clause = _set_clause('p', props)
+
+    update_query: str = (
         """
     MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p, o
-    SET p = {props}
     """
+        + set_clause
         + rel_clauses
         + """
     WITH DISTINCT p, o
@@ -897,13 +972,10 @@ async def update_project(
             {
                 'project_id': project_id,
                 'org_slug': org_slug,
-                'props': props,
+                **props,
                 'new_team_slug': data.team_slug or '',
                 'new_type_slugs': data.project_type_slugs or [],
-                'new_env_entries': [
-                    {'slug': s, 'url': u}
-                    for s, u in (data.environments or {}).items()
-                ],
+                **new_env_params,
             },
             ['project', 'dependency_count'],
         )
