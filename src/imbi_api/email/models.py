@@ -83,7 +83,6 @@ class PasswordResetToken(common_models.GraphModel):
     token: str
     username: str
     email: pydantic.EmailStr
-    created_at: datetime.datetime
     expires_at: datetime.datetime
     used: bool = False
     used_at: datetime.datetime | None = None
