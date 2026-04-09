@@ -360,7 +360,7 @@ class SAAPIKeysEndpointsTestCase(unittest.TestCase):
         # First call: fetch key, second: update hash
         self.mock_db.execute.side_effect = [
             [{'k': api_key_data}],
-            [],
+            [{'k': api_key_data}],
         ]
 
         with (

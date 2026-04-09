@@ -162,7 +162,16 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db.execute.side_effect = [
+            # pt_slug validation
             [{'pt_slug': 'api-service', 'found': True}],
+            # env_slug validation
+            [
+                {
+                    'env_slug': 'production',
+                    'found': True,
+                },
+            ],
+            # create query
             [
                 {
                     'project': record,
@@ -598,6 +607,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db.execute.side_effect = [
+            # fetch existing project
             [
                 {
                     'project': existing,
@@ -605,6 +615,14 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                     'current_type_slugs': ['api-service'],
                 },
             ],
+            # env_slug validation
+            [
+                {
+                    'env_slug': 'staging',
+                    'found': True,
+                },
+            ],
+            # update query
             [
                 {
                     'project': updated,
@@ -746,15 +764,11 @@ class ProjectEndpointsTestCase(unittest.TestCase):
 
     def test_delete_not_found(self) -> None:
         """Test deleting nonexistent project."""
-        self.mock_db.execute.return_value = [{'deleted': 0}]
+        self.mock_db.execute.return_value = []
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
-        ):
-            response = self.client.delete(
-                '/organizations/engineering/projects/nonexistent',
-            )
+        response = self.client.delete(
+            '/organizations/engineering/projects/nonexistent',
+        )
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])

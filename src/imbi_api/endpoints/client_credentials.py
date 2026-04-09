@@ -6,6 +6,7 @@ credentials grant flow.
 """
 
 import datetime
+import json
 import logging
 import secrets
 import typing
@@ -139,6 +140,7 @@ async def create_client_credential(
     # Store in graph with relationship to ServiceAccount
     props = credential.model_dump(mode='json')
     props.pop('service_account', None)
+    props['scopes'] = json.dumps(props.get('scopes', []))
     keys = list(props.keys())
     prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
     records = await db.execute(
@@ -360,7 +362,7 @@ async def rotate_client_credential(
         c.last_rotated = {now}
     RETURN c
     """
-    await db.execute(
+    updated = await db.execute(
         update_query,
         {
             'slug': slug,
@@ -370,6 +372,11 @@ async def rotate_client_credential(
         },
         ['c'],
     )
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail='Client credential was modified during rotation',
+        )
 
     LOGGER.info(
         'Client credential %s rotated for service account %s by user %s',

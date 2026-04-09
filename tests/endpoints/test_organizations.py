@@ -64,7 +64,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
     def test_create_organization_success(self) -> None:
         """Test successful organization creation."""
-        self.mock_db.merge.return_value = self.test_org
+        self.mock_db.create.return_value = self.test_org
 
         response = self.client.post(
             '/organizations/',
@@ -111,7 +111,7 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
 
     def test_create_organization_duplicate_slug(self) -> None:
         """Test creating organization with duplicate slug."""
-        self.mock_db.merge.side_effect = psycopg.errors.UniqueViolation(
+        self.mock_db.create.side_effect = psycopg.errors.UniqueViolation(
             'Duplicate'
         )
 

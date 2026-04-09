@@ -60,7 +60,7 @@ async def create_role(
     role.created_at = now
     role.updated_at = now
     try:
-        created = await db.merge(role)
+        created = await db.create(role)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,

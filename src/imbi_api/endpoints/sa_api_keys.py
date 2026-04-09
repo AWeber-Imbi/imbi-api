@@ -6,6 +6,7 @@ with a ServiceAccount node instead of a User node.
 """
 
 import datetime
+import json
 import logging
 import secrets
 import typing
@@ -137,14 +138,20 @@ async def create_sa_api_key(
     # Create API key node with relationship to ServiceAccount
     props = api_key.model_dump(mode='json')
     props.pop('user', None)
+    props['scopes'] = json.dumps(props.get('scopes', []))
     keys = list(props.keys())
     prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
-    await db.execute(
+    records = await db.execute(
         f'MATCH (s:ServiceAccount {{{{slug: {{slug}}}}}})'
         f' CREATE (k:APIKey {{{{{prop_map}}}}})'
         f'-[:OWNED_BY]->(s) RETURN k',
         {**props, 'slug': slug},
     )
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Service account {slug!r} not found',
+        )
 
     LOGGER.info(
         'API key created for service account %s (expires: %s)',
@@ -342,7 +349,7 @@ async def rotate_sa_api_key(
     SET k.key_hash = {key_hash}, k.last_rotated = {now}
     RETURN k
     """
-    await db.execute(
+    updated = await db.execute(
         update_query,
         {
             'slug': slug,
@@ -352,6 +359,11 @@ async def rotate_sa_api_key(
         },
         ['k'],
     )
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail='API key was modified during rotation',
+        )
 
     LOGGER.info(
         'API key %s rotated for service account %s by %s',

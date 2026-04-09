@@ -43,7 +43,7 @@ async def create_service_account(
     )
 
     try:
-        await db.merge(sa)
+        await db.create(sa)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,

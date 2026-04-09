@@ -269,10 +269,10 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         self.assertEqual(data['description'], 'Updated description')
         self.mock_db.merge.assert_called_once()
 
-    def test_update_blueprint_slug_rename(self) -> None:
-        """Test updating blueprint with different slug renames."""
-        self.mock_db.merge.return_value = self.test_blueprint
-
+    def test_update_blueprint_slug_mismatch_rejected(
+        self,
+    ) -> None:
+        """Mismatched slug in body vs URL returns 400."""
         response = self.client.put(
             '/blueprints/Project/test-blueprint',
             json={
@@ -286,8 +286,28 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.mock_db.merge.assert_called_once()
+        self.assertEqual(response.status_code, 400)
+        self.mock_db.merge.assert_not_called()
+
+    def test_update_blueprint_type_mismatch_rejected(
+        self,
+    ) -> None:
+        """Mismatched type in body vs URL returns 400."""
+        response = self.client.put(
+            '/blueprints/Project/test-blueprint',
+            json={
+                'name': 'Test',
+                'slug': 'test-blueprint',
+                'type': 'Team',
+                'json_schema': {
+                    'type': 'object',
+                    'properties': {},
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.mock_db.merge.assert_not_called()
 
     def test_delete_blueprint_success(self) -> None:
         """Test deleting a blueprint."""

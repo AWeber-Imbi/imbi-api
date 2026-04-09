@@ -65,7 +65,7 @@ class ServiceAccountsEndpointsTestCase(unittest.TestCase):
 
     def test_create_service_account_success(self) -> None:
         """Test successful service account creation."""
-        self.mock_db.merge.return_value = self.sa_data
+        self.mock_db.create.return_value = self.sa_data
         self.mock_db.execute.return_value = [
             {
                 'org_name': 'Acme Corp',
@@ -107,7 +107,7 @@ class ServiceAccountsEndpointsTestCase(unittest.TestCase):
 
     def test_create_service_account_duplicate(self) -> None:
         """Test creating duplicate service account."""
-        self.mock_db.merge.side_effect = psycopg.errors.UniqueViolation(
+        self.mock_db.create.side_effect = psycopg.errors.UniqueViolation(
             'Duplicate'
         )
 

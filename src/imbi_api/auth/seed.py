@@ -497,22 +497,46 @@ async def bootstrap_auth_system(
 
 
 async def check_if_seeded(db: graph.Graph) -> bool:
-    """
-    Check if the authentication system has already been seeded.
+    """Check if the authentication system has been fully seeded.
+
+    Verifies that all standard permissions, default roles, and
+    at least one organization exist before reporting the system
+    as seeded.  This prevents a partial seed (e.g. permissions
+    created but roles missing) from being treated as complete.
 
     Parameters:
         db: Graph database connection.
 
     Returns:
-        bool: True if permissions exist in the database,
-            False otherwise.
+        bool: True if the full seed is present, False otherwise.
     """
-    query = 'MATCH (p:Permission) RETURN count(p)'
-
-    records = await db.execute(query, columns=['count'])
-    if records:
-        count = graph.parse_agtype(records[0].get('count'))
-        if count and count > 0:
-            return True
-
-    return False
+    query: typing.LiteralString = """
+    OPTIONAL MATCH (p:Permission)
+    WITH count(p) AS perm_count
+    OPTIONAL MATCH (r:Role)
+    WITH perm_count, count(r) AS role_count
+    OPTIONAL MATCH (o:Organization)
+    RETURN perm_count, role_count, count(o) AS org_count
+    """
+    records = await db.execute(
+        query,
+        columns=['perm_count', 'role_count', 'org_count'],
+    )
+    if not records:
+        return False
+    perm_count = graph.parse_agtype(
+        records[0].get('perm_count'),
+    )
+    role_count = graph.parse_agtype(
+        records[0].get('role_count'),
+    )
+    org_count = graph.parse_agtype(
+        records[0].get('org_count'),
+    )
+    expected_perms = len(STANDARD_PERMISSIONS)
+    expected_roles = len(DEFAULT_ROLES)
+    return (
+        (perm_count or 0) >= expected_perms
+        and (role_count or 0) >= expected_roles
+        and (org_count or 0) > 0
+    )

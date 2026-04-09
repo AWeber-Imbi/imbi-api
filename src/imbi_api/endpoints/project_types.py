@@ -17,19 +17,24 @@ LOGGER = logging.getLogger(__name__)
 project_types_router = fastapi.APIRouter(tags=['Project Types'])
 
 
+def _escape_prop(name: str) -> str:
+    """Escape a Cypher property name with backticks."""
+    return '`' + name.replace('`', '``') + '`'
+
+
 def _props_template(props: dict[str, typing.Any]) -> str:
     """Build a Cypher property-map template with double-escaped braces.
 
-    Each key becomes ``key: {key}`` inside doubled braces so that
+    Each key becomes ```key`: {key}`` inside doubled braces so that
     ``psycopg.sql.SQL.format()`` resolves them correctly::
 
         >>> _props_template({'name': 'x', 'slug': 'y'})
-        '{{name: {name}, slug: {slug}}}'
+        '{{`name`: {name}, `slug`: {slug}}}'
 
     """
     if not props:
         return ''
-    pairs = [f'{k}: {{{k}}}' for k in props]
+    pairs = [f'{_escape_prop(k)}: {{{k}}}' for k in props]
     return '{{' + ', '.join(pairs) + '}}'
 
 
@@ -39,12 +44,14 @@ def _set_clause(
 ) -> str:
     """Build a Cypher SET clause from a property dict.
 
-    Returns ``SET pt.name = {name}, pt.slug = {slug}``.
+    Returns ``SET pt.`name` = {name}, pt.`slug` = {slug}``.
 
     """
     if not props:
         return ''
-    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
+    assignments = ', '.join(
+        f'{alias}.{_escape_prop(k)} = {{{k}}}' for k in props
+    )
     return f'SET {assignments}'
 
 

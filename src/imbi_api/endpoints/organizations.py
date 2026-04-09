@@ -111,7 +111,7 @@ async def create_organization(
     org.created_at = now
     org.updated_at = now
     try:
-        created = await db.merge(org)
+        created = await db.create(org)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,

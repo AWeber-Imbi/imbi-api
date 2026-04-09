@@ -67,7 +67,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
             priority=100,
             is_system=False,
         )
-        self.mock_db.merge.return_value = created_role
+        self.mock_db.create.return_value = created_role
 
         response = self.client.post(
             '/roles/',
@@ -84,11 +84,11 @@ class RoleEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['name'], 'New Role')
         self.assertEqual(data['slug'], 'new-role')
-        self.mock_db.merge.assert_called_once()
+        self.mock_db.create.assert_called_once()
 
     def test_create_role_duplicate(self) -> None:
         """Test creating duplicate role returns 409."""
-        self.mock_db.merge.side_effect = psycopg.errors.UniqueViolation(
+        self.mock_db.create.side_effect = psycopg.errors.UniqueViolation(
             'Constraint violation'
         )
 

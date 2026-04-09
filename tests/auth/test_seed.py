@@ -257,9 +257,17 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
     """Test seeding status check."""
 
     async def test_check_if_seeded_true(self) -> None:
-        """Returns True when permissions exist."""
+        """Returns True when all seed components exist."""
+        expected_perms = len(seed.STANDARD_PERMISSIONS)
+        expected_roles = len(seed.DEFAULT_ROLES)
         mock_db = mock.AsyncMock()
-        mock_db.execute.return_value = [{'count': 20}]
+        mock_db.execute.return_value = [
+            {
+                'perm_count': expected_perms,
+                'role_count': expected_roles,
+                'org_count': 1,
+            }
+        ]
 
         with mock.patch(
             'imbi_common.graph.parse_agtype',
@@ -274,7 +282,13 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         """Returns False when no permissions exist."""
         mock_db = mock.AsyncMock()
-        mock_db.execute.return_value = [{'count': 0}]
+        mock_db.execute.return_value = [
+            {
+                'perm_count': 0,
+                'role_count': 0,
+                'org_count': 0,
+            }
+        ]
 
         with mock.patch(
             'imbi_common.graph.parse_agtype',
@@ -284,7 +298,31 @@ class CheckIfSeededTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(is_seeded)
 
-    async def test_check_if_seeded_false_empty_result(self) -> None:
+    async def test_check_if_seeded_false_partial_seed(
+        self,
+    ) -> None:
+        """Returns False when only permissions seeded."""
+        expected_perms = len(seed.STANDARD_PERMISSIONS)
+        mock_db = mock.AsyncMock()
+        mock_db.execute.return_value = [
+            {
+                'perm_count': expected_perms,
+                'role_count': 0,
+                'org_count': 0,
+            }
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            is_seeded = await seed.check_if_seeded(mock_db)
+
+        self.assertFalse(is_seeded)
+
+    async def test_check_if_seeded_false_empty_result(
+        self,
+    ) -> None:
         """Returns False when query returns empty."""
         mock_db = mock.AsyncMock()
         mock_db.execute.return_value = []

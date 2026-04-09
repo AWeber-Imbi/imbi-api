@@ -139,19 +139,24 @@ class ProjectResponse(pydantic.BaseModel):
 # -- Helpers ------------------------------------------------------------
 
 
+def _escape_prop(name: str) -> str:
+    """Escape a Cypher property name with backticks."""
+    return '`' + name.replace('`', '``') + '`'
+
+
 def _props_template(props: dict[str, typing.Any]) -> str:
     """Build a Cypher property-map template with double-escaped braces.
 
-    Each key becomes ``key: {key}`` inside doubled braces so that
+    Each key becomes ```key`: {key}`` inside doubled braces so that
     ``psycopg.sql.SQL.format()`` resolves them correctly::
 
         >>> _props_template({'name': 'x', 'slug': 'y'})
-        '{{name: {name}, slug: {slug}}}'
+        '{{`name`: {name}, `slug`: {slug}}}'
 
     """
     if not props:
         return ''
-    pairs = [f'{k}: {{{k}}}' for k in props]
+    pairs = [f'{_escape_prop(k)}: {{{k}}}' for k in props]
     return '{{' + ', '.join(pairs) + '}}'
 
 
@@ -161,12 +166,14 @@ def _set_clause(
 ) -> str:
     """Build a Cypher SET clause from a property dict.
 
-    Returns a string like ``SET p.name = {name}, p.slug = {slug}``.
+    Returns ``SET p.`name` = {name}, p.`slug` = {slug}``.
 
     """
     if not props:
         return ''
-    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
+    assignments = ', '.join(
+        f'{alias}.{_escape_prop(k)} = {{{k}}}' for k in props
+    )
     return f'SET {assignments}'
 
 
@@ -189,6 +196,42 @@ def _env_entries_template(
         params[f'env_{i}_slug'] = entry['slug']
         params[f'env_{i}_url'] = entry.get('url')
     return '[' + ', '.join(maps) + ']', params
+
+
+async def _validate_env_slugs(
+    db: graph.Pool,
+    org_slug: str,
+    env_slugs: list[str],
+) -> None:
+    """Validate that all environment slugs exist in the org.
+
+    Raises HTTPException 422 if any are missing.
+    """
+    env_check: typing.LiteralString = """
+    MATCH (o:Organization {{slug: {org_slug}}})
+    UNWIND {env_slugs} AS env_slug
+    OPTIONAL MATCH (e:Environment {{slug: env_slug}})
+             -[:BELONGS_TO]->(o)
+    RETURN env_slug, e IS NOT NULL AS found
+    """
+    records = await db.execute(
+        env_check,
+        {
+            'org_slug': org_slug,
+            'env_slugs': json.dumps(env_slugs),
+        },
+        ['env_slug', 'found'],
+    )
+    missing = [
+        graph.parse_agtype(r['env_slug'])
+        for r in records
+        if not graph.parse_agtype(r['found'])
+    ]
+    if missing:
+        raise fastapi.HTTPException(
+            status_code=422,
+            detail=(f'Environment slug(s) not found: {sorted(missing)!r}'),
+        )
 
 
 _RESERVED_FIELDS = frozenset(
@@ -370,7 +413,7 @@ async def create_project(
         validate_query,
         {
             'org_slug': org_slug,
-            'pt_slugs': data.project_type_slugs,
+            'pt_slugs': json.dumps(data.project_type_slugs),
         },
         ['pt_slug', 'found'],
     )
@@ -383,6 +426,14 @@ async def create_project(
         raise fastapi.HTTPException(
             status_code=422,
             detail=(f'Project type slug(s) not found: {sorted(missing)!r}'),
+        )
+
+    # Pre-validate that all environment slugs exist
+    if data.environments:
+        await _validate_env_slugs(
+            db,
+            org_slug,
+            list(data.environments.keys()),
         )
 
     create_tpl = _props_template(props)
@@ -431,7 +482,9 @@ async def create_project(
             {
                 'org_slug': org_slug,
                 'team_slug': data.team_slug,
-                'pt_slugs': data.project_type_slugs,
+                'pt_slugs': json.dumps(
+                    data.project_type_slugs,
+                ),
                 **props,
                 **env_params,
             },
@@ -885,7 +938,9 @@ async def update_project(
             pt_check,
             {
                 'org_slug': org_slug,
-                'pt_slugs': data.project_type_slugs,
+                'pt_slugs': json.dumps(
+                    data.project_type_slugs,
+                ),
             },
             ['pt_slug', 'found'],
         )
@@ -901,6 +956,15 @@ async def update_project(
                     f'Project type slug(s) not found: {sorted(missing)!r}'
                 ),
             )
+
+    # Pre-validate that all environment slugs exist to avoid
+    # dropping valid DEPLOYED_IN edges for unknown slugs.
+    if data.environments is not None and data.environments:
+        await _validate_env_slugs(
+            db,
+            org_slug,
+            list(data.environments.keys()),
+        )
 
     # Build update query with optional relationship changes
     rel_clauses: str = ''
@@ -974,7 +1038,9 @@ async def update_project(
                 'org_slug': org_slug,
                 **props,
                 'new_team_slug': data.team_slug or '',
-                'new_type_slugs': data.project_type_slugs or [],
+                'new_type_slugs': json.dumps(
+                    data.project_type_slugs or [],
+                ),
                 **new_env_params,
             },
             ['project', 'dependency_count'],
@@ -1017,7 +1083,7 @@ async def delete_project(
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
     DETACH DELETE p
-    RETURN count(p) AS deleted
+    RETURN p
     """
     records = await db.execute(
         query,
@@ -1025,11 +1091,9 @@ async def delete_project(
             'project_id': project_id,
             'org_slug': org_slug,
         },
-        ['deleted'],
     )
 
-    deleted = graph.parse_agtype(records[0]['deleted']) if records else 0
-    if not records or deleted == 0:
+    if not records:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Project {project_id!r} not found',

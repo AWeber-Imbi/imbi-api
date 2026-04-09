@@ -247,7 +247,7 @@ class ClientCredentialsEndpointsTestCase(unittest.TestCase):
         # First call: fetch, second: update
         self.mock_db.execute.side_effect = [
             [{'c': credential_data}],
-            [],
+            [{'c': credential_data}],
         ]
 
         with (

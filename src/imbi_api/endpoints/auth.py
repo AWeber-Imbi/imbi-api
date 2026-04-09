@@ -717,7 +717,6 @@ async def refresh_token(
             'refresh_jti': new_refresh_jti,
             'refresh_exp': refresh_exp,
         },
-        ['at', 'rt'],
     )
 
     LOGGER.info(

@@ -190,6 +190,11 @@ async def update_blueprint(
         400: If the URL `slug` does not match `blueprint.slug` or the
             URL `type` does not match `blueprint.type`.
     """
+    if blueprint.slug != slug or blueprint.type != blueprint_type:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Blueprint slug/type in body must match URL',
+        )
     await db.merge(
         blueprint,
         match_on=['slug', 'type'],
