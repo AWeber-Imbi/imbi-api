@@ -77,12 +77,30 @@ async def create_user(
         created_at=datetime.datetime.now(datetime.UTC),
     )
 
+    # Check if user already exists before creating to avoid
+    # silent upsert (merge would overwrite a pre-existing user)
+    existing = await db.execute(
+        'MATCH (u:User {{email: {email}}}) RETURN u',
+        {'email': user.email},
+        columns=['u'],
+    )
+    if existing:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(f'User with email {user.email!r} already exists'),
+        )
+
+    props = user.model_dump(mode='json')
+    props.pop('organizations', None)
     try:
-        await db.merge(user, match_on=['email'])
+        await db.execute(
+            'CREATE (n:User {props}) RETURN n',
+            {'props': props},
+        )
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=f'User with email {user.email!r} already exists',
+            detail=(f'User with email {user.email!r} already exists'),
         ) from e
 
     # Create MEMBER_OF relationship to organization with role

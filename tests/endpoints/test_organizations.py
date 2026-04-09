@@ -232,13 +232,17 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_update_organization(self) -> None:
         """Test updating organization."""
         self.mock_db.match.return_value = [self.test_org]
-        self.mock_db.merge.return_value = self.test_org
-        self.mock_db.execute.return_value = [
-            {
-                'team_count': 1,
-                'member_count': 2,
-                'project_count': 3,
-            },
+        self.mock_db.execute.side_effect = [
+            # First execute: MATCH/SET update query
+            [{'n': 'true'}],
+            # Second execute: count query
+            [
+                {
+                    'team_count': 1,
+                    'member_count': 2,
+                    'project_count': 3,
+                },
+            ],
         ]
 
         with mock.patch(
@@ -265,13 +269,17 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
     def test_update_organization_slug_rename(self) -> None:
         """Test updating with different slug renames it."""
         self.mock_db.match.return_value = [self.test_org]
-        self.mock_db.merge.return_value = self.test_org
-        self.mock_db.execute.return_value = [
-            {
-                'team_count': 0,
-                'member_count': 0,
-                'project_count': 0,
-            },
+        self.mock_db.execute.side_effect = [
+            # First execute: MATCH/SET update query
+            [{'n': 'true'}],
+            # Second execute: count query
+            [
+                {
+                    'team_count': 0,
+                    'member_count': 0,
+                    'project_count': 0,
+                },
+            ],
         ]
 
         with mock.patch(
@@ -288,12 +296,12 @@ class OrganizationEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.mock_db.merge.assert_called_once()
+        self.assertEqual(self.mock_db.execute.call_count, 2)
 
     def test_update_organization_slug_conflict(self) -> None:
         """Test slug rename conflict returns 409."""
         self.mock_db.match.return_value = [self.test_org]
-        self.mock_db.merge.side_effect = psycopg.errors.UniqueViolation(
+        self.mock_db.execute.side_effect = psycopg.errors.UniqueViolation(
             'Duplicate'
         )
 

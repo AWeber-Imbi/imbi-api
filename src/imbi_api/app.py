@@ -12,7 +12,6 @@ def create_app() -> fastapi.FastAPI:
         lifespan=lifespan.Lifespan(
             lifespans.clickhouse_hook,
             graph.graph_lifespan,
-            lifespans.graph_setup_hook,
             lifespans.email_hook,
             lifespans.storage_hook,
         ),

@@ -384,7 +384,7 @@ async def login(
     totp_query: typing.LiteralString = """
     MATCH (u:User {{email: {email}}})
           <-[:MFA_FOR]-(t:TOTPSecret)
-    RETURN t
+    RETURN t AS n
     """
     totp_records = await db.execute(
         totp_query,

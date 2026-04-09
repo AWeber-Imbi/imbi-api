@@ -86,7 +86,7 @@ async def get_mfa_status(
     query: typing.LiteralString = """
     MATCH (u:User {{email: {email}}})
           <-[:MFA_FOR]-(t:TOTPSecret)
-    RETURN t
+    RETURN t AS n
     """
     records = await db.execute(
         query,
@@ -233,7 +233,7 @@ async def verify_and_enable_mfa(
     query: typing.LiteralString = """
     MATCH (u:User {{email: {email}}})
           <-[:MFA_FOR]-(t:TOTPSecret)
-    RETURN t
+    RETURN t AS n
     """
     records = await db.execute(
         query,
@@ -389,7 +389,7 @@ async def disable_mfa(
         totp_query: typing.LiteralString = """
         MATCH (u:User {{email: {email}}})
               <-[:MFA_FOR]-(t:TOTPSecret)
-        RETURN t
+        RETURN t AS n
         """
         totp_records = await db.execute(
             totp_query,

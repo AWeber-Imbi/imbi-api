@@ -357,10 +357,10 @@ async def update_third_party_service(
         MATCH (s:ThirdPartyService {{slug: {slug}}})
               -[:BELONGS_TO]->(o:Organization
                                {{slug: {org_slug}}})
+        MATCH (t:Team {{slug: {team_slug}}})-[:BELONGS_TO]->(o)
         OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()
         DELETE old_mgr
-        With s, o
-        MATCH (t:Team {{slug: {team_slug}}})-[:BELONGS_TO]->(o)
+        WITH s, o, t
         SET s = {props}
         CREATE (s)-[:MANAGED_BY]->(t)
         RETURN s{{.*, organization: o{{.*}}, team: t{{.*}}}}

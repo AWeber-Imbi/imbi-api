@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 async def enforce_session_limit(
     db: graph.Graph,
-    username: str,
+    email: str,
     auth_settings: settings.Auth,
 ) -> None:
     """Enforce maximum concurrent sessions by removing oldest.
@@ -27,20 +27,20 @@ async def enforce_session_limit(
 
     Args:
         db: Graph database connection.
-        username: Username to enforce session limit for.
+        email: Email of the user to enforce session limit for.
         auth_settings: Auth settings containing
             max_concurrent_sessions.
 
     """
     query = (
-        'MATCH (u:User {{username: {username}}})'
+        'MATCH (u:User {{email: {email}}})'
         '<-[:SESSION_FOR]-(s:Session) '
         'RETURN s.session_id, s.last_activity '
         'ORDER BY s.last_activity DESC'
     )
     records = await db.execute(
         query,
-        {'username': username},
+        {'email': email},
         columns=['session_id', 'last_activity'],
     )
 
@@ -67,13 +67,12 @@ async def enforce_session_limit(
             await db.execute(
                 delete_query,
                 {'session_id': s['session_id']},
-                columns=['n'],
             )
 
         LOGGER.info(
             'Removed %d old sessions for user %s',
             len(sessions_to_remove),
-            username,
+            email,
         )
 
 

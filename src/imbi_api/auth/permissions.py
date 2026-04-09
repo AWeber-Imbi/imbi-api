@@ -90,7 +90,7 @@ async def load_user_permissions(db: graph.Graph, email: str) -> set[str]:
         return set()
     raw = graph.parse_agtype(records[0].get('permissions'))
     if isinstance(raw, list):
-        return set(raw)
+        return {item for item in raw if isinstance(item, str)}
     return set()
 
 
@@ -125,7 +125,7 @@ async def load_service_account_permissions(
         return set()
     raw = graph.parse_agtype(records[0].get('permissions'))
     if isinstance(raw, list):
-        return set(raw)
+        return {item for item in raw if isinstance(item, str)}
     return set()
 
 
@@ -316,13 +316,6 @@ async def authenticate_api_key(
             status_code=401, detail='Invalid or revoked API key'
         )
 
-    # Update last_used timestamp
-    now = datetime.datetime.now(datetime.UTC).isoformat()
-    update_query = (
-        'MATCH (k:APIKey {{key_id: {key_id}}}) SET k.last_used = {now}'
-    )
-    await db.execute(update_query, {'key_id': key_id, 'now': now})
-
     # Resolve owner and permissions
     scopes = api_key_data.get('scopes', [])
 
@@ -335,6 +328,14 @@ async def authenticate_api_key(
             )
         all_perms = await load_service_account_permissions(db, sa.slug)
         filtered = all_perms.intersection(set(scopes)) if scopes else all_perms
+
+        # Update last_used only after all validation passes
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        update_query = (
+            'MATCH (k:APIKey {{key_id: {key_id}}}) SET k.last_used = {now}'
+        )
+        await db.execute(update_query, {'key_id': key_id, 'now': now})
+
         return AuthContext(
             service_account=sa,
             session_id=key_id,
@@ -350,6 +351,13 @@ async def authenticate_api_key(
 
     all_perms = await load_user_permissions(db, user.email)
     filtered = all_perms.intersection(set(scopes)) if scopes else all_perms
+
+    # Update last_used only after all validation passes
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    update_query = (
+        'MATCH (k:APIKey {{key_id: {key_id}}}) SET k.last_used = {now}'
+    )
+    await db.execute(update_query, {'key_id': key_id, 'now': now})
 
     return AuthContext(
         user=user,
