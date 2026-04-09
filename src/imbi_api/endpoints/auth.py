@@ -156,13 +156,18 @@ async def token(
             detail='Client credential has been revoked',
         )
 
-    # Check expired
+    # Check expired -- AGE stores datetime as ISO strings
     expires_at = cred_data.get('expires_at')
-    if expires_at and expires_at < datetime.datetime.now(datetime.UTC):
-        raise fastapi.HTTPException(
-            status_code=401,
-            detail='Client credential has expired',
-        )
+    if expires_at:
+        if isinstance(expires_at, str):
+            expires_at = datetime.datetime.fromisoformat(
+                expires_at,
+            )
+        if expires_at < datetime.datetime.now(datetime.UTC):
+            raise fastapi.HTTPException(
+                status_code=401,
+                detail='Client credential has expired',
+            )
 
     # Verify secret
     if not password_auth.verify_password(

@@ -313,10 +313,18 @@ async def authenticate_api_key(
             status_code=401, detail='Invalid or revoked API key'
         )
 
-    # Check if key is expired
+    # Check if key is expired -- AGE stores datetime as ISO strings
     expires_at = api_key_data.get('expires_at')
-    if expires_at and expires_at < datetime.datetime.now(datetime.UTC):
-        raise fastapi.HTTPException(status_code=401, detail='API key expired')
+    if expires_at:
+        if isinstance(expires_at, str):
+            expires_at = datetime.datetime.fromisoformat(
+                expires_at,
+            )
+        if expires_at < datetime.datetime.now(datetime.UTC):
+            raise fastapi.HTTPException(
+                status_code=401,
+                detail='API key expired',
+            )
 
     # Verify key secret (hashed)
     if not password.verify_password(key_secret, api_key_data['key_hash']):

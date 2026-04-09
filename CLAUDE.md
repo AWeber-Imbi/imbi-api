@@ -261,10 +261,9 @@ app = create_app()  # Returns configured FastAPI instance
 **Lifespan management**: The application uses `imbi_common.lifespan.Lifespan` to compose multiple async context manager hooks (`src/imbi_api/lifespans.py`):
 
 1. `clickhouse_hook` — init/close ClickHouse connection
-2. `graph.graph_lifespan` — open/close Graph connection pool (from imbi_common)
-3. `graph_setup_hook` — refresh blueprint models for OpenAPI schema
-4. `email_hook` — creates `EmailClient` + `TemplateManager`, yields `tuple[EmailClient, TemplateManager]`
-5. `storage_hook` — creates `StorageClient`, yields it
+2. `graph.graph_lifespan` — open/close Graph connection pool and refresh blueprint models for OpenAPI schema (combined via monkey-patch in `lifespans.py`)
+3. `email_hook` — creates `EmailClient` + `TemplateManager`, yields `tuple[EmailClient, TemplateManager]`
+4. `storage_hook` — creates `StorageClient`, yields it
 
 Hooks that yield resources (email, storage, graph) use the `Lifespan.get_state()` DI pattern — see "Dependency Injection Pattern" below. Graph is DI-managed via `graph.Pool`; ClickHouse still uses a module-level singleton.
 
@@ -321,7 +320,7 @@ app.dependency_overrides[_get_storage_client] = lambda: mock_storage
 
 2. **Settings** (`imbi_common/settings.py`):
    - Use `pydantic_settings.BaseSettings` for configuration
-   - Prefix environment variables (e.g., `NEO4J_URL`, `CLICKHOUSE_URL`)
+   - Prefix environment variables (e.g., `POSTGRES_URL`, `CLICKHOUSE_URL`)
    - Support `.env` files
    - Separate settings classes for auth, Postgres, ClickHouse, server, email
 
