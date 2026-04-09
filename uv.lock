@@ -1130,7 +1130,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fgraph-model-base-class#6b8a00090f88bb32285286a0e9c61243518cdd66" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fgraph-model-base-class#3501d82d1305a2daa086ab57871343f291afb36c" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "cryptography" },
