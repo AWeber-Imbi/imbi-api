@@ -6,6 +6,7 @@ concurrent session limits, and tracking session activity.
 
 import datetime
 import logging
+import typing
 
 from imbi_common import graph
 
@@ -44,7 +45,7 @@ async def enforce_session_limit(
         columns=['session_id', 'last_activity'],
     )
 
-    sessions = []
+    sessions: list[dict[str, typing.Any]] = []
     for record in records:
         sessions.append(
             {
@@ -57,7 +58,9 @@ async def enforce_session_limit(
 
     if len(sessions) > auth_settings.max_concurrent_sessions:
         # Remove oldest sessions (those beyond the limit)
-        sessions_to_remove = sessions[auth_settings.max_concurrent_sessions :]
+        sessions_to_remove: list[dict[str, typing.Any]] = sessions[
+            auth_settings.max_concurrent_sessions :
+        ]
         for s in sessions_to_remove:
             delete_query = (
                 'MATCH (s:Session '

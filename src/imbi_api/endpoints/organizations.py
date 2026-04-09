@@ -367,7 +367,9 @@ async def list_organization_members(
             status_code=404,
             detail=(f'Organization with slug {slug!r} not found'),
         )
-    raw_members = graph.parse_agtype(records[0].get('members', '[]'))
+    raw_members: typing.Any = graph.parse_agtype(
+        records[0].get('members', '[]')
+    )
     if isinstance(raw_members, str):
         raw_members = []
     return [m for m in raw_members if m.get('email')]

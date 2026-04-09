@@ -267,10 +267,15 @@ async def create_project(
             description=data.description,
             icon=data.icon,
             links=data.links,
-            identifiers=data.identifiers,
             **{
                 k: v
-                for k, v in (data.model_extra or {}).items()
+                for k, v in typing.cast(
+                    dict[str, typing.Any],
+                    {
+                        'identifiers': data.identifiers,
+                        **(data.model_extra or {}),
+                    },
+                ).items()
                 if k not in _RESERVED_FIELDS
             },
         )

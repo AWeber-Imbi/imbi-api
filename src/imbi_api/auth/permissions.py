@@ -88,9 +88,13 @@ async def load_user_permissions(db: graph.Graph, email: str) -> set[str]:
     )
     if not records:
         return set()
-    raw = graph.parse_agtype(records[0].get('permissions'))
+    raw: typing.Any = graph.parse_agtype(records[0].get('permissions'))
     if isinstance(raw, list):
-        return {item for item in raw if isinstance(item, str)}
+        return {
+            item
+            for item in typing.cast(list[str | typing.Any], raw)
+            if isinstance(item, str)
+        }
     return set()
 
 
@@ -123,9 +127,13 @@ async def load_service_account_permissions(
     records = await db.execute(query, {'slug': slug}, columns=['permissions'])
     if not records:
         return set()
-    raw = graph.parse_agtype(records[0].get('permissions'))
+    raw: typing.Any = graph.parse_agtype(records[0].get('permissions'))
     if isinstance(raw, list):
-        return {item for item in raw if isinstance(item, str)}
+        return {
+            item
+            for item in typing.cast(list[str | typing.Any], raw)
+            if isinstance(item, str)
+        }
     return set()
 
 
@@ -511,9 +519,7 @@ async def check_resource_permission(
 
 def require_resource_access(
     resource_type: str, action: str
-) -> typing.Callable[
-    [str, AuthContext], collections.abc.Awaitable[AuthContext]
-]:
+) -> typing.Callable[..., collections.abc.Awaitable[AuthContext]]:
     """
     Create a FastAPI dependency that enforces access for a specific
     resource and action.

@@ -67,7 +67,7 @@ async def create_role(
             detail=f'Role with slug {role.slug!r} already exists',
         ) from e
     result = created.model_dump()
-    result['relationships'] = _build_relationships(created.slug)
+    result['relationships'] = _build_relationships(role.slug)
     return result
 
 
@@ -242,7 +242,7 @@ async def list_role_users(
             detail=f'Role with slug {slug!r} not found',
         )
 
-    raw_users = graph.parse_agtype(records[0].get('users', '[]'))
+    raw_users: typing.Any = graph.parse_agtype(records[0].get('users', '[]'))
     if isinstance(raw_users, str):
         raw_users = []
     return [models.UserResponse(**u) for u in raw_users if u]
@@ -291,7 +291,9 @@ async def list_role_service_accounts(
             detail=f'Role with slug {slug!r} not found',
         )
 
-    raw_sa = graph.parse_agtype(records[0].get('service_accounts', '[]'))
+    raw_sa: typing.Any = graph.parse_agtype(
+        records[0].get('service_accounts', '[]')
+    )
     if isinstance(raw_sa, str):
         raw_sa = []
     return [models.ServiceAccountResponse(**sa) for sa in raw_sa if sa]

@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 import jwt
+import pydantic
 from fastapi import testclient
 from imbi_common import graph
 
@@ -781,7 +782,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             provider_user_id='google-123',
             email='test@example.com',
             display_name='Test User',
-            avatar_url='https://example.com/avatar.jpg',
+            avatar_url=pydantic.HttpUrl('https://example.com/avatar.jpg'),
             access_token='encrypted-access-token',
             refresh_token='encrypted-refresh-token',
             token_expires_at=(

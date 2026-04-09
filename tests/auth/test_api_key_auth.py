@@ -1,6 +1,7 @@
 """Tests for API key authentication in permissions module."""
 
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -185,7 +186,7 @@ class AuthenticateAPIKeyTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_authenticate_api_key_expired(self) -> None:
         """Test authentication with expired API key."""
-        expired_key_data = self.api_key_data.copy()
+        expired_key_data: dict[str, typing.Any] = self.api_key_data.copy()
         expired_key_data['expires_at'] = datetime.datetime.now(
             datetime.UTC
         ) - datetime.timedelta(days=1)

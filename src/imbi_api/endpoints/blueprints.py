@@ -40,7 +40,7 @@ async def create_blueprint(
         409: Blueprint with the same name and type already exists.
     """
     try:
-        result = await db.merge(blueprint)
+        await db.merge(blueprint)
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
@@ -48,10 +48,10 @@ async def create_blueprint(
             f'{blueprint.type!r} already exists',
         ) from e
     try:
-        await openapi.refresh_blueprint_models()
+        await openapi.refresh_blueprint_models(db)
     except Exception:
         LOGGER.exception('Failed to refresh blueprint models')
-    return result
+    return blueprint
 
 
 @blueprint_router.get('/', response_model=list[models.Blueprint])
@@ -195,7 +195,7 @@ async def update_blueprint(
         match_on=['slug', 'type'],
     )
     try:
-        await openapi.refresh_blueprint_models()
+        await openapi.refresh_blueprint_models(db)
     except Exception:
         LOGGER.exception('Failed to refresh blueprint models')
     return blueprint
@@ -241,6 +241,6 @@ async def delete_blueprint(
             f'{blueprint_type!r} not found',
         )
     try:
-        await openapi.refresh_blueprint_models()
+        await openapi.refresh_blueprint_models(db)
     except Exception:
         LOGGER.exception('Failed to refresh blueprint models')
