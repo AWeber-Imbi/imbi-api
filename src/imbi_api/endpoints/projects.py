@@ -609,16 +609,10 @@ async def get_project_schema(
     MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    CALL {{
-        WITH p
-        MATCH (p)-[:TYPE]->(pt:ProjectType)
-        RETURN collect(pt.slug) AS type_slugs
-    }}
-    CALL {{
-        WITH p
-        OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
-        RETURN collect(env.slug) AS env_slugs
-    }}
+    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    WITH p, collect(pt.slug) AS type_slugs
+    OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
+    WITH type_slugs, collect(env.slug) AS env_slugs
     RETURN type_slugs, env_slugs
     """
     records = await db.execute(
@@ -761,17 +755,10 @@ async def update_project(
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     WITH DISTINCT p
-    CALL {{
-        WITH p
-        MATCH (p)-[:OWNED_BY]->(t:Team)
-        RETURN t.slug AS team_slug
-        LIMIT 1
-    }}
-    CALL {{
-        WITH p
-        MATCH (p)-[:TYPE]->(pt:ProjectType)
-        RETURN collect(pt.slug) AS type_slugs
-    }}
+    MATCH (p)-[:OWNED_BY]->(t:Team)
+    WITH p, t.slug AS team_slug
+    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    WITH p, team_slug, collect(pt.slug) AS type_slugs
     RETURN p{{.*}} AS project,
            team_slug AS current_team_slug,
            type_slugs AS current_type_slugs
