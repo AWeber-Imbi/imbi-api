@@ -127,6 +127,7 @@ async def create_project_type(
     project_type.created_at = now
     project_type.updated_at = now
     props = project_type.model_dump(
+        mode='json',
         exclude={'organization'},
     )
 
@@ -339,6 +340,7 @@ async def update_project_type(
     project_type.created_at = existing.get('created_at')
     project_type.updated_at = datetime.datetime.now(datetime.UTC)
     props = project_type.model_dump(
+        mode='json',
         exclude={'organization'},
     )
 

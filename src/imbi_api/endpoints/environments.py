@@ -119,7 +119,10 @@ async def create_environment(
     now = datetime.datetime.now(datetime.UTC)
     environment.created_at = now
     environment.updated_at = now
-    props = environment.model_dump(exclude={'organization'})
+    props = environment.model_dump(
+        mode='json',
+        exclude={'organization'},
+    )
 
     create_tpl = _props_template(props)
     query = (
@@ -329,7 +332,10 @@ async def update_environment(
 
     environment.created_at = existing.get('created_at')
     environment.updated_at = datetime.datetime.now(datetime.UTC)
-    props = environment.model_dump(exclude={'organization'})
+    props = environment.model_dump(
+        mode='json',
+        exclude={'organization'},
+    )
 
     set_stmt = _set_clause('e', props)
     update_query = (

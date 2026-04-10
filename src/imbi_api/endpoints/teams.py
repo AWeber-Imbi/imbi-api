@@ -124,6 +124,7 @@ async def create_team(
     team.created_at = now
     team.updated_at = now
     props = team.model_dump(
+        mode='json',
         exclude={'organization'},
     )
 
@@ -340,7 +341,10 @@ async def update_team(
     # Build property SET from model fields, excluding relationship
     team.created_at = existing.get('created_at')
     team.updated_at = datetime.datetime.now(datetime.UTC)
-    props = team.model_dump(exclude={'organization'})
+    props = team.model_dump(
+        mode='json',
+        exclude={'organization'},
+    )
 
     set_stmt = _set_clause('t', props)
     update_query = (
