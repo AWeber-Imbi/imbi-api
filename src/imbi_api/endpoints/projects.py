@@ -276,11 +276,13 @@ def _add_relationships(
 # -- Return fragment used by all read queries ---------------------------
 
 _RETURN_FRAGMENT: typing.LiteralString = """
-    MATCH (p)-[:OWNED_BY]->(t:Team)
+    MATCH (p)-[:OWNED_BY]->(t:Team)-[:BELONGS_TO]->(o)
     WITH p, o, t
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
+          -[:BELONGS_TO]->(o)
     WITH p, o, t, collect(pt{{.*, organization: o{{.*}}}}) AS pts
     OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
+          -[:BELONGS_TO]->(o)
     WITH p, o, t, pts,
          collect(env{{.*,
                      sort_order: coalesce(env.sort_order, 0),
@@ -610,9 +612,11 @@ async def get_project_schema(
     MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
-    WITH p, collect(pt.slug) AS type_slugs
+    OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
+          -[:BELONGS_TO]->(o)
+    WITH p, o, collect(pt.slug) AS type_slugs
     OPTIONAL MATCH (p)-[:DEPLOYED_IN]->(env:Environment)
+          -[:BELONGS_TO]->(o)
     WITH type_slugs, collect(env.slug) AS env_slugs
     RETURN type_slugs, env_slugs
     """
@@ -755,10 +759,11 @@ async def update_project(
     MATCH (p:Project {{id: {project_id}}})
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    WITH DISTINCT p
-    MATCH (p)-[:OWNED_BY]->(t:Team)
-    WITH p, t.slug AS team_slug
-    MATCH (p)-[:TYPE]->(pt:ProjectType)
+    WITH DISTINCT p, o
+    MATCH (p)-[:OWNED_BY]->(t:Team)-[:BELONGS_TO]->(o)
+    WITH p, o, t.slug AS team_slug
+    OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
+          -[:BELONGS_TO]->(o)
     WITH p, team_slug, collect(pt.slug) AS type_slugs
     RETURN p{{.*}} AS project,
            team_slug AS current_team_slug,
@@ -861,8 +866,11 @@ async def update_project(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    project.created_at = datetime.datetime.fromisoformat(
-        existing['created_at'],
+    raw_created = existing.get('created_at')
+    project.created_at = (
+        datetime.datetime.fromisoformat(raw_created)
+        if raw_created
+        else datetime.datetime.now(datetime.UTC)
     )
     project.updated_at = datetime.datetime.now(datetime.UTC)
     props = project.model_dump(

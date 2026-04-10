@@ -381,8 +381,11 @@ async def update_link_definition(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    link_def.created_at = datetime.datetime.fromisoformat(
-        existing['created_at'],
+    raw_created = existing.get('created_at')
+    link_def.created_at = (
+        datetime.datetime.fromisoformat(raw_created)
+        if raw_created
+        else datetime.datetime.now(datetime.UTC)
     )
     link_def.updated_at = datetime.datetime.now(datetime.UTC)
     props = link_def.model_dump(

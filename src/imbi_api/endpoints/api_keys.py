@@ -101,7 +101,7 @@ def _parse_scopes(value: typing.Any) -> list[str]:
 
     """
     if isinstance(value, list):
-        return value
+        return [str(v) for v in value]
     if isinstance(value, str):
         inner = value.strip('{}')
         return inner.split(',') if inner else []
