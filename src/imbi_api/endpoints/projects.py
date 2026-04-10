@@ -569,8 +569,10 @@ class BlueprintSectionProperty(pydantic.BaseModel):
     default: typing.Any = None
     minimum: float | None = None
     maximum: float | None = None
-    x_ui: dict[str, typing.Any] | None = pydantic.Field(
-        None, alias='x-ui', serialization_alias='x-ui'
+    x_ui: dict[str, typing.Any] = pydantic.Field(
+        default_factory=dict,
+        alias='x-ui',
+        serialization_alias='x-ui',
     )
 
 
@@ -668,10 +670,11 @@ async def get_project_schema(
         props: dict[str, BlueprintSectionProperty] = {}
         for prop_name, prop_schema in schema.properties.items():
             x_ui = (
-                prop_schema.model_extra.get('x-ui')
+                dict(prop_schema.model_extra.get('x-ui', {}))
                 if prop_schema.model_extra
-                else None
+                else {}
             )
+            x_ui.setdefault('editable', True)
             props[prop_name] = BlueprintSectionProperty(
                 type=getattr(prop_schema, 'type', None),
                 format=getattr(prop_schema, 'format', None),
