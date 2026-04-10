@@ -6,7 +6,6 @@ credentials grant flow.
 """
 
 import datetime
-import json
 import logging
 import secrets
 import typing
@@ -140,7 +139,8 @@ async def create_client_credential(
     # Store in graph with relationship to ServiceAccount
     props = credential.model_dump(mode='json')
     props.pop('service_account', None)
-    props['scopes'] = json.dumps(props.get('scopes', []))
+    # scopes stays as a list — _cypher_param handles
+    # list serialization for Cypher
     keys = list(props.keys())
     prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
     records = await db.execute(

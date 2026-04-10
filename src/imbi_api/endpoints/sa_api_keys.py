@@ -6,7 +6,6 @@ with a ServiceAccount node instead of a User node.
 """
 
 import datetime
-import json
 import logging
 import secrets
 import typing
@@ -138,7 +137,8 @@ async def create_sa_api_key(
     # Create API key node with relationship to ServiceAccount
     props = api_key.model_dump(mode='json')
     props.pop('user', None)
-    props['scopes'] = json.dumps(props.get('scopes', []))
+    # scopes stays as a list — _cypher_param handles
+    # list serialization for Cypher
     keys = list(props.keys())
     prop_map = ', '.join(f'{k}: {{{k}}}' for k in keys)
     records = await db.execute(
@@ -207,7 +207,7 @@ async def list_sa_api_keys(
         ['k'],
     )
 
-    keys = []
+    keys: list[api_keys.APIKeyResponse] = []
     for record in records:
         data = graph.parse_agtype(record['k'])
         data['scopes'] = models.parse_scopes(

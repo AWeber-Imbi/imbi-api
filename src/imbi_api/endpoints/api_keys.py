@@ -124,7 +124,7 @@ async def create_api_key(
     auth_settings = settings.get_auth_settings()
 
     # Generate key: format ik_<16chars>_<32chars>
-    key_id = f'ik_{secrets.token_urlsafe(16)}'
+    key_id = f'ik_{secrets.token_hex(16)}'
     key_secret = secrets.token_urlsafe(32)
     key_hash = password.hash_password(key_secret)
 
