@@ -699,7 +699,7 @@ async def get_project_schema(
     # Fetch all enabled node blueprints for Project
     all_blueprints = await db.match(
         models.Blueprint,
-        {'kind': 'node', 'type': 'Project', 'enabled': True},
+        {'type': 'Project', 'enabled': True},
         order_by='priority',
     )
 
