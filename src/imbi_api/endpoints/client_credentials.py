@@ -210,7 +210,7 @@ async def list_client_credentials(
         ['c'],
     )
 
-    credentials = []
+    credentials: list[models.ClientCredentialResponse] = []
     for record in records:
         data = graph.parse_agtype(record['c'])
         data['scopes'] = models.parse_scopes(data.get('scopes', []))

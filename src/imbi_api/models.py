@@ -96,7 +96,7 @@ def parse_scopes(value: typing.Any) -> list[str]:
             try:
                 parsed = json.loads(stripped)
                 if isinstance(parsed, list):
-                    return [str(v) for v in parsed]
+                    return [str(v) for v in typing.cast(list[object], parsed)]
             except (json.JSONDecodeError, ValueError):
                 pass
         inner = stripped.strip('{}')
