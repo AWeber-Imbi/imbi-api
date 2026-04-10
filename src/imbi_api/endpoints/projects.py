@@ -214,13 +214,18 @@ def _edge_create_props(
     """Build a Cypher property map for DEPLOYED_IN edge creation.
 
     Returns a string like ``{{`url`: entry.`url`}}`` derived from
-    the first entry's keys (excluding ``slug``).  Returns an empty
-    string when there are no edge properties.
+    the union of all entries' keys (excluding ``slug``).  Returns
+    an empty string when there are no edge properties.
 
     """
     if not entries:
         return ''
-    prop_keys = [k for k in entries[0] if k != 'slug']
+    all_keys: dict[str, None] = {}
+    for entry in entries:
+        for k in entry:
+            if k != 'slug':
+                all_keys[k] = None
+    prop_keys = list(all_keys)
     if not prop_keys:
         return ''
     pairs = [f'{_escape_prop(k)}: entry.{_escape_prop(k)}' for k in prop_keys]
@@ -275,6 +280,22 @@ _RESERVED_FIELDS = frozenset(
 )
 
 
+_PROTECTED_ENV_KEYS = frozenset(
+    {
+        'id',
+        'name',
+        'slug',
+        'sort_order',
+        'organization',
+        'created_at',
+        'updated_at',
+        'label_color',
+        'description',
+        'icon',
+    }
+)
+
+
 def _flatten_edge_props(
     project: dict[str, typing.Any],
 ) -> dict[str, typing.Any]:
@@ -283,13 +304,19 @@ def _flatten_edge_props(
     The Cypher return fragment stores relationship properties
     under a nested ``_edge`` key.  This flattens them into the
     top-level environment dict so they appear as peer fields.
+    Protected environment keys are excluded to prevent
+    accidental overwrites.
     """
-    for env in project.get('environments') or []:
-        edge = env.pop('_edge', None)
-        if edge:
-            if isinstance(edge, str):
-                edge = json.loads(edge)
-            env.update(edge)
+    envs: list[dict[str, typing.Any]] = project.get('environments') or []
+    for env in envs:
+        raw_edge = env.pop('_edge', None)
+        if raw_edge:
+            edge: dict[str, typing.Any] = (
+                json.loads(raw_edge) if isinstance(raw_edge, str) else raw_edge
+            )
+            env.update(
+                {k: v for k, v in edge.items() if k not in _PROTECTED_ENV_KEYS}
+            )
     return project
 
 

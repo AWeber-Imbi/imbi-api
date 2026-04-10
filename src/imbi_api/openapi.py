@@ -127,9 +127,12 @@ async def _generate_edge_models(
     for (source, target, edge), bps in groups.items():
         name = f'{source}_{target}_{edge}'
         try:
-            model = imbi_common.blueprints._apply_blueprints(
-                common_models.RelationshipEdge, bps
+            edge_base: type[common_models.RelationshipEdge] = type(
+                f'{source}{edge.title().replace("_", "")}{target}Edge',
+                (common_models.RelationshipEdge,),
+                {},
             )
+            model = imbi_common.blueprints.apply_blueprints(edge_base, bps)
             edge_models[name] = model
             LOGGER.debug(
                 'Generated edge model %s (%d blueprints)',
@@ -265,6 +268,9 @@ def create_custom_openapi(
                     'Failed to generate edge schema for %s',
                     edge_name,
                 )
+
+        if _edge_models:
+            _hoist_defs_to_components(schemas)
 
         _schema_cache = openapi_schema
         return openapi_schema

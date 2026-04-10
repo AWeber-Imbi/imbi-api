@@ -17,6 +17,16 @@ blueprint_router = fastapi.APIRouter(prefix='/blueprints', tags=['Blueprints'])
 # The virtual type used in URL paths for relationship blueprints.
 _RELATIONSHIP = 'relationship'
 
+BlueprintType = typing.Literal[
+    'Team',
+    'Environment',
+    'ProjectType',
+    'Project',
+    'Organization',
+    'ThirdPartyService',
+    'relationship',
+]
+
 
 def _match_params(
     path_type: str,
@@ -94,7 +104,7 @@ async def list_blueprints(
 )
 async def list_blueprints_by_type(
     blueprint_type: typing.Annotated[
-        str,
+        BlueprintType,
         fastapi.Path(alias='type'),
     ],
     db: graph.Pool,
@@ -124,7 +134,7 @@ async def list_blueprints_by_type(
 )
 async def get_blueprint(
     blueprint_type: typing.Annotated[
-        str,
+        BlueprintType,
         fastapi.Path(alias='type'),
     ],
     slug: str,
@@ -159,7 +169,7 @@ async def get_blueprint(
 )
 async def update_blueprint(
     blueprint_type: typing.Annotated[
-        str,
+        BlueprintType,
         fastapi.Path(alias='type'),
     ],
     slug: str,
@@ -203,7 +213,7 @@ async def update_blueprint(
 @blueprint_router.delete('/{type}/{slug}', status_code=204)
 async def delete_blueprint(
     blueprint_type: typing.Annotated[
-        str,
+        BlueprintType,
         fastapi.Path(alias='type'),
     ],
     slug: str,
