@@ -330,7 +330,9 @@ async def update_environment(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    environment.created_at = existing.get('created_at')
+    environment.created_at = datetime.datetime.fromisoformat(
+        existing['created_at'],
+    )
     environment.updated_at = datetime.datetime.now(datetime.UTC)
     props = environment.model_dump(
         mode='json',

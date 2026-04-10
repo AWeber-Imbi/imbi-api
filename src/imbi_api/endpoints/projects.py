@@ -861,7 +861,9 @@ async def update_project(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    project.created_at = existing.get('created_at')
+    project.created_at = datetime.datetime.fromisoformat(
+        existing['created_at'],
+    )
     project.updated_at = datetime.datetime.now(datetime.UTC)
     props = project.model_dump(
         mode='json',

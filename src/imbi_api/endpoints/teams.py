@@ -339,7 +339,9 @@ async def update_team(
         ) from e
 
     # Build property SET from model fields, excluding relationship
-    team.created_at = existing.get('created_at')
+    team.created_at = datetime.datetime.fromisoformat(
+        existing['created_at'],
+    )
     team.updated_at = datetime.datetime.now(datetime.UTC)
     props = team.model_dump(
         mode='json',
