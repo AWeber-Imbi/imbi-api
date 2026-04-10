@@ -27,9 +27,14 @@ projects_router = fastapi.APIRouter(tags=['Projects'])
 
 
 class EnvironmentRef(models.Environment):
-    """Environment with deployment URL from the DEPLOYED_IN edge."""
+    """Environment with dynamic edge properties from DEPLOYED_IN.
 
-    url: pydantic.AnyUrl | str | None = None
+    Edge properties are defined by relationship blueprints and
+    accepted via ``extra='allow'`` so they flow through to the
+    response without hard-coding field names.
+    """
+
+    model_config = pydantic.ConfigDict(extra='allow')
 
 
 class ProjectCreate(pydantic.BaseModel):
@@ -46,11 +51,12 @@ class ProjectCreate(pydantic.BaseModel):
     icon: pydantic.HttpUrl | str | None = None
     team_slug: str
     project_type_slugs: list[str] = pydantic.Field(min_length=1)
-    environments: dict[str, str | None] = pydantic.Field(
+    environments: dict[str, dict[str, typing.Any]] = pydantic.Field(
         default_factory=dict,
         description=(
-            'Map of environment slug to URL (or null for no URL). '
-            'Example: {"production": "https://...", "staging": null}'
+            'Map of environment slug to edge properties. '
+            'Example: {"production": {"url": "https://..."}, '
+            '"staging": {}}'
         ),
     )
     links: dict[str, pydantic.AnyUrl] = {}
@@ -89,10 +95,10 @@ class ProjectUpdate(pydantic.BaseModel):
             return list(dict.fromkeys(v))
         return v
 
-    environments: dict[str, str | None] | None = pydantic.Field(
+    environments: dict[str, dict[str, typing.Any]] | None = pydantic.Field(
         default=None,
         description=(
-            'Map of environment slug to URL (or null). '
+            'Map of environment slug to edge properties. '
             'Replaces all environment assignments when provided.'
         ),
     )
@@ -178,13 +184,14 @@ def _set_clause(
 
 
 def _env_entries_template(
-    entries: list[dict[str, str | None]],
+    entries: list[dict[str, typing.Any]],
 ) -> tuple[str, dict[str, typing.Any]]:
     """Build an inline Cypher list of maps for env entries.
 
-    Returns a tuple of (template_fragment, params_dict) where the
-    template uses indexed placeholders like ``{env_0_slug}`` and
-    the params dict maps those keys to scalar values.
+    Each entry is a dict with ``slug`` plus arbitrary edge
+    properties.  Returns ``(template_fragment, params_dict)``
+    where the template uses indexed placeholders and the params
+    dict maps those keys to scalar values.
 
     """
     if not entries:
@@ -192,10 +199,32 @@ def _env_entries_template(
     maps: list[str] = []
     params: dict[str, typing.Any] = {}
     for i, entry in enumerate(entries):
-        maps.append(f'{{{{slug: {{env_{i}_slug}}, url: {{env_{i}_url}}}}}}')
-        params[f'env_{i}_slug'] = entry['slug']
-        params[f'env_{i}_url'] = entry.get('url')
+        pairs: list[str] = []
+        for key, value in entry.items():
+            param = f'env_{i}_{key}'
+            pairs.append(f'{_escape_prop(key)}: {{{param}}}')
+            params[param] = value
+        maps.append('{{' + ', '.join(pairs) + '}}')
     return '[' + ', '.join(maps) + ']', params
+
+
+def _edge_create_props(
+    entries: list[dict[str, typing.Any]],
+) -> str:
+    """Build a Cypher property map for DEPLOYED_IN edge creation.
+
+    Returns a string like ``{{`url`: entry.`url`}}`` derived from
+    the first entry's keys (excluding ``slug``).  Returns an empty
+    string when there are no edge properties.
+
+    """
+    if not entries:
+        return ''
+    prop_keys = [k for k in entries[0] if k != 'slug']
+    if not prop_keys:
+        return ''
+    pairs = [f'{_escape_prop(k)}: entry.{_escape_prop(k)}' for k in prop_keys]
+    return ' {{' + ', '.join(pairs) + '}}'
 
 
 async def _validate_env_slugs(
@@ -246,6 +275,24 @@ _RESERVED_FIELDS = frozenset(
 )
 
 
+def _flatten_edge_props(
+    project: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """Merge ``_edge`` sub-dicts into each environment entry.
+
+    The Cypher return fragment stores relationship properties
+    under a nested ``_edge`` key.  This flattens them into the
+    top-level environment dict so they appear as peer fields.
+    """
+    for env in project.get('environments') or []:
+        edge = env.pop('_edge', None)
+        if edge:
+            if isinstance(edge, str):
+                edge = json.loads(edge)
+            env.update(edge)
+    return project
+
+
 def _add_relationships(
     project: dict[str, typing.Any],
     org_slug: str,
@@ -286,7 +333,7 @@ _RETURN_FRAGMENT: typing.LiteralString = """
     WITH p, o, t, pts,
          collect(env{{.*,
                      sort_order: coalesce(env.sort_order, 0),
-                     url: d.url,
+                     _edge: properties(d),
                      organization: o{{.*}}}}) AS envs
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
           -[:OWNED_BY]->(:Team)
@@ -429,8 +476,9 @@ async def create_project(
         )
 
     create_tpl = _props_template(props)
-    env_entries = [{'slug': s, 'url': u} for s, u in data.environments.items()]
+    env_entries = [{'slug': s, **ep} for s, ep in data.environments.items()]
     env_tpl, env_params = _env_entries_template(env_entries)
+    edge_props_tpl = _edge_create_props(env_entries)
 
     query: str = (
         """
@@ -462,7 +510,9 @@ async def create_project(
              -[:BELONGS_TO]->(o)
     FOREACH (_ IN CASE WHEN e IS NOT NULL
                        THEN [1] ELSE [] END |
-        CREATE (p)-[:DEPLOYED_IN {{url: entry.url}}]->(e)
+        CREATE (p)-[:DEPLOYED_IN"""
+        + edge_props_tpl
+        + """]->(e)
     )
     WITH DISTINCT p, t, o
     """
@@ -499,6 +549,7 @@ async def create_project(
         )
 
     project_data = graph.parse_agtype(records[0]['project'])
+    _flatten_edge_props(project_data)
     result = _add_relationships(project_data, org_slug)
     return ProjectResponse.model_validate(result)
 
@@ -543,8 +594,10 @@ async def list_projects(
         ['project', 'dependency_count'],
     )
     for record in records:
+        project_data = graph.parse_agtype(record['project'])
+        _flatten_edge_props(project_data)
         proj = _add_relationships(
-            graph.parse_agtype(record['project']),
+            project_data,
             org_slug,
             graph.parse_agtype(record['dependency_count']),
         )
@@ -643,10 +696,10 @@ async def get_project_schema(
         graph.parse_agtype(records[0]['env_slugs']) or []
     )
 
-    # Fetch all enabled Project blueprints ordered by priority
+    # Fetch all enabled node blueprints for Project
     all_blueprints = await db.match(
         models.Blueprint,
-        {'type': 'Project', 'enabled': True},
+        {'kind': 'node', 'type': 'Project', 'enabled': True},
         order_by='priority',
     )
 
@@ -735,8 +788,10 @@ async def get_project(
             status_code=404,
             detail=f'Project {project_id!r} not found',
         )
+    project_data = graph.parse_agtype(records[0]['project'])
+    _flatten_edge_props(project_data)
     result = _add_relationships(
-        graph.parse_agtype(records[0]['project']),
+        project_data,
         org_slug,
         graph.parse_agtype(records[0]['dependency_count']),
     )
@@ -980,11 +1035,12 @@ async def update_project(
     CREATE (p)-[:TYPE]->(new_pt)
     """
     new_env_entries = [
-        {'slug': s, 'url': u} for s, u in (data.environments or {}).items()
+        {'slug': s, **ep} for s, ep in (data.environments or {}).items()
     ]
     new_env_tpl, new_env_params = _env_entries_template(
         new_env_entries,
     )
+    new_edge_props_tpl = _edge_create_props(new_env_entries)
 
     if data.environments is not None:
         rel_clauses += (
@@ -1000,8 +1056,7 @@ async def update_project(
             ' {{slug: entry.slug}})-[:BELONGS_TO]->(o)'
             ' FOREACH (_ IN CASE WHEN e IS NOT NULL'
             ' THEN [1] ELSE [] END |'
-            ' CREATE (p)-[:DEPLOYED_IN'
-            ' {{url: entry.url}}]->(e))'
+            ' CREATE (p)-[:DEPLOYED_IN' + new_edge_props_tpl + ']->(e))'
         )
 
     set_clause = _set_clause('p', props)
@@ -1048,8 +1103,10 @@ async def update_project(
             detail=f'Project {project_id!r} not found',
         )
 
+    project_data = graph.parse_agtype(updated[0]['project'])
+    _flatten_edge_props(project_data)
     result = _add_relationships(
-        graph.parse_agtype(updated[0]['project']),
+        project_data,
         org_slug,
         graph.parse_agtype(updated[0]['dependency_count']),
     )

@@ -1084,7 +1084,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "imbi-common", editable = "../imbi-common" },
     { name = "jinja2" },
     { name = "nanoid", specifier = ">=2.0.0" },
     { name = "opentelemetry-distro", marker = "extra == 'otel'" },
@@ -1130,7 +1130,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#b0d98d932d40eb61fc9986088cf9ecb669803e7b" }
+source = { editable = "../imbi-common" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "cryptography" },
@@ -1146,6 +1146,55 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-slugify" },
     { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "clickhouse-connect" },
+    { name = "cryptography", specifier = ">=42.0.4" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastembed", specifier = ">=0.6" },
+    { name = "jsonschema-models" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
+    { name = "nanoid", specifier = ">=2.0.0" },
+    { name = "orjson" },
+    { name = "pgvector", specifier = ">=0.3" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3" },
+    { name = "pydantic", extras = ["email"], specifier = ">=2.0" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "python-slugify" },
+    { name = "typer", specifier = ">=0.21.1" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.40.0" },
+]
+provides-extras = ["server"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright" },
+    { name = "build" },
+    { name = "click", specifier = "~=8.2.1" },
+    { name = "coverage", extras = ["toml"] },
+    { name = "httpx" },
+    { name = "mypy", specifier = "~=1.19.1" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "ruff", specifier = "~=0.14.6" },
+    { name = "sentry-sdk", specifier = ">=2.48.0" },
+    { name = "tomli-w", specifier = "~=1.2" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.40.0" },
+]
+dist = [
+    { name = "build" },
+    { name = "twine" },
+    { name = "wheel" },
+]
+docs = [
+    { name = "griffe-pydantic" },
+    { name = "mkdocs", specifier = ">=1.5,<2" },
+    { name = "mkdocs-material", specifier = ">9.5,<10" },
+    { name = "mkdocstrings", extras = ["python"] },
+    { name = "mkdocstrings-python-xref", specifier = ">=1.6,<2" },
 ]
 
 [[package]]
