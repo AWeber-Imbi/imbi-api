@@ -333,14 +333,9 @@ async def authenticate_api_key(
         )
 
     # Resolve owner and permissions
-    raw_scopes = api_key_data.get('scopes', [])
-    if isinstance(raw_scopes, list):
-        scopes: list[str] = [str(s) for s in raw_scopes]
-    elif isinstance(raw_scopes, str):
-        inner = raw_scopes.strip('{}')
-        scopes = inner.split(',') if inner else []
-    else:
-        scopes = []
+    scopes = models.parse_scopes(
+        api_key_data.get('scopes', []),
+    )
 
     if sa_data:
         sa = models.ServiceAccount(**sa_data)

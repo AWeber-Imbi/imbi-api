@@ -7,6 +7,8 @@ from imbi_api.domain for a single import path:
     models.User(...)
 """
 
+import typing
+
 from imbi_common import models as _common
 
 from imbi_api.domain import models as _domain
@@ -74,3 +76,19 @@ User = _domain.User
 UserCreate = _domain.UserCreate
 UserResponse = _domain.UserResponse
 UserUpdate = _domain.UserUpdate
+
+
+def parse_scopes(value: typing.Any) -> list[str]:
+    """Convert AGE scope values to a Python list.
+
+    AGE may store list properties as PostgreSQL array strings
+    (e.g. ``'{}'`` or ``'{read,write}'``) when they were
+    written before the Cypher list-serialization fix.
+
+    """
+    if isinstance(value, list):
+        return [str(v) for v in typing.cast(list[object], value)]
+    if isinstance(value, str):
+        inner = value.strip('{}')
+        return inner.split(',') if inner else []
+    return []

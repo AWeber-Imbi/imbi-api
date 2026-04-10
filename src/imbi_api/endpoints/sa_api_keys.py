@@ -207,10 +207,13 @@ async def list_sa_api_keys(
         ['k'],
     )
 
-    keys = [
-        api_keys.APIKeyResponse(**graph.parse_agtype(record['k']))
-        for record in records
-    ]
+    keys = []
+    for record in records:
+        data = graph.parse_agtype(record['k'])
+        data['scopes'] = models.parse_scopes(
+            data.get('scopes', []),
+        )
+        keys.append(api_keys.APIKeyResponse(**data))
 
     LOGGER.debug(
         'Listed %d API keys for service account %s',
@@ -377,6 +380,8 @@ async def rotate_sa_api_key(
         key_secret=f'{key_id}_{new_secret}',
         name=api_key_data['name'],
         description=api_key_data.get('description'),
-        scopes=api_key_data.get('scopes', []),
+        scopes=models.parse_scopes(
+            api_key_data.get('scopes', []),
+        ),
         expires_at=api_key_data.get('expires_at'),
     )

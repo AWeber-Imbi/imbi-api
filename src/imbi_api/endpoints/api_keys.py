@@ -92,20 +92,7 @@ class APIKeyCreateResponse(pydantic.BaseModel):
     )
 
 
-def _parse_scopes(value: typing.Any) -> list[str]:
-    """Convert AGE scope values to a Python list.
-
-    AGE may store list properties as PostgreSQL array strings
-    (e.g. ``'{}'`` or ``'{read,write}'``) when they were
-    written before the Cypher list-serialization fix.
-
-    """
-    if isinstance(value, list):
-        return [str(v) for v in value]
-    if isinstance(value, str):
-        inner = value.strip('{}')
-        return inner.split(',') if inner else []
-    return []
+_parse_scopes = models.parse_scopes
 
 
 @api_keys_router.post('', response_model=APIKeyCreateResponse, status_code=201)
