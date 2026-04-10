@@ -204,6 +204,7 @@ class CreateCustomOpenapiTestCase(unittest.TestCase):
         """Reset module state before each test."""
         openapi._blueprint_models = {}
         openapi._response_models = {}
+        openapi._edge_models = {}
         openapi._schema_cache = None
 
     def test_custom_openapi_includes_schemas(self) -> None:
