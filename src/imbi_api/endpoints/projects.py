@@ -886,8 +886,9 @@ async def list_project_relationships(
           -[:OWNED_BY]->(:Team)
           -[:BELONGS_TO]->(otherOrg:Organization)
     OPTIONAL MATCH (other)-[:TYPE]->(pt:ProjectType)
+    WITH p, project_exists, r, other, otherOrg, pt
+    ORDER BY pt.slug
     WITH p, project_exists, r, other, otherOrg,
-         // Picks an arbitrary type when the project has multiple
          collect(pt.slug)[0] AS pt_slug,
          collect(pt.icon)[0] AS pt_icon,
          CASE WHEN r IS NULL THEN null
