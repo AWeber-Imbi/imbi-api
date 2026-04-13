@@ -819,6 +819,105 @@ async def get_project(
     return ProjectResponse.model_validate(result)
 
 
+class ProjectRelationshipSummary(pydantic.BaseModel):
+    """Summary of the project on the other end of an edge."""
+
+    id: str
+    name: str
+    slug: str
+    namespace: str | None = None
+    project_type: str | None = None
+
+
+class ProjectRelationship(pydantic.BaseModel):
+    """A single DEPENDS_ON edge touching the project."""
+
+    direction: typing.Literal['inbound', 'outbound']
+    type: typing.Literal['depends_on'] = 'depends_on'
+    project: ProjectRelationshipSummary
+
+
+class ProjectRelationshipsResponse(pydantic.BaseModel):
+    """Wrapped list of relationships."""
+
+    relationships: list[ProjectRelationship]
+
+
+@projects_router.get('/{project_id}/relationships')
+async def list_project_relationships(
+    org_slug: str,
+    project_id: str,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('project:read'),
+        ),
+    ],
+) -> ProjectRelationshipsResponse:
+    """List every DEPENDS_ON edge touching the project.
+
+    Returns both inbound and outbound edges in a flat list with a
+    ``direction`` field. Rows are sorted inbound first, then by
+    the related project's name.
+    """
+    query: typing.LiteralString = """
+    MATCH (p:Project {{id: {project_id}}})
+          -[:OWNED_BY]->(:Team)
+          -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
+    WITH p, true AS project_exists
+    OPTIONAL MATCH (p)-[r:DEPENDS_ON]-(other:Project)
+          -[:OWNED_BY]->(:Team)
+          -[:BELONGS_TO]->(otherOrg:Organization)
+    OPTIONAL MATCH (other)-[:TYPE]->(pt:ProjectType)
+    WITH p, project_exists, r, other, otherOrg,
+         collect(pt.slug)[0] AS pt_slug,
+         CASE WHEN r IS NULL THEN null
+              WHEN startNode(r) = p THEN 'outbound'
+              ELSE 'inbound'
+         END AS direction
+    RETURN project_exists,
+           direction,
+           CASE WHEN other IS NULL THEN null
+                ELSE other{{.id, .name, .slug,
+                           namespace: otherOrg.slug,
+                           project_type: pt_slug}}
+           END AS other
+    ORDER BY CASE direction WHEN 'inbound' THEN 0
+                            WHEN 'outbound' THEN 1
+                            ELSE 2 END,
+             other.name
+    """
+    records = await db.execute(
+        query,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['project_exists', 'direction', 'other'],
+    )
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Project {project_id!r} not found',
+        )
+    relationships: list[ProjectRelationship] = []
+    for record in records:
+        direction = graph.parse_agtype(record['direction'])
+        other = graph.parse_agtype(record['other'])
+        if not direction or not other:
+            continue
+        relationships.append(
+            ProjectRelationship(
+                direction=direction,
+                project=ProjectRelationshipSummary.model_validate(other),
+            ),
+        )
+    return ProjectRelationshipsResponse(
+        relationships=relationships,
+    )
+
+
 @projects_router.put('/{project_id}')
 async def update_project(
     org_slug: str,

@@ -775,3 +775,122 @@ class ProjectEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
+
+
+class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
+    """Tests for GET /projects/{id}/relationships."""
+
+    def setUp(self) -> None:
+        from imbi_api.auth import permissions
+
+        self.test_app = app.create_app()
+
+        self.admin_user = models.User(
+            email='admin@example.com',
+            display_name='Admin User',
+            password_hash='$argon2id$hashed',
+            is_active=True,
+            is_admin=True,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = permissions.AuthContext(
+            user=self.admin_user,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions={'project:read'},
+        )
+
+        async def mock_get_current_user():
+            return self.auth_context
+
+        self.test_app.dependency_overrides[permissions.get_current_user] = (
+            mock_get_current_user
+        )
+
+        self.mock_db = mock.AsyncMock(spec=graph.Graph)
+        self.test_app.dependency_overrides[graph._inject_graph] = (
+            lambda: self.mock_db
+        )
+        self.client = TestClient(self.test_app)
+
+    def _summary(self, **overrides: typing.Any) -> dict:
+        data = {
+            'id': 'dep1',
+            'name': 'Dep One',
+            'slug': 'dep-one',
+            'namespace': 'engineering',
+            'project_type': 'api-service',
+        }
+        data.update(overrides)
+        return data
+
+    def test_empty(self) -> None:
+        """Returns an empty list when the project has no edges."""
+        self.mock_db.execute.return_value = [
+            {'project_exists': True, 'direction': None, 'other': None}
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.get(
+                f'/organizations/engineering/projects/{PROJECT_ID}'
+                '/relationships'
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'relationships': []})
+
+    def test_mixed_directions(self) -> None:
+        """Returns inbound and outbound rows, inbound sorted first."""
+        self.mock_db.execute.return_value = [
+            {
+                'project_exists': True,
+                'direction': 'outbound',
+                'other': self._summary(id='out1', name='Outbound A'),
+            },
+            {
+                'project_exists': True,
+                'direction': 'inbound',
+                'other': self._summary(id='in1', name='Inbound A'),
+            },
+            {
+                'project_exists': True,
+                'direction': 'inbound',
+                'other': self._summary(id='in2', name='Inbound B'),
+            },
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.get(
+                f'/organizations/engineering/projects/{PROJECT_ID}'
+                '/relationships'
+            )
+
+        self.assertEqual(response.status_code, 200)
+        rels = response.json()['relationships']
+        self.assertEqual(len(rels), 3)
+        for entry in rels:
+            self.assertEqual(entry['type'], 'depends_on')
+            self.assertIn(entry['direction'], ('inbound', 'outbound'))
+            self.assertIn('project', entry)
+
+    def test_not_found(self) -> None:
+        """Returns 404 when the project does not exist."""
+        self.mock_db.execute.return_value = []
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.get(
+                '/organizations/engineering/projects/missing/relationships'
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('not found', response.json()['detail'])
