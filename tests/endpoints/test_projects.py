@@ -385,7 +385,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             {
                 'project': self._project_data(),
                 'outbound_count': 5,
-                'inbound_count': 0,
+                'inbound_count': 2,
             },
         ]
 
@@ -401,7 +401,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data['slug'], 'my-api')
         self.assertEqual(data['relationships']['outbound_count'], 5)
-        self.assertEqual(data['relationships']['inbound_count'], 0)
+        self.assertEqual(data['relationships']['inbound_count'], 2)
 
     def test_get_not_found(self) -> None:
         """Test retrieving nonexistent project."""
