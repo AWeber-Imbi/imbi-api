@@ -848,11 +848,6 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
         self.mock_db.execute.return_value = [
             {
                 'project_exists': True,
-                'direction': 'outbound',
-                'other': self._summary(id='out1', name='Outbound A'),
-            },
-            {
-                'project_exists': True,
                 'direction': 'inbound',
                 'other': self._summary(id='in1', name='Inbound A'),
             },
@@ -860,6 +855,11 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
                 'project_exists': True,
                 'direction': 'inbound',
                 'other': self._summary(id='in2', name='Inbound B'),
+            },
+            {
+                'project_exists': True,
+                'direction': 'outbound',
+                'other': self._summary(id='out1', name='Outbound A'),
             },
         ]
 
@@ -875,10 +875,16 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         rels = response.json()['relationships']
         self.assertEqual(len(rels), 3)
+        self.assertEqual(rels[0]['direction'], 'inbound')
+        self.assertEqual(rels[0]['project']['id'], 'in1')
+        self.assertEqual(rels[1]['direction'], 'inbound')
+        self.assertEqual(rels[1]['project']['id'], 'in2')
+        self.assertEqual(rels[2]['direction'], 'outbound')
+        self.assertEqual(rels[2]['project']['id'], 'out1')
         for entry in rels:
             self.assertEqual(entry['type'], 'depends_on')
-            self.assertIn(entry['direction'], ('inbound', 'outbound'))
-            self.assertIn('project', entry)
+            self.assertEqual(entry['project']['project_type'], 'api-service')
+            self.assertEqual(entry['project']['namespace'], 'engineering')
 
     def test_not_found(self) -> None:
         """Returns 404 when the project does not exist."""

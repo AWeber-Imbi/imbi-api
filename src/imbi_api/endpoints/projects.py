@@ -871,6 +871,7 @@ async def list_project_relationships(
           -[:BELONGS_TO]->(otherOrg:Organization)
     OPTIONAL MATCH (other)-[:TYPE]->(pt:ProjectType)
     WITH p, project_exists, r, other, otherOrg,
+         // Picks an arbitrary type when the project has multiple
          collect(pt.slug)[0] AS pt_slug,
          CASE WHEN r IS NULL THEN null
               WHEN startNode(r) = p THEN 'outbound'
