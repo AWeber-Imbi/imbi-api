@@ -106,6 +106,16 @@ class ProjectUpdate(pydantic.BaseModel):
     identifiers: dict[str, int | str] | None = None
 
 
+class ProjectRelationships(pydantic.BaseModel):
+    """Typed relationship links and counts for a project."""
+
+    team: models.RelationshipLink
+    environments: models.RelationshipLink
+    href: str
+    outbound_count: int = 0
+    inbound_count: int = 0
+
+
 class ProjectResponse(pydantic.BaseModel):
     """Response body for a project."""
 
@@ -123,7 +133,7 @@ class ProjectResponse(pydantic.BaseModel):
     environments: list[EnvironmentRef] = []
     links: dict[str, pydantic.AnyUrl] = {}
     identifiers: dict[str, int | str] = {}
-    relationships: dict[str, typing.Any] | None = None
+    relationships: ProjectRelationships | None = None
 
     @pydantic.field_validator(
         'links',
@@ -567,7 +577,12 @@ async def create_project(
 
     project_data = graph.parse_agtype(records[0]['project'])
     _flatten_edge_props(project_data)
-    result = _add_relationships(project_data, org_slug)
+    result = _add_relationships(
+        project_data,
+        org_slug,
+        graph.parse_agtype(records[0]['outbound_count']),
+        graph.parse_agtype(records[0]['inbound_count']),
+    )
     return ProjectResponse.model_validate(result)
 
 
