@@ -91,7 +91,6 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 },
             ],
             'environments': [],
-            'dependency_uris': [],
         }
         data.update(overrides)
         return data
@@ -109,7 +108,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             [
                 {
                     'project': record,
-                    'dependency_count': 0,
+                    'outbound_count': 0,
+                    'inbound_count': 0,
                 },
             ],
         ]
@@ -175,7 +175,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             [
                 {
                     'project': record,
-                    'dependency_count': 0,
+                    'outbound_count': 0,
+                    'inbound_count': 0,
                 },
             ],
         ]
@@ -345,7 +346,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.mock_db.execute.return_value = [
             {
                 'project': self._project_data(),
-                'dependency_count': 3,
+                'outbound_count': 3,
+                'inbound_count': 0,
             },
             {
                 'project': self._project_data(
@@ -353,7 +355,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                     name='My Consumer',
                     slug='my-consumer',
                 ),
-                'dependency_count': 0,
+                'outbound_count': 0,
+                'inbound_count': 0,
             },
         ]
 
@@ -371,10 +374,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]['slug'], 'my-api')
         rels = data[0]['relationships']
-        self.assertEqual(
-            rels['dependencies']['count'],
-            3,
-        )
+        self.assertEqual(rels['outbound_count'], 3)
+        self.assertEqual(rels['inbound_count'], 0)
 
     # -- Get -----------------------------------------------------------
 
@@ -383,7 +384,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.mock_db.execute.return_value = [
             {
                 'project': self._project_data(),
-                'dependency_count': 5,
+                'outbound_count': 5,
+                'inbound_count': 0,
             },
         ]
 
@@ -398,10 +400,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['slug'], 'my-api')
-        self.assertEqual(
-            data['relationships']['dependencies']['count'],
-            5,
-        )
+        self.assertEqual(data['relationships']['outbound_count'], 5)
+        self.assertEqual(data['relationships']['inbound_count'], 0)
 
     def test_get_not_found(self) -> None:
         """Test retrieving nonexistent project."""
@@ -438,7 +438,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             [
                 {
                     'project': updated,
-                    'dependency_count': 0,
+                    'outbound_count': 0,
+                    'inbound_count': 0,
                 },
             ],
         ]
@@ -493,7 +494,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             [
                 {
                     'project': updated,
-                    'dependency_count': 0,
+                    'outbound_count': 0,
+                    'inbound_count': 0,
                 },
             ],
         ]
@@ -626,7 +628,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             [
                 {
                     'project': updated,
-                    'dependency_count': 0,
+                    'outbound_count': 0,
+                    'inbound_count': 0,
                 },
             ],
         ]

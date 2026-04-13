@@ -123,8 +123,7 @@ class ProjectResponse(pydantic.BaseModel):
     environments: list[EnvironmentRef] = []
     links: dict[str, pydantic.AnyUrl] = {}
     identifiers: dict[str, int | str] = {}
-    relationships: dict[str, models.RelationshipLink] | None = None
-    dependency_uris: list[str] = []
+    relationships: dict[str, typing.Any] | None = None
 
     @pydantic.field_validator(
         'links',
@@ -323,7 +322,8 @@ def _flatten_edge_props(
 def _add_relationships(
     project: dict[str, typing.Any],
     org_slug: str,
-    dependency_count: int = 0,
+    outbound_count: int = 0,
+    inbound_count: int = 0,
 ) -> dict[str, typing.Any]:
     """Attach relationships sub-object to a project dict."""
     project_id = project.get('id') or ''
@@ -339,10 +339,9 @@ def _add_relationships(
             f'{base}/environments',
             len(project.get('environments') or []),
         ),
-        'dependencies': relationship_link(
-            f'{base}/dependencies',
-            dependency_count,
-        ),
+        'href': f'{base}/relationships',
+        'outbound_count': outbound_count,
+        'inbound_count': inbound_count,
     }
     return project
 
@@ -362,27 +361,18 @@ _RETURN_FRAGMENT: typing.LiteralString = """
                      sort_order: coalesce(env.sort_order, 0),
                      _edge: properties(d),
                      organization: o{{.*}}}}) AS envs
-    OPTIONAL MATCH (p)-[:DEPENDS_ON]->(dep:Project)
-          -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(depOrg:Organization)
-    WITH p, o, t, pts, envs,
-         count(dep) AS dependency_count,
-         collect(DISTINCT
-             CASE WHEN dep IS NOT NULL
-                       AND depOrg IS NOT NULL
-                       AND dep.id IS NOT NULL
-                  THEN '/organizations/' + depOrg.slug
-                       + '/projects/'
-                       + dep.id
-             END
-         ) AS dep_uris_raw
+    OPTIONAL MATCH (p)-[:DEPENDS_ON]->(out:Project)
+    WITH p, o, t, pts, envs, count(out) AS outbound_count
+    OPTIONAL MATCH (p)<-[:DEPENDS_ON]-(in_:Project)
+    WITH p, o, t, pts, envs, outbound_count,
+         count(in_) AS inbound_count
     RETURN p{{.*,
         team: t{{.*, organization: o{{.*}}}},
         project_types: pts,
-        environments: envs,
-        dependency_uris: [x IN dep_uris_raw WHERE x IS NOT NULL]
+        environments: envs
     }} AS project,
-    dependency_count
+    outbound_count,
+    inbound_count
 """
 
 
@@ -557,7 +547,7 @@ async def create_project(
                 **props,
                 **env_params,
             },
-            ['project', 'dependency_count'],
+            ['project', 'outbound_count', 'inbound_count'],
         )
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
@@ -618,7 +608,7 @@ async def list_projects(
             'org_slug': org_slug,
             'project_type': project_type,
         },
-        ['project', 'dependency_count'],
+        ['project', 'outbound_count', 'inbound_count'],
     )
     for record in records:
         project_data = graph.parse_agtype(record['project'])
@@ -626,7 +616,8 @@ async def list_projects(
         proj = _add_relationships(
             project_data,
             org_slug,
-            graph.parse_agtype(record['dependency_count']),
+            graph.parse_agtype(record['outbound_count']),
+            graph.parse_agtype(record['inbound_count']),
         )
         results.append(
             ProjectResponse.model_validate(proj),
@@ -809,7 +800,7 @@ async def get_project(
             'project_id': project_id,
             'org_slug': org_slug,
         },
-        ['project', 'dependency_count'],
+        ['project', 'outbound_count', 'inbound_count'],
     )
 
     if not records:
@@ -822,7 +813,8 @@ async def get_project(
     result = _add_relationships(
         project_data,
         org_slug,
-        graph.parse_agtype(records[0]['dependency_count']),
+        graph.parse_agtype(records[0]['outbound_count']),
+        graph.parse_agtype(records[0]['inbound_count']),
     )
     return ProjectResponse.model_validate(result)
 
@@ -1118,7 +1110,7 @@ async def update_project(
                 ),
                 **new_env_params,
             },
-            ['project', 'dependency_count'],
+            ['project', 'outbound_count', 'inbound_count'],
         )
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
@@ -1137,7 +1129,8 @@ async def update_project(
     result = _add_relationships(
         project_data,
         org_slug,
-        graph.parse_agtype(updated[0]['dependency_count']),
+        graph.parse_agtype(updated[0]['outbound_count']),
+        graph.parse_agtype(updated[0]['inbound_count']),
     )
     return ProjectResponse.model_validate(result)
 
