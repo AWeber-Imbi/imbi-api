@@ -827,6 +827,7 @@ class ProjectRelationshipSummary(pydantic.BaseModel):
     slug: str
     namespace: str | None = None
     project_type: str | None = None
+    project_type_icon: str | None = None
 
 
 class ProjectRelationship(pydantic.BaseModel):
@@ -873,6 +874,7 @@ async def list_project_relationships(
     WITH p, project_exists, r, other, otherOrg,
          // Picks an arbitrary type when the project has multiple
          collect(pt.slug)[0] AS pt_slug,
+         collect(pt.icon)[0] AS pt_icon,
          CASE WHEN r IS NULL THEN null
               WHEN startNode(r) = p THEN 'outbound'
               ELSE 'inbound'
@@ -882,7 +884,8 @@ async def list_project_relationships(
            CASE WHEN other IS NULL THEN null
                 ELSE other{{.id, .name, .slug,
                            namespace: otherOrg.slug,
-                           project_type: pt_slug}}
+                           project_type: pt_slug,
+                           project_type_icon: pt_icon}}
            END AS other
     ORDER BY CASE direction WHEN 'inbound' THEN 0
                             WHEN 'outbound' THEN 1

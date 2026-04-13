@@ -821,6 +821,7 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
             'slug': 'dep-one',
             'namespace': 'engineering',
             'project_type': 'api-service',
+            'project_type_icon': 'aws-lambda',
         }
         data.update(overrides)
         return data
@@ -885,6 +886,11 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
             self.assertEqual(entry['type'], 'depends_on')
             self.assertEqual(entry['project']['project_type'], 'api-service')
             self.assertEqual(entry['project']['namespace'], 'engineering')
+
+        self.assertEqual(
+            rels[0]['project']['project_type_icon'],
+            'aws-lambda',
+        )
 
     def test_not_found(self) -> None:
         """Returns 404 when the project does not exist."""
