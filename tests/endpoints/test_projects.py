@@ -787,17 +787,17 @@ class _RelationshipsTestBase(unittest.TestCase):
 
         self.test_app = app.create_app()
 
-        self.admin_user = models.User(
-            email='admin@example.com',
-            display_name='Admin User',
+        self.test_user = models.User(
+            email='user@example.com',
+            display_name='Test User',
             password_hash='$argon2id$hashed',
             is_active=True,
-            is_admin=True,
+            is_admin=False,
             is_service_account=False,
             created_at=datetime.datetime.now(datetime.UTC),
         )
         self.auth_context = permissions.AuthContext(
-            user=self.admin_user,
+            user=self.test_user,
             session_id='test-session',
             auth_method='jwt',
             permissions=self._permissions,
