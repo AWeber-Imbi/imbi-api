@@ -906,3 +906,38 @@ class ProjectRelationshipsEndpointTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
+
+    def test_order_by_has_stable_tiebreaker(self) -> None:
+        """ORDER BY must include a unique tie-breaker after other.name so
+        sibling projects that share a name across namespaces sort
+        deterministically across repeated requests.
+        """
+        self.mock_db.execute.return_value = [
+            {'project_exists': True, 'direction': None, 'other': None}
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.get(
+                f'/organizations/engineering/projects/{PROJECT_ID}'
+                '/relationships'
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.mock_db.execute.assert_called_once()
+        query = self.mock_db.execute.call_args.args[0]
+        normalized = ' '.join(query.split())
+        self.assertIn(
+            'ORDER BY CASE direction',
+            normalized,
+            'expected relationships query to sort by direction first',
+        )
+        self.assertIn(
+            'other.name, other.id',
+            normalized,
+            'expected other.id tie-breaker after other.name in ORDER BY '
+            'so ordering is stable when multiple related projects share a '
+            'name across namespaces',
+        )

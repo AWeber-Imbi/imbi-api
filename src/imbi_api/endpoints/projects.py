@@ -906,7 +906,8 @@ async def list_project_relationships(
     ORDER BY CASE direction WHEN 'inbound' THEN 0
                             WHEN 'outbound' THEN 1
                             ELSE 2 END,
-             other.name
+             other.name,
+             other.id
     """
     records = await db.execute(
         query,
