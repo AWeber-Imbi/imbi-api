@@ -583,11 +583,7 @@ class RoleEndpointsTestCase(unittest.TestCase):
             description='Old desc',
             priority=10,
         )
-        self.mock_db.match.side_effect = [
-            [existing_role],  # fetch in PATCH
-            [],  # permissions query (empty for simplicity)
-            [],  # parent role query
-        ]
+        self.mock_db.match.return_value = [existing_role]
         self.mock_db.execute.side_effect = [
             [{'user_count': 5, 'permission_count': 0}],
         ]
