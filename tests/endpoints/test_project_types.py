@@ -537,3 +537,81 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
+
+    def test_patch_project_type_name(self) -> None:
+        """Test patching only the project type name."""
+        from imbi_common import models as common_models
+
+        existing_pt = {
+            'name': 'Service',
+            'slug': 'service',
+            'description': None,
+        }
+        self.mock_db.execute.side_effect = [
+            [
+                {
+                    'pt': existing_pt,
+                    'o': {
+                        'name': 'Engineering',
+                        'slug': 'engineering',
+                    },
+                }
+            ],
+            [
+                {
+                    'pt': {
+                        'name': 'Microservice',
+                        'slug': 'service',
+                    },
+                    'o': {
+                        'name': 'Engineering',
+                        'slug': 'engineering',
+                    },
+                    'project_count': 10,
+                }
+            ],
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            with mock.patch(
+                'imbi_common.blueprints.get_model',
+                return_value=common_models.ProjectType,
+            ):
+                response = self.client.patch(
+                    '/organizations/engineering/project-types/service',
+                    json=[
+                        {
+                            'op': 'replace',
+                            'path': '/name',
+                            'value': 'Microservice',
+                        }
+                    ],
+                )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_patch_project_type_not_found(self) -> None:
+        """Test patching non-existent project type returns 404."""
+        from imbi_common import models as common_models
+
+        self.mock_db.execute.return_value = []
+
+        with mock.patch(
+            'imbi_common.blueprints.get_model',
+            return_value=common_models.ProjectType,
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/project-types/nonexistent',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/name',
+                        'value': 'X',
+                    }
+                ],
+            )
+
+        self.assertEqual(response.status_code, 404)
