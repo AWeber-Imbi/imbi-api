@@ -367,10 +367,10 @@ async def patch_organization(
         The updated organization.
 
     Raises:
-        400: Invalid patch or read-only path.
+        400: Invalid patch, read-only path, or validation error.
         404: Organization not found.
         409: Slug rename conflicts with existing organization.
-        422: Patch test operation failed or validation error.
+        422: Patch test operation failed.
 
     """
     results = await db.match(models.Organization, {'slug': slug})
