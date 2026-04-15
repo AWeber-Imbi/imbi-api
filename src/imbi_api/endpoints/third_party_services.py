@@ -448,8 +448,8 @@ async def patch_third_party_service(
         data = models.ThirdPartyServiceUpdate(**patched)
     except pydantic.ValidationError as e:
         raise fastapi.HTTPException(
-            status_code=422,
-            detail=e.errors(),
+            status_code=400,
+            detail=f'Validation error: {e.errors()}',
         ) from e
 
     return await _execute_service_update(slug, org_slug, data, db)
