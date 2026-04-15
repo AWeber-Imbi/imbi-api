@@ -6,6 +6,7 @@ import typing
 
 import fastapi
 import psycopg
+import pydantic
 from imbi_common import graph
 from imbi_common.auth import encryption
 
@@ -568,10 +569,10 @@ async def patch_webhook(
     # Validate patched data against WebhookUpdate model
     try:
         data = models.WebhookUpdate.model_validate(patched)
-    except Exception as exc:
+    except pydantic.ValidationError as exc:
         raise fastapi.HTTPException(
-            status_code=422,
-            detail=str(exc),
+            status_code=400,
+            detail=f'Validation error: {exc.errors()}',
         ) from exc
 
     props: dict[str, typing.Any] = {
