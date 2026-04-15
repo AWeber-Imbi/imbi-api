@@ -6,9 +6,11 @@ import typing
 
 import fastapi
 import psycopg
+import pydantic
 from imbi_common import graph
 from imbi_common.auth import encryption
 
+from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.domain import models
 
@@ -369,6 +371,162 @@ async def update_third_party_service(
             status_code=404,
             detail=(f'Third-party service with slug {slug!r} not found'),
         )
+
+    props = {
+        'name': data.name,
+        'slug': data.slug,
+        'description': data.description,
+        'icon': data.icon,
+        'vendor': data.vendor,
+        'service_url': (str(data.service_url) if data.service_url else None),
+        'category': data.category,
+        'status': data.status,
+        'links': data.links,
+        'identifiers': data.identifiers,
+    }
+
+    graph_props = _serialize_json_fields(props, _SERVICE_JSON_FIELDS)
+    set_clause = _set_clause('s', graph_props)
+
+    if data.team_slug:
+        update_query: str = (
+            'MATCH (s:ThirdPartyService {{slug: {cur_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' MATCH (t:Team {{slug: {team_slug}}})'
+            '-[:BELONGS_TO]->(o)'
+            ' OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()'
+            ' DELETE old_mgr'
+            ' WITH s, o, t'
+            f' {set_clause}'
+            ' CREATE (s)-[:MANAGED_BY]->(t)'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: t{{.*}}}} AS service'
+        )
+        update_params: dict[str, typing.Any] = {
+            'cur_slug': slug,
+            'org_slug': org_slug,
+            'team_slug': data.team_slug,
+            **graph_props,
+        }
+    else:
+        update_query = (
+            'MATCH (s:ThirdPartyService {{slug: {cur_slug}}})'
+            ' -[:BELONGS_TO]->(o:Organization'
+            ' {{slug: {org_slug}}})'
+            ' OPTIONAL MATCH (s)-[old_mgr:MANAGED_BY]->()'
+            ' DELETE old_mgr'
+            ' WITH s, o'
+            f' {set_clause}'
+            ' RETURN s{{.*, organization: o{{.*}},'
+            ' team: null}} AS service'
+        )
+        update_params = {
+            'cur_slug': slug,
+            'org_slug': org_slug,
+            **graph_props,
+        }
+
+    try:
+        updated = await db.execute(
+            update_query,
+            update_params,
+            ['service'],
+        )
+    except psycopg.errors.UniqueViolation as e:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(
+                'Third-party service with slug '
+                f'{props["slug"]!r} already exists'
+            ),
+        ) from e
+
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(f'Third-party service with slug {slug!r} not found'),
+        )
+
+    return _build_service_response(updated[0])
+
+
+@third_party_services_router.patch('/{slug}')
+async def patch_third_party_service(
+    org_slug: str,
+    slug: str,
+    operations: list[json_patch.PatchOperation],
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('third_party_service:update'),
+        ),
+    ],
+) -> models.ThirdPartyServiceResponse:
+    """Partially update a third-party service using JSON Patch (RFC 6902).
+
+    Parameters:
+        org_slug: Organization slug from URL path.
+        slug: Third-party service slug from URL.
+        operations: JSON Patch operations.
+
+    Returns:
+        The updated third-party service.
+
+    Raises:
+        400: Invalid patch or read-only path.
+        404: Service not found.
+        409: Slug conflict.
+        422: Patch test failed or validation error.
+
+    """
+    fetch_query: typing.LiteralString = """
+    MATCH (s:ThirdPartyService {{slug: {slug}}})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
+    OPTIONAL MATCH (s)-[:MANAGED_BY]->(t:Team)
+    RETURN s{{.*, organization: o{{.*}}, team: t{{.*}}}}
+        AS service
+    """
+    records = await db.execute(
+        fetch_query,
+        {'slug': slug, 'org_slug': org_slug},
+        ['service'],
+    )
+
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(f'Third-party service with slug {slug!r} not found'),
+        )
+
+    service = graph.parse_agtype(records[0]['service'])
+    service = _deserialize_json_fields(service, _SERVICE_JSON_FIELDS)
+
+    team = service.get('team')
+    patchable: dict[str, typing.Any] = {
+        'name': service.get('name'),
+        'slug': service.get('slug'),
+        'vendor': service.get('vendor'),
+        'description': service.get('description'),
+        'icon': service.get('icon'),
+        'service_url': service.get('service_url'),
+        'category': service.get('category'),
+        'status': service.get('status', 'active'),
+        'links': service.get('links', {}),
+        'identifiers': service.get('identifiers', {}),
+        'team_slug': (team.get('slug') if team else None),
+    }
+
+    patched = json_patch.apply_patch(patchable, operations)
+
+    try:
+        data = models.ThirdPartyServiceUpdate(**patched)
+    except pydantic.ValidationError as e:
+        raise fastapi.HTTPException(
+            status_code=422,
+            detail=e.errors(),
+        ) from e
 
     props = {
         'name': data.name,
