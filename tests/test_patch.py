@@ -124,3 +124,12 @@ class ApplyPatchTests(unittest.TestCase):
         with self.assertRaises(fastapi.HTTPException) as ctx:
             patch.apply_patch(doc, ops)
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_root_path_raises_400(self) -> None:
+        """Test that patching the root path raises 400."""
+        doc = {'name': 'Test'}
+        ops = [patch.PatchOperation(op='replace', path='', value={'x': 1})]
+        with self.assertRaises(fastapi.HTTPException) as ctx:
+            patch.apply_patch(doc, ops)
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn('Root path', ctx.exception.detail)

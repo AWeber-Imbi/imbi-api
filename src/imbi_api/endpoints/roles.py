@@ -404,6 +404,12 @@ async def patch_role(
             detail=f'Role with slug {slug!r} not found',
         )
 
+    if existing.is_system:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Cannot modify system role',
+        )
+
     current = existing.model_dump(mode='json')
     current.pop('created_at', None)
     current.pop('updated_at', None)

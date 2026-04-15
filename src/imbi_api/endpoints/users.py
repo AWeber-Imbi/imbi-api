@@ -470,16 +470,18 @@ async def patch_user(
 
     # Preserve existing password_hash; clear if becoming service account
     password_hash = existing_user.password_hash
-    if patched.get('is_service_account'):
+    if patched.get('is_service_account', existing_user.is_service_account):
         password_hash = None
 
     updated_user = models.User(
         email=patched['email'],
-        display_name=patched.get('display_name', ''),
+        display_name=patched.get('display_name', existing_user.display_name),
         password_hash=password_hash,
-        is_active=patched.get('is_active', True),
-        is_admin=patched.get('is_admin', False),
-        is_service_account=patched.get('is_service_account', False),
+        is_active=patched.get('is_active', existing_user.is_active),
+        is_admin=patched.get('is_admin', existing_user.is_admin),
+        is_service_account=patched.get(
+            'is_service_account', existing_user.is_service_account
+        ),
         created_at=existing_user.created_at,
         last_login=existing_user.last_login,
         avatar_url=existing_user.avatar_url,

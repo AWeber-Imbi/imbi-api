@@ -61,7 +61,14 @@ def apply_patch(
 
     """
     for op in operations:
-        for check_path in filter(None, [op.path, op.from_]):
+        for check_path in [op.path, op.from_]:
+            if check_path is None:
+                continue
+            if check_path == '':
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail='Root path cannot be patched',
+                )
             if any(
                 check_path == ro or check_path.startswith(f'{ro}/')
                 for ro in readonly_paths
@@ -84,9 +91,9 @@ def apply_patch(
         ops_list.append(d)
 
     try:
-        result: dict[str, typing.Any] = typing.cast(
-            dict[str, typing.Any],
-            jsonpatch.apply_patch(document, ops_list),  # type: ignore[no-any-expr]
+        result = jsonpatch.apply_patch(  # type: ignore[no-any-expr]
+            document,
+            ops_list,
         )
     except jsonpatch.JsonPatchTestFailed as e:
         raise fastapi.HTTPException(
@@ -99,4 +106,9 @@ def apply_patch(
             detail=f'Invalid patch: {e}',
         ) from e
 
-    return result
+    if not isinstance(result, dict):
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Patch result must be a JSON object',
+        )
+    return typing.cast(dict[str, typing.Any], result)
