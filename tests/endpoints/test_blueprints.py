@@ -362,6 +362,7 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertFalse(data['enabled'])
+        self.mock_db.merge.assert_called_once()
 
     def test_patch_blueprint_not_found(self) -> None:
         """Test patching a non-existent blueprint returns 404."""
