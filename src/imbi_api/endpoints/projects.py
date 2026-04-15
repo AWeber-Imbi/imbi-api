@@ -1126,12 +1126,12 @@ async def _validate_update_refs(
 
 def _build_update_clauses(
     data: ProjectUpdate,
-) -> tuple[str, dict[str, typing.Any], str]:
+) -> tuple[str, dict[str, typing.Any]]:
     """Build Cypher relationship-change clauses for a project update.
 
-    Returns ``(rel_clauses, env_params, set_of_new_env_edge_props_tpl)``
-    where ``rel_clauses`` is appended to the main update query and
-    ``env_params`` must be merged into the query parameter dict.
+    Returns ``(rel_clauses, env_params)`` where ``rel_clauses`` is
+    appended to the main update query and ``env_params`` must be
+    merged into the query parameter dict.
     """
     rel_clauses: str = ''
     if data.team_slug:
@@ -1177,59 +1177,36 @@ def _build_update_clauses(
             ' CREATE (p)-[:DEPLOYED_IN' + new_edge_props_tpl + ']->(e))'
         )
 
-    return rel_clauses, new_env_params, new_edge_props_tpl
+    return rel_clauses, new_env_params
 
 
-@projects_router.put('/{project_id}')
-async def update_project(
-    org_slug: str,
+async def _execute_project_update(
     project_id: str,
+    org_slug: str,
     data: ProjectUpdate,
+    existing_p: dict[str, typing.Any],
+    existing_team: str,
+    existing_types: list[str],
     db: graph.Pool,
-    auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(
-            permissions.require_permission('project:write'),
-        ),
-    ],
 ) -> ProjectResponse:
-    """Update a project."""
-    # Fetch existing project to determine current types
-    fetch_query: typing.LiteralString = """
-    MATCH (p:Project {{id: {project_id}}})
-          -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    WITH DISTINCT p, o
-    MATCH (p)-[:OWNED_BY]->(t:Team)-[:BELONGS_TO]->(o)
-    WITH p, o, t.slug AS team_slug
-    OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
-          -[:BELONGS_TO]->(o)
-    WITH p, team_slug, collect(pt.slug) AS type_slugs
-    RETURN p{{.*}} AS project,
-           team_slug AS current_team_slug,
-           type_slugs AS current_type_slugs
+    """Execute the shared update logic for PUT and PATCH handlers.
+
+    Merges ``data`` with the existing project node, validates
+    references, builds and runs the Cypher update query, and
+    returns the updated ``ProjectResponse``.
+
+    Args:
+        project_id: The project's nano-ID.
+        org_slug: Organization slug from the URL path.
+        data: Validated ``ProjectUpdate`` instance with the new values.
+        existing_p: Current project node properties (flat dict).
+        existing_team: Current team slug.
+        existing_types: Current project-type slugs.
+        db: Graph connection pool.
+
     """
-    records = await db.execute(
-        fetch_query,
-        {
-            'project_id': project_id,
-            'org_slug': org_slug,
-        },
-        ['project', 'current_team_slug', 'current_type_slugs'],
-    )
-
-    if not records:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=f'Project {project_id!r} not found',
-        )
-
-    existing = graph.parse_agtype(records[0]['project'])
-    current_team = graph.parse_agtype(records[0]['current_team_slug'])
-    current_types = graph.parse_agtype(records[0]['current_type_slugs'])
-
-    effective_team = data.team_slug or current_team
-    effective_types = data.project_type_slugs or current_types
+    effective_team = data.team_slug or existing_team
+    effective_types = data.project_type_slugs or existing_types
 
     dynamic_model = await blueprints.get_model(
         db,
@@ -1237,27 +1214,40 @@ async def update_project(
         context={'project_type': effective_types},
     )
 
-    # Merge provided fields with existing values
+    # Pre-parse JSON-string fields that the graph stores as strings.
+    raw_links = existing_p.get('links', {}) or {}
+    existing_links: dict[str, typing.Any] = (
+        json.loads(raw_links) if isinstance(raw_links, str) else raw_links
+    )
+    raw_identifiers = existing_p.get('identifiers', {}) or {}
+    existing_identifiers: dict[str, typing.Any] = (
+        json.loads(raw_identifiers)
+        if isinstance(raw_identifiers, str)
+        else raw_identifiers
+    )
+
+    # Merge provided fields with existing values.
     merged = {
-        'name': data.name or existing.get('name', ''),
-        'slug': data.slug or existing.get('slug', ''),
+        'name': data.name or existing_p.get('name', ''),
+        'slug': data.slug or existing_p.get('slug', ''),
         'description': (
             data.description
             if data.description is not None
-            else existing.get('description')
+            else existing_p.get('description')
         ),
-        'icon': (data.icon if data.icon is not None else existing.get('icon')),
-        'links': (
-            data.links if data.links is not None else existing.get('links', {})
+        'icon': (
+            data.icon if data.icon is not None else existing_p.get('icon')
         ),
+        'links': (data.links if data.links is not None else existing_links),
         'identifiers': (
             data.identifiers
             if data.identifiers is not None
-            else existing.get('identifiers', {})
+            else existing_identifiers
         ),
     }
 
-    # Merge blueprint extra fields
+    # Merge blueprint extra fields: start from existing unknown keys,
+    # then overlay any extras supplied by the caller.
     base_fields = set(ProjectUpdate.model_fields)
     skip = {
         'id',
@@ -1269,7 +1259,7 @@ async def update_project(
     }
     extra_fields = {
         k: v
-        for k, v in existing.items()
+        for k, v in existing_p.items()
         if k not in base_fields and k not in skip
     }
     extra_fields.update(
@@ -1297,16 +1287,13 @@ async def update_project(
             **extra_fields,
         )
     except pydantic.ValidationError as e:
-        LOGGER.warning(
-            'Validation error updating project: %s',
-            e,
-        )
+        LOGGER.warning('Validation error updating project: %s', e)
         raise fastapi.HTTPException(
             status_code=400,
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    raw_created = existing.get('created_at')
+    raw_created = existing_p.get('created_at')
     project.created_at = (
         datetime.datetime.fromisoformat(raw_created)
         if raw_created
@@ -1321,7 +1308,7 @@ async def update_project(
             'environments',
         },
     )
-    # Serialize dict/list fields to JSON strings for graph storage
+    # Serialize dict/list fields to JSON strings for graph storage.
     for key in ('links', 'identifiers'):
         if key in props and not isinstance(props[key], str):
             props[key] = json.dumps(props[key])
@@ -1330,7 +1317,7 @@ async def update_project(
     # partial writes (team, project types, environments).
     await _validate_update_refs(db, org_slug, data)
 
-    rel_clauses, new_env_params, _ = _build_update_clauses(data)
+    rel_clauses, new_env_params = _build_update_clauses(data)
     set_clause = _set_clause('p', props)
 
     update_query: str = (
@@ -1375,15 +1362,73 @@ async def update_project(
             detail=f'Project {project_id!r} not found',
         )
 
-    project_data = graph.parse_agtype(updated[0]['project'])
-    _flatten_edge_props(project_data)
+    updated_data = graph.parse_agtype(updated[0]['project'])
+    _flatten_edge_props(updated_data)
     result = _add_relationships(
-        project_data,
+        updated_data,
         org_slug,
         graph.parse_agtype(updated[0]['outbound_count']),
         graph.parse_agtype(updated[0]['inbound_count']),
     )
     return ProjectResponse.model_validate(result)
+
+
+@projects_router.put('/{project_id}')
+async def update_project(
+    org_slug: str,
+    project_id: str,
+    data: ProjectUpdate,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('project:write'),
+        ),
+    ],
+) -> ProjectResponse:
+    """Update a project."""
+    fetch_query: typing.LiteralString = """
+    MATCH (p:Project {{id: {project_id}}})
+          -[:OWNED_BY]->(:Team)
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
+    WITH DISTINCT p, o
+    MATCH (p)-[:OWNED_BY]->(t:Team)-[:BELONGS_TO]->(o)
+    WITH p, o, t.slug AS team_slug
+    OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
+          -[:BELONGS_TO]->(o)
+    WITH p, team_slug, collect(pt.slug) AS type_slugs
+    RETURN p{{.*}} AS project,
+           team_slug AS current_team_slug,
+           type_slugs AS current_type_slugs
+    """
+    records = await db.execute(
+        fetch_query,
+        {
+            'project_id': project_id,
+            'org_slug': org_slug,
+        },
+        ['project', 'current_team_slug', 'current_type_slugs'],
+    )
+
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Project {project_id!r} not found',
+        )
+
+    existing_p = graph.parse_agtype(records[0]['project'])
+    existing_team = graph.parse_agtype(records[0]['current_team_slug'])
+    existing_types = graph.parse_agtype(records[0]['current_type_slugs'])
+
+    return await _execute_project_update(
+        project_id,
+        org_slug,
+        data,
+        existing_p,
+        existing_team,
+        existing_types,
+        db,
+    )
 
 
 @projects_router.patch('/{project_id}')
@@ -1416,7 +1461,7 @@ async def patch_project(
         422: Patch test failed or environment validation failed.
 
     """
-    # Fetch full current state (same query as get_project)
+    # Fetch full current state (same query as get_project).
     fetch_query: typing.LiteralString = (
         """
     MATCH (p:Project {{id: {project_id}}})
@@ -1444,12 +1489,12 @@ async def patch_project(
     project_data = graph.parse_agtype(records[0]['project'])
     _flatten_edge_props(project_data)
 
-    # Build patchable document from ProjectUpdate-compatible fields
+    # Build patchable document from ProjectUpdate-compatible fields.
     raw_links = project_data.get('links', {}) or {}
-    raw_identifiers = project_data.get('identifiers', {}) or {}
     parsed_links: dict[str, typing.Any] = (
         json.loads(raw_links) if isinstance(raw_links, str) else raw_links
     )
+    raw_identifiers = project_data.get('identifiers', {}) or {}
     parsed_identifiers: dict[str, typing.Any] = (
         json.loads(raw_identifiers)
         if isinstance(raw_identifiers, str)
@@ -1499,160 +1544,15 @@ async def patch_project(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    effective_team = update_data.team_slug or current_team_slug
-    effective_types = update_data.project_type_slugs or current_type_slugs
-
-    dynamic_model = await blueprints.get_model(
-        db,
-        models.Project,
-        context={'project_type': effective_types},
-    )
-
-    merged = {
-        'name': update_data.name or project_data.get('name', ''),
-        'slug': update_data.slug or project_data.get('slug', ''),
-        'description': (
-            update_data.description
-            if update_data.description is not None
-            else project_data.get('description')
-        ),
-        'icon': (
-            update_data.icon
-            if update_data.icon is not None
-            else project_data.get('icon')
-        ),
-        'links': (
-            update_data.links
-            if update_data.links is not None
-            else parsed_links
-        ),
-        'identifiers': (
-            update_data.identifiers
-            if update_data.identifiers is not None
-            else parsed_identifiers
-        ),
-    }
-
-    base_fields = set(ProjectUpdate.model_fields)
-    skip = {
-        'id',
-        'team',
-        'project_types',
-        'environments',
-        'created_at',
-        'updated_at',
-    }
-    extra_fields = {
-        k: v
-        for k, v in project_data.items()
-        if k not in base_fields and k not in skip
-    }
-    extra_fields.update(
-        {
-            k: v
-            for k, v in (update_data.model_extra or {}).items()
-            if k not in _RESERVED_FIELDS
-        }
-    )
-
-    try:
-        project = dynamic_model(
-            id=project_id,
-            team=models.Team(
-                name='',
-                slug=effective_team,
-                organization=models.Organization(
-                    name='',
-                    slug=org_slug,
-                ),
-            ),
-            project_types=[],
-            environments=[],
-            **merged,  # type: ignore[arg-type]
-            **extra_fields,
-        )
-    except pydantic.ValidationError as e:
-        LOGGER.warning('Validation error patching project: %s', e)
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f'Validation error: {e.errors()}',
-        ) from e
-
-    raw_created = project_data.get('created_at')
-    project.created_at = (
-        datetime.datetime.fromisoformat(raw_created)
-        if raw_created
-        else datetime.datetime.now(datetime.UTC)
-    )
-    project.updated_at = datetime.datetime.now(datetime.UTC)
-    props = project.model_dump(
-        mode='json',
-        exclude={
-            'team',
-            'project_types',
-            'environments',
-        },
-    )
-    for key in ('links', 'identifiers'):
-        if key in props and not isinstance(props[key], str):
-            props[key] = json.dumps(props[key])
-
-    await _validate_update_refs(db, org_slug, update_data)
-
-    rel_clauses, new_env_params, _ = _build_update_clauses(update_data)
-    set_clause = _set_clause('p', props)
-
-    update_query: str = (
-        """
-    MATCH (p:Project {{id: {project_id}}})
-          -[:OWNED_BY]->(:Team)
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    WITH DISTINCT p, o
-    """
-        + set_clause
-        + rel_clauses
-        + """
-    WITH DISTINCT p, o
-    """
-        + _RETURN_FRAGMENT
-    )
-
-    try:
-        updated = await db.execute(
-            update_query,
-            {
-                'project_id': project_id,
-                'org_slug': org_slug,
-                **props,
-                'new_team_slug': update_data.team_slug or '',
-                'new_type_slugs': json.dumps(
-                    update_data.project_type_slugs or [],
-                ),
-                **new_env_params,
-            },
-            ['project', 'outbound_count', 'inbound_count'],
-        )
-    except psycopg.errors.UniqueViolation as e:
-        raise fastapi.HTTPException(
-            status_code=409,
-            detail=str(e),
-        ) from e
-
-    if not updated:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=f'Project {project_id!r} not found',
-        )
-
-    updated_data = graph.parse_agtype(updated[0]['project'])
-    _flatten_edge_props(updated_data)
-    result = _add_relationships(
-        updated_data,
+    return await _execute_project_update(
+        project_id,
         org_slug,
-        graph.parse_agtype(updated[0]['outbound_count']),
-        graph.parse_agtype(updated[0]['inbound_count']),
+        update_data,
+        project_data,
+        current_team_slug,
+        current_type_slugs,
+        db,
     )
-    return ProjectResponse.model_validate(result)
 
 
 @projects_router.delete('/{project_id}', status_code=204)
