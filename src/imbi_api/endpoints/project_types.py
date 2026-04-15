@@ -487,6 +487,7 @@ async def patch_project_type(
     current.pop('created_at', None)
     current.pop('updated_at', None)
     current.pop('organization', None)
+    current.setdefault('sort_order', 0)
 
     patched = json_patch.apply_patch(current, operations)
     patched.pop('organization_slug', None)

@@ -443,10 +443,6 @@ async def update_link_definition(
         404: Link definition not found
 
     """
-    payload = data.model_dump(exclude_unset=True)
-    if 'slug' not in payload:
-        payload['slug'] = slug
-
     dynamic_model = await blueprints.get_model(
         db,
         models.LinkDefinition,
@@ -469,8 +465,18 @@ async def update_link_definition(
             detail=(f'Link definition with slug {slug!r} not found'),
         )
 
-    existing = graph.parse_agtype(records[0]['ld'])
+    existing_data = graph.parse_agtype(records[0]['ld'])
     existing_org = graph.parse_agtype(records[0]['o'])
+
+    payload = {
+        k: v
+        for k, v in existing_data.items()
+        if k not in ('created_at', 'updated_at', 'organization')
+    }
+    incoming = data.model_dump(exclude_unset=True)
+    payload.update(incoming)
+    if 'slug' not in payload:
+        payload['slug'] = slug
 
     return await _persist_link_definition(
         slug,
@@ -478,7 +484,7 @@ async def update_link_definition(
         dynamic_model,
         existing_org,
         payload,
-        existing.get('created_at'),
+        existing_data.get('created_at'),
         db,
     )
 

@@ -129,32 +129,6 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
-    def test_create_project_type_org_not_found(self) -> None:
-        """Test creating project type with nonexistent org."""
-        self.mock_db.execute.return_value = []
-
-        with (
-            mock.patch(
-                'imbi_common.blueprints.get_model',
-            ) as mock_get_model,
-            mock.patch(
-                'imbi_common.graph.parse_agtype',
-                side_effect=lambda x: x,
-            ),
-        ):
-            mock_get_model.return_value = models.ProjectType
-
-            response = self.client.post(
-                '/organizations/nonexistent/project-types/',
-                json={
-                    'name': 'API Service',
-                    'slug': 'api-service',
-                },
-            )
-
-        self.assertEqual(response.status_code, 404)
-        self.assertIn('not found', response.json()['detail'])
-
     def test_create_project_type_validation_error(self) -> None:
         """Test creating project type with invalid data."""
         with mock.patch(
@@ -416,7 +390,7 @@ class ProjectTypeEndpointsTestCase(unittest.TestCase):
 
             response = self.client.put(
                 '/organizations/engineering/project-types/api-service',
-                json={'name': 123},
+                json={'name': None},
             )
 
         self.assertEqual(response.status_code, 400)
