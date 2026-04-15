@@ -3,7 +3,7 @@
 import typing
 
 import fastapi
-import jsonpatch
+import jsonpatch  # type: ignore[import-untyped]
 import pydantic
 
 LOGGER = __import__('logging').getLogger(__name__)
@@ -84,8 +84,9 @@ def apply_patch(
         ops_list.append(d)
 
     try:
-        result: dict[str, typing.Any] = jsonpatch.apply_patch(
-            document, ops_list
+        result: dict[str, typing.Any] = typing.cast(
+            dict[str, typing.Any],
+            jsonpatch.apply_patch(document, ops_list),  # type: ignore[no-any-expr]
         )
     except jsonpatch.JsonPatchTestFailed as e:
         raise fastapi.HTTPException(

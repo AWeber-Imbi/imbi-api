@@ -1215,11 +1215,11 @@ async def _execute_project_update(
     )
 
     # Pre-parse JSON-string fields that the graph stores as strings.
-    raw_links = existing_p.get('links', {}) or {}
+    raw_links: typing.Any = existing_p.get('links') or {}
     existing_links: dict[str, typing.Any] = (
         json.loads(raw_links) if isinstance(raw_links, str) else raw_links
     )
-    raw_identifiers = existing_p.get('identifiers', {}) or {}
+    raw_identifiers: typing.Any = existing_p.get('identifiers') or {}
     existing_identifiers: dict[str, typing.Any] = (
         json.loads(raw_identifiers)
         if isinstance(raw_identifiers, str)
@@ -1490,36 +1490,34 @@ async def patch_project(
     _flatten_edge_props(project_data)
 
     # Build patchable document from ProjectUpdate-compatible fields.
-    raw_links = project_data.get('links', {}) or {}
+    raw_links: typing.Any = project_data.get('links') or {}
     parsed_links: dict[str, typing.Any] = (
         json.loads(raw_links) if isinstance(raw_links, str) else raw_links
     )
-    raw_identifiers = project_data.get('identifiers', {}) or {}
+    raw_identifiers: typing.Any = project_data.get('identifiers') or {}
     parsed_identifiers: dict[str, typing.Any] = (
         json.loads(raw_identifiers)
         if isinstance(raw_identifiers, str)
         else raw_identifiers
     )
 
-    team_data = project_data.get('team') or {}
-    current_team_slug: str = (
-        team_data.get('slug', '') if isinstance(team_data, dict) else ''
-    )
+    team_data: typing.Any = project_data.get('team') or {}
+    current_team_slug: str = typing.cast(str, team_data.get('slug') or '')
 
-    pts: list[dict[str, typing.Any]] = project_data.get('project_types') or []
+    pts: list[typing.Any] = project_data.get('project_types') or []
     current_type_slugs: list[str] = [
-        pt['slug'] for pt in pts if isinstance(pt, dict) and pt.get('slug')
+        typing.cast(str, pt['slug']) for pt in pts if pt and pt.get('slug')
     ]
 
-    envs: list[dict[str, typing.Any]] = project_data.get('environments') or []
+    envs: list[typing.Any] = project_data.get('environments') or []
     current_environments: dict[str, dict[str, typing.Any]] = {}
     for env in envs:
-        if isinstance(env, dict) and env.get('slug'):
-            slug = env['slug']
-            edge_props = {
+        if env and env.get('slug'):
+            env_slug: str = typing.cast(str, env['slug'])
+            edge_props: dict[str, typing.Any] = {
                 k: v for k, v in env.items() if k not in _PROTECTED_ENV_KEYS
             }
-            current_environments[slug] = edge_props
+            current_environments[env_slug] = edge_props
 
     patchable: dict[str, typing.Any] = {
         'name': project_data.get('name', ''),

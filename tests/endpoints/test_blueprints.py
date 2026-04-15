@@ -339,10 +339,9 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
             name='Extra Field',
             slug='extra-field',
             type='Project',
-            json_schema={
-                'type': 'object',
-                'properties': {'extra': {'type': 'string'}},
-            },
+            json_schema=common_models.Schema.model_validate(
+                {'type': 'object', 'properties': {'extra': {'type': 'string'}}}
+            ),
             enabled=True,
         )
         self.mock_db.match.side_effect = [
@@ -383,7 +382,9 @@ class BlueprintEndpointsTestCase(unittest.TestCase):
             name='Extra Field',
             slug='extra-field',
             type='Project',
-            json_schema={'type': 'object'},
+            json_schema=common_models.Schema.model_validate(
+                {'type': 'object'}
+            ),
             enabled=True,
         )
         self.mock_db.match.return_value = [existing]

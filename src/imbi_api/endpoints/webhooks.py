@@ -517,7 +517,7 @@ async def patch_webhook(
     existing_webhook = graph.parse_agtype(existing[0]['webhook'])
 
     # Build the patchable document (never expose encrypted secret)
-    raw_rules = existing[0].get('rules') or []
+    raw_rules: list[typing.Any] = existing[0].get('rules') or []
     if isinstance(raw_rules, str):
         try:
             raw_rules = json.loads(raw_rules)

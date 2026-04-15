@@ -821,6 +821,43 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
+    def test_patch_project_with_environments(self) -> None:
+        """Test patching a project that has existing environments."""
+        existing = self._project_data(
+            environments=[
+                {
+                    'slug': 'staging',
+                    'name': 'Staging',
+                    'id': 'env-1',
+                    'created_at': '2026-01-01T00:00:00Z',
+                    'updated_at': '2026-01-01T00:00:00Z',
+                }
+            ]
+        )
+        updated = self._project_data(name='New Name')
+
+        self.mock_db.execute.side_effect = [
+            [{'project': existing, 'outbound_count': 0, 'inbound_count': 0}],
+            [{'slug': 'platform'}],
+            [{'pt_slug': 'api-service', 'found': True}],
+            [{'env_slug': 'staging', 'found': True}],  # env slug validation
+            [{'project': updated, 'outbound_count': 0, 'inbound_count': 0}],
+        ]
+
+        with (
+            mock.patch('imbi_common.blueprints.get_model') as mock_get_model,
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            mock_get_model.return_value = models.Project
+            response = self.client.patch(
+                f'/organizations/engineering/projects/{PROJECT_ID}',
+                json=[{'op': 'replace', 'path': '/name', 'value': 'New Name'}],
+            )
+
+        self.assertEqual(response.status_code, 200)
+
     # -- Delete --------------------------------------------------------
 
     def test_delete_success(self) -> None:
