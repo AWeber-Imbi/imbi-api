@@ -466,6 +466,70 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
 
+    # -- Patch --
+
+    def test_patch_webhook_description(self) -> None:
+        """Test patching only the webhook description."""
+        existing_record = {
+            'webhook': {
+                'name': 'Deploy Hook',
+                'slug': 'deploy',
+                'description': 'Old',
+                'notification_path': '/deploy',
+                'secret': None,
+            },
+            'tps': None,
+            'identifier_selector': None,
+            'rules': [],
+        }
+        updated_record = {
+            'webhook': {
+                'name': 'Deploy Hook',
+                'slug': 'deploy',
+                'description': 'New desc',
+                'notification_path': '/deploy',
+                'secret': None,
+            },
+            'tps': None,
+            'identifier_selector': None,
+            'rules': [],
+        }
+        self.mock_db.execute.side_effect = [
+            [existing_record],
+            [updated_record],
+        ]
+
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/webhooks/deploy',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/description',
+                        'value': 'New desc',
+                    }
+                ],
+            )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_patch_webhook_not_found(self) -> None:
+        """Test patching non-existent webhook returns 404."""
+        self.mock_db.execute.return_value = []
+
+        response = self.client.patch(
+            '/organizations/engineering/webhooks/nonexistent',
+            json=[{'op': 'replace', 'path': '/description', 'value': 'X'}],
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     # -- Delete --
 
     def test_delete_webhook(self) -> None:
