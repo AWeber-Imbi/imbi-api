@@ -103,3 +103,24 @@ class ApplyPatchTests(unittest.TestCase):
             {'op': 'move', 'path': '/b', 'from': '/a'}
         )
         self.assertEqual(op.from_, '/a')
+
+    def test_replace_with_null_value(self) -> None:
+        """Test that null (None) is a valid patch value."""
+        doc = {'name': 'Test', 'description': 'Existing'}
+        ops = [
+            patch.PatchOperation(op='replace', path='/description', value=None)
+        ]
+        result = patch.apply_patch(doc, ops)
+        self.assertIsNone(result['description'])
+
+    def test_move_from_readonly_path_raises_400(self) -> None:
+        """Test that move from a read-only path raises 400."""
+        doc = {'name': 'Test', 'created_at': '2024-01-01T00:00:00Z'}
+        ops = [
+            patch.PatchOperation.model_validate(
+                {'op': 'move', 'from': '/created_at', 'path': '/name'}
+            )
+        ]
+        with self.assertRaises(fastapi.HTTPException) as ctx:
+            patch.apply_patch(doc, ops)
+        self.assertEqual(ctx.exception.status_code, 400)

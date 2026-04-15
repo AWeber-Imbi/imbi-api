@@ -17,6 +17,8 @@ READONLY_PATHS: frozenset[str] = frozenset(
     ]
 )
 
+_UNSET: object = object()
+
 
 class PatchOperation(pydantic.BaseModel):
     """A single JSON Patch operation (RFC 6902).
@@ -33,7 +35,7 @@ class PatchOperation(pydantic.BaseModel):
 
     op: typing.Literal['add', 'remove', 'replace', 'move', 'copy', 'test']
     path: str
-    value: typing.Any = None
+    value: typing.Any = _UNSET
     from_: str | None = pydantic.Field(None, alias='from')
 
 
@@ -59,18 +61,27 @@ def apply_patch(
 
     """
     for op in operations:
-        path = op.path
-        if any(
-            path == ro or path.startswith(f'{ro}/') for ro in readonly_paths
-        ):
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail=f'Path {path!r} is read-only and cannot be patched',
-            )
+        for check_path in filter(None, [op.path, op.from_]):
+            if any(
+                check_path == ro or check_path.startswith(f'{ro}/')
+                for ro in readonly_paths
+            ):
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail=(
+                        f'Path {check_path!r} is read-only'
+                        ' and cannot be patched'
+                    ),
+                )
 
-    ops_list = [
-        op.model_dump(by_alias=True, exclude_none=True) for op in operations
-    ]
+    ops_list: list[dict[str, typing.Any]] = []
+    for op in operations:
+        d: dict[str, typing.Any] = {'op': op.op, 'path': op.path}
+        if op.value is not _UNSET:
+            d['value'] = op.value
+        if op.from_ is not None:
+            d['from'] = op.from_
+        ops_list.append(d)
 
     try:
         result: dict[str, typing.Any] = jsonpatch.apply_patch(
