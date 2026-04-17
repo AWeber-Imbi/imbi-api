@@ -202,6 +202,31 @@ STANDARD_PERMISSIONS: list[tuple[str, str, str, str]] = [
         'delete',
         'Delete service accounts',
     ),
+    # Operations log management
+    (
+        'operations_log:create',
+        'operations_log',
+        'create',
+        'Create operations log entries',
+    ),
+    (
+        'operations_log:read',
+        'operations_log',
+        'read',
+        'View operations log entries',
+    ),
+    (
+        'operations_log:update',
+        'operations_log',
+        'update',
+        'Update operations log entries',
+    ),
+    (
+        'operations_log:delete',
+        'operations_log',
+        'delete',
+        'Delete operations log entries',
+    ),
 ]
 
 # Default role definitions
