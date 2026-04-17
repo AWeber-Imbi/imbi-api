@@ -14,8 +14,17 @@ from __future__ import annotations
 
 import base64
 import datetime
+import logging
+import typing
 
 import fastapi
+import nanoid
+import pydantic
+from imbi_common import clickhouse, models
+
+from imbi_api.auth import permissions
+
+LOGGER = logging.getLogger(__name__)
 
 operations_log_router = fastapi.APIRouter(
     prefix='/operations-log', tags=['Operations Log']
@@ -66,3 +75,81 @@ def _decode_cursor(
     except ValueError:
         return None
     return ts, entry_id
+
+
+def _row_to_response(row: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """Strip internal bookkeeping columns before returning to the client."""
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in {'_row_version', 'row_version', 'is_deleted'}
+    }
+
+
+def _model_to_row(entry: models.OperationLog) -> dict[str, typing.Any]:
+    """Build the ClickHouse row dict from a validated model.
+
+    Uses by_alias=True so the ``_row_version`` column name is emitted
+    instead of the Python field name ``row_version``. ``is_deleted`` is
+    coerced to UInt8 (0/1) for the ClickHouse UInt8 column.
+    """
+    dumped = entry.model_dump(by_alias=True, mode='python')
+    dumped['is_deleted'] = 1 if entry.is_deleted else 0
+    return dumped
+
+
+async def _insert_row(row: dict[str, typing.Any]) -> None:
+    """Insert a single row into operations_log.
+
+    Calls the class method directly with explicit column names/values
+    because the module-level ``clickhouse.insert`` wrapper only accepts
+    pydantic models and loses the alias during serialization.
+    """
+    await clickhouse.client.Clickhouse.get_instance().insert(
+        'operations_log',
+        [list(row.values())],
+        list(row.keys()),
+    )
+
+
+@operations_log_router.post('/', status_code=201)
+async def create_operation_log(
+    data: dict[str, typing.Any],
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:create'),
+        ),
+    ],
+) -> dict[str, typing.Any]:
+    """Create a new operations log entry."""
+    payload = dict(data)
+    for server_field in (
+        'id',
+        'recorded_at',
+        'recorded_by',
+        '_row_version',
+        'row_version',
+        'is_deleted',
+    ):
+        payload.pop(server_field, None)
+
+    try:
+        entry = models.OperationLog(
+            id=nanoid.generate(),
+            recorded_at=datetime.datetime.now(datetime.UTC),
+            recorded_by=auth.principal_name,
+            **payload,
+        )
+    except pydantic.ValidationError as e:
+        LOGGER.warning('Validation error creating opslog entry: %s', e)
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Validation error: {e.errors()}',
+        ) from e
+
+    if entry.performed_by is None:
+        entry.performed_by = entry.recorded_by
+
+    await _insert_row(_model_to_row(entry))
+    return _row_to_response(entry.model_dump(mode='json'))
