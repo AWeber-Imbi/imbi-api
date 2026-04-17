@@ -498,6 +498,44 @@ class PatchOperationLogTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 403)
 
 
+class ProjectScopedListTests(_OpsLogTestBase):
+    def test_project_scoped_forces_project_id(self) -> None:
+        row = _sample_row(project_id='proj-xyz')
+        self.mock_query.return_value = [row]
+        # Client-supplied ?project_id= is ignored; path wins.
+        response = self.client.get(
+            '/organizations/engineering/projects/proj-xyz/operations-log/'
+            '?project_id=hacker-attempt'
+        )
+        self.assertEqual(response.status_code, 200)
+        _sql, params = self.mock_query.await_args.args
+        self.assertEqual(params['project_id'], 'proj-xyz')
+
+    def test_project_scoped_has_link_headers(self) -> None:
+        self.mock_query.return_value = [_sample_row()]
+        response = self.client.get(
+            '/organizations/engineering/projects/proj-xyz/operations-log/'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('rel="first"', response.headers['Link'])
+
+    def test_project_scoped_forbidden_without_permission(self) -> None:
+        self.auth_context.user = api_models.User(
+            email='bob@example.com',
+            display_name='Bob',
+            password_hash='$argon2id$hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context.permissions = set()
+        response = self.client.get(
+            '/organizations/engineering/projects/proj-xyz/operations-log/'
+        )
+        self.assertEqual(response.status_code, 403)
+
+
 class DeleteOperationLogTests(_OpsLogTestBase):
     def test_delete_204(self) -> None:
         self.mock_query.return_value = [_sample_row()]

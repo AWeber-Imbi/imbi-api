@@ -219,27 +219,22 @@ def _build_link_header(
     return ', '.join(links)
 
 
-@operations_log_router.get('/')
-async def list_operation_logs(
+async def _list_impl(
+    *,
     request: fastapi.Request,
-    auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(
-            permissions.require_permission('operations_log:read'),
-        ),
-    ],
     limit: int = DEFAULT_LIMIT,
     cursor: str | None = None,
-    project_id: str | None = None,
-    project_slug: str | None = None,
-    environment_slug: str | None = None,
-    entry_type: str | None = None,
-    ticket_slug: str | None = None,
-    performed_by: str | None = None,
+    forced_filters: dict[str, str] | None = None,
+    query_filters: dict[str, str | None] | None = None,
     since: str | None = None,
     until: str | None = None,
 ) -> fastapi.Response:
-    """List operations log entries (newest first, keyset paginated)."""
+    """Core implementation for listing operations log entries.
+
+    ``forced_filters`` are applied unconditionally (e.g. project_id from the
+    URL path). ``query_filters`` come from query-string parameters and are
+    applied only when non-None.
+    """
     if limit < 1 or limit > MAX_LIMIT:
         raise fastapi.HTTPException(
             status_code=400,
@@ -249,19 +244,16 @@ async def list_operation_logs(
     clauses: list[str] = ['is_deleted = 0']
     params: dict[str, typing.Any] = {}
 
-    filters: dict[str, str | None] = {
-        'project_id': project_id,
-        'project_slug': project_slug,
-        'environment_slug': environment_slug,
-        'entry_type': entry_type,
-        'ticket_slug': ticket_slug,
-        'performed_by': performed_by,
-    }
+    # Forced filters win; merge them first.
+    all_filters: dict[str, str | None] = dict(query_filters or {})
+    for key, value in (forced_filters or {}).items():
+        all_filters[key] = value
+
     for field, ch_type in _FILTER_FIELDS:
-        value = filters.get(field)
-        if value is not None:
+        filter_value = all_filters.get(field)
+        if filter_value is not None:
             clauses.append(f'{field} = {{{field}:{ch_type}}}')
-            params[field] = value
+            params[field] = filter_value
 
     if since is not None:
         params['since'] = _parse_iso(since, 'since')
@@ -304,6 +296,82 @@ async def list_operation_logs(
     )
     response.headers['Link'] = _build_link_header(request, next_cursor)
     return response
+
+
+@operations_log_router.get('/')
+async def list_operation_logs(
+    request: fastapi.Request,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:read'),
+        ),
+    ],
+    limit: int = DEFAULT_LIMIT,
+    cursor: str | None = None,
+    project_id: str | None = None,
+    project_slug: str | None = None,
+    environment_slug: str | None = None,
+    entry_type: str | None = None,
+    ticket_slug: str | None = None,
+    performed_by: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> fastapi.Response:
+    """List operations log entries (newest first, keyset paginated)."""
+    return await _list_impl(
+        request=request,
+        limit=limit,
+        cursor=cursor,
+        query_filters={
+            'project_id': project_id,
+            'project_slug': project_slug,
+            'environment_slug': environment_slug,
+            'entry_type': entry_type,
+            'ticket_slug': ticket_slug,
+            'performed_by': performed_by,
+        },
+        since=since,
+        until=until,
+    )
+
+
+@operations_log_project_router.get('/')
+async def list_project_operation_logs(
+    request: fastapi.Request,
+    org_slug: str,
+    project_id: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:read'),
+        ),
+    ],
+    limit: int = DEFAULT_LIMIT,
+    cursor: str | None = None,
+    environment_slug: str | None = None,
+    entry_type: str | None = None,
+    ticket_slug: str | None = None,
+    performed_by: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> fastapi.Response:
+    """List operations log entries for a specific project."""
+    del org_slug  # only used for URL scoping; not a filter column
+    return await _list_impl(
+        request=request,
+        limit=limit,
+        cursor=cursor,
+        forced_filters={'project_id': project_id},
+        query_filters={
+            'environment_slug': environment_slug,
+            'entry_type': entry_type,
+            'ticket_slug': ticket_slug,
+            'performed_by': performed_by,
+        },
+        since=since,
+        until=until,
+    )
 
 
 @operations_log_router.get('/{entry_id}')
