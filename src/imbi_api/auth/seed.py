@@ -275,6 +275,7 @@ DEFAULT_ROLES: list[tuple[str, str, str, int, list[str]]] = [
             'blueprint:read',
             'environment:read',
             'link_definition:read',
+            'operations_log:read',
             'project:read',
             'project_type:read',
             'organization:read',

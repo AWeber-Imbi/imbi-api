@@ -145,7 +145,10 @@ async def create_operation_log(
             **payload,
         )
     except pydantic.ValidationError as e:
-        LOGGER.warning('Validation error creating opslog entry: %s', e)
+        LOGGER.warning(
+            'Validation error creating opslog entry on fields=%s',
+            [tuple(err['loc']) for err in e.errors()],
+        )
         raise fastapi.HTTPException(
             status_code=400,
             detail=f'Validation error: {e.errors()}',
@@ -171,6 +174,19 @@ async def _fetch_current(
     """Fetch the current (non-deleted) row for an entry id."""
     rows = await clickhouse.query(_SINGLE_ENTRY_SQL, {'id': entry_id})
     return rows[0] if rows else None
+
+
+def _next_row_version(current_version: int) -> int:
+    """Return a strictly-increasing ``_row_version`` value.
+
+    ClickHouse ``ReplacingMergeTree`` requires the version column to
+    strictly increase per key to guarantee deterministic last-write-wins
+    replacement. Concurrent writers that both compute ``current + 1``
+    would collide, so we use millisecond-precision wall time and fall
+    back to ``current + 1`` if the clock somehow doesn't advance.
+    """
+    now_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    return max(now_ms, current_version + 1)
 
 
 _FILTER_FIELDS: tuple[str, ...] = (
@@ -422,7 +438,10 @@ async def patch_operation_log(
     try:
         entry = models.OperationLog.model_validate(patched)
     except pydantic.ValidationError as e:
-        LOGGER.warning('Validation error patching opslog entry: %s', e)
+        LOGGER.warning(
+            'Validation error patching opslog entry on fields=%s',
+            [tuple(err['loc']) for err in e.errors()],
+        )
         raise fastapi.HTTPException(
             status_code=400,
             detail=f'Validation error: {e.errors()}',
@@ -433,7 +452,7 @@ async def patch_operation_log(
     entry.recorded_at = current['recorded_at']
     entry.recorded_by = current['recorded_by']
     entry.project_id = current['project_id']
-    entry.row_version = int(current['_row_version']) + 1
+    entry.row_version = _next_row_version(int(current['_row_version']))
     entry.is_deleted = False
 
     row = _model_to_row(entry)
@@ -460,7 +479,7 @@ async def delete_operation_log(
         )
 
     tombstone = dict(current)
-    tombstone['_row_version'] = int(current['_row_version']) + 1
+    tombstone['_row_version'] = _next_row_version(int(current['_row_version']))
     tombstone['is_deleted'] = 1
 
     await _insert_row(tombstone)
