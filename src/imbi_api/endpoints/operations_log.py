@@ -25,6 +25,7 @@ import nanoid
 import pydantic
 from imbi_common import clickhouse, models
 
+from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 
 LOGGER = logging.getLogger(__name__)
@@ -323,3 +324,52 @@ async def get_operation_log(
             detail=f'Operations log entry {entry_id!r} not found',
         )
     return _row_to_response(row)
+
+
+@operations_log_router.patch('/{entry_id}')
+async def patch_operation_log(
+    entry_id: str,
+    operations: list[json_patch.PatchOperation],
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:update'),
+        ),
+    ],
+) -> dict[str, typing.Any]:
+    """Apply a JSON Patch to an operations log entry."""
+    current = await _fetch_current(entry_id)
+    if current is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Operations log entry {entry_id!r} not found',
+        )
+
+    # Build patch target dict: rename _row_version -> row_version for
+    # model validation, and drop is_deleted (readonly in API).
+    target = dict(current)
+    target['row_version'] = target.pop('_row_version')
+    target.pop('is_deleted', None)
+
+    patched = json_patch.apply_patch(target, operations, READONLY_PATHS)
+
+    try:
+        entry = models.OperationLog.model_validate(patched)
+    except pydantic.ValidationError as e:
+        LOGGER.warning('Validation error patching opslog entry: %s', e)
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Validation error: {e.errors()}',
+        ) from e
+
+    # Preserve identity; bump version; keep tombstone false.
+    entry.id = entry_id
+    entry.occurred_at = current['occurred_at']
+    entry.recorded_at = current['recorded_at']
+    entry.recorded_by = current['recorded_by']
+    entry.project_id = current['project_id']
+    entry.row_version = int(current['_row_version']) + 1
+    entry.is_deleted = False
+
+    await _insert_row(_model_to_row(entry))
+    return _row_to_response(entry.model_dump(mode='json'))

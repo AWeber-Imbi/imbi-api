@@ -368,3 +368,131 @@ class ListEntriesTests(_OpsLogTestBase):
         response = self.client.get('/operations-log/')
         self.assertEqual(response.status_code, 403)
         self.mock_query.assert_not_awaited()
+
+
+class PatchOperationLogTests(_OpsLogTestBase):
+    def _setup_existing(
+        self, **overrides: typing.Any
+    ) -> dict[str, typing.Any]:
+        row = _sample_row(**overrides)
+        self.mock_query.return_value = [row]
+        return row
+
+    def test_patch_replace_description(self) -> None:
+        self._setup_existing()
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[
+                {
+                    'op': 'replace',
+                    'path': '/description',
+                    'value': 'Rolled out v2.4.1',
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['description'], 'Rolled out v2.4.1')
+        self.mock_insert.assert_awaited_once()
+        # Check that the insert carried a bumped _row_version
+        args, _kwargs = self.mock_insert.await_args
+        # args = (table, values, column_names)
+        column_names = args[2]
+        values = args[1][0]
+        columns = dict(zip(column_names, values, strict=True))
+        self.assertEqual(columns['_row_version'], 2)
+        self.assertEqual(columns['id'], 'entry-abc')
+
+    def test_patch_readonly_id_is_400(self) -> None:
+        self._setup_existing()
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[{'op': 'replace', 'path': '/id', 'value': 'x'}],
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_readonly_occurred_at_is_400(self) -> None:
+        self._setup_existing()
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[
+                {
+                    'op': 'replace',
+                    'path': '/occurred_at',
+                    'value': '2020-01-01T00:00:00Z',
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_readonly_row_version_is_400(self) -> None:
+        self._setup_existing()
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[{'op': 'replace', 'path': '/_row_version', 'value': 99}],
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_test_op_failure_is_422(self) -> None:
+        self._setup_existing()
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[
+                {
+                    'op': 'test',
+                    'path': '/description',
+                    'value': 'something else',
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_patch_not_found(self) -> None:
+        self.mock_query.return_value = []
+        response = self.client.patch(
+            '/operations-log/missing',
+            json=[
+                {
+                    'op': 'replace',
+                    'path': '/description',
+                    'value': 'x',
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_patch_forbidden_without_permission(self) -> None:
+        non_admin = api_models.User(
+            email='bob@example.com',
+            display_name='Bob',
+            password_hash='$argon2id$hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = api_permissions.AuthContext(
+            user=non_admin,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        async def _current_user() -> api_permissions.AuthContext:
+            return self.auth_context
+
+        self.test_app.dependency_overrides[
+            api_permissions.get_current_user
+        ] = _current_user
+
+        response = self.client.patch(
+            '/operations-log/entry-abc',
+            json=[
+                {
+                    'op': 'replace',
+                    'path': '/description',
+                    'value': 'x',
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, 403)
