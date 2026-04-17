@@ -201,3 +201,53 @@ class PostOperationLogTests(_OpsLogTestBase):
         )
         self.assertEqual(response.status_code, 403)
         self.mock_insert.assert_not_awaited()
+
+
+class GetSingleEntryTests(_OpsLogTestBase):
+    def test_get_returns_200(self) -> None:
+        self.mock_query.return_value = [_sample_row()]
+
+        response = self.client.get('/operations-log/entry-abc')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['id'], 'entry-abc')
+        self.assertEqual(body['entry_type'], 'Deployed')
+        self.assertNotIn('_row_version', body)
+        self.assertNotIn('is_deleted', body)
+        self.mock_query.assert_awaited_once()
+        sent_sql = self.mock_query.await_args.args[0]
+        self.assertIn('FINAL', sent_sql)
+        self.assertIn('is_deleted = 0', sent_sql)
+
+    def test_get_not_found(self) -> None:
+        self.mock_query.return_value = []
+        response = self.client.get('/operations-log/missing-id')
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_forbidden_without_permission(self) -> None:
+        non_admin = api_models.User(
+            email='bob@example.com',
+            display_name='Bob',
+            password_hash='$argon2id$hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = api_permissions.AuthContext(
+            user=non_admin,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        async def _current_user() -> api_permissions.AuthContext:
+            return self.auth_context
+
+        self.test_app.dependency_overrides[
+            api_permissions.get_current_user
+        ] = _current_user
+
+        response = self.client.get('/operations-log/entry-abc')
+        self.assertEqual(response.status_code, 403)
+        self.mock_query.assert_not_awaited()

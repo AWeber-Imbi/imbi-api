@@ -153,3 +153,37 @@ async def create_operation_log(
 
     await _insert_row(_model_to_row(entry))
     return _row_to_response(entry.model_dump(mode='json'))
+
+
+_SINGLE_ENTRY_SQL: typing.Final[str] = (
+    'SELECT * FROM operations_log FINAL '
+    'WHERE id = {id:String} AND is_deleted = 0 LIMIT 1'
+)
+
+
+async def _fetch_current(
+    entry_id: str,
+) -> dict[str, typing.Any] | None:
+    """Fetch the current (non-deleted) row for an entry id."""
+    rows = await clickhouse.query(_SINGLE_ENTRY_SQL, {'id': entry_id})
+    return rows[0] if rows else None
+
+
+@operations_log_router.get('/{entry_id}')
+async def get_operation_log(
+    entry_id: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:read'),
+        ),
+    ],
+) -> dict[str, typing.Any]:
+    """Get a single operations log entry."""
+    row = await _fetch_current(entry_id)
+    if row is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Operations log entry {entry_id!r} not found',
+        )
+    return _row_to_response(row)
