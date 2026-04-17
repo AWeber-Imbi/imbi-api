@@ -106,7 +106,9 @@ class _OpsLogTestBase(unittest.IsolatedAsyncioTestCase):
         """Swap the auth context to a non-admin user with no permissions.
 
         Admin users bypass ``require_permission``, so tests that exercise
-        403 responses need a regular user.
+        403 responses need a regular user. The existing ``_current_user``
+        override closes over ``self`` and picks up the new context on
+        its next call.
         """
         self.auth_context = api_permissions.AuthContext(
             user=api_models.User(
@@ -122,13 +124,6 @@ class _OpsLogTestBase(unittest.IsolatedAsyncioTestCase):
             auth_method='jwt',
             permissions=set(),
         )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
 
 
 class CursorCodecTests(unittest.TestCase):
@@ -390,7 +385,7 @@ class PatchOperationLogTests(_OpsLogTestBase):
         self._setup_existing()
         response = self.client.patch(
             '/operations-log/entry-abc',
-            json=[{'op': 'replace', 'path': '/_row_version', 'value': 99}],
+            json=[{'op': 'replace', 'path': '/row_version', 'value': 99}],
         )
         self.assertEqual(response.status_code, 400)
 
