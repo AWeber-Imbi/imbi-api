@@ -50,7 +50,7 @@ def _sample_row(**overrides: typing.Any) -> dict[str, typing.Any]:
     return base
 
 
-class _OpsLogTestBase(unittest.IsolatedAsyncioTestCase):
+class _OpsLogTestBase(unittest.TestCase):
     """Shared setup for operations-log endpoint tests."""
 
     permissions_granted: set[str] = ALL_OPSLOG_PERMS
@@ -81,6 +81,7 @@ class _OpsLogTestBase(unittest.IsolatedAsyncioTestCase):
         ] = _current_user
 
         self.client = testclient.TestClient(self.test_app)
+        self.addCleanup(self.client.close)
 
         # Patch ClickHouse:
         #   * query() is the module-level wrapper used for reads; returns
