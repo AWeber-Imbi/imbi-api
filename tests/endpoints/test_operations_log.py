@@ -395,6 +395,7 @@ class PatchOperationLogTests(_OpsLogTestBase):
         self.assertEqual(body['description'], 'Rolled out v2.4.1')
         self.mock_insert.assert_awaited_once()
         # Check that the insert carried a bumped _row_version
+        assert self.mock_insert.await_args is not None
         args, _kwargs = self.mock_insert.await_args
         # args = (table, values, column_names)
         column_names = args[2]
@@ -542,6 +543,7 @@ class DeleteOperationLogTests(_OpsLogTestBase):
         response = self.client.delete('/operations-log/entry-abc')
         self.assertEqual(response.status_code, 204)
         self.mock_insert.assert_awaited_once()
+        assert self.mock_insert.await_args is not None
         args, _kwargs = self.mock_insert.await_args
         column_names = args[2]
         values = args[1][0]
