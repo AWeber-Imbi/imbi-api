@@ -251,3 +251,120 @@ class GetSingleEntryTests(_OpsLogTestBase):
         response = self.client.get('/operations-log/entry-abc')
         self.assertEqual(response.status_code, 403)
         self.mock_query.assert_not_awaited()
+
+
+class ListEntriesTests(_OpsLogTestBase):
+    def _rows(self, count: int) -> list[dict[str, typing.Any]]:
+        base_ts = datetime.datetime(2026, 4, 17, 14, 0, 0, tzinfo=datetime.UTC)
+        return [
+            _sample_row(
+                id=f'entry-{i:03d}',
+                occurred_at=base_ts - datetime.timedelta(minutes=i),
+            )
+            for i in range(count)
+        ]
+
+    def test_list_default_limit(self) -> None:
+        self.mock_query.return_value = self._rows(3)
+        response = self.client.get('/operations-log/')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body), 3)
+        link = response.headers['Link']
+        self.assertIn('rel="first"', link)
+        # Only 3 rows returned, no next page
+        self.assertNotIn('rel="next"', link)
+
+    def test_list_has_next_link_when_more_results(self) -> None:
+        # Endpoint requests limit+1 rows; we return 3 for limit=2.
+        self.mock_query.return_value = self._rows(3)
+        response = self.client.get('/operations-log/?limit=2')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body), 2)  # extra row popped
+        link = response.headers['Link']
+        self.assertIn('rel="first"', link)
+        self.assertIn('rel="next"', link)
+        self.assertIn('cursor=', link)
+
+    def test_list_next_cursor_round_trip(self) -> None:
+        import re
+
+        rows = self._rows(3)
+        self.mock_query.return_value = rows
+        response = self.client.get('/operations-log/?limit=2')
+        link = response.headers['Link']
+        match = re.search(r'<[^>]*cursor=([^&>]+)[^>]*>;\s*rel="next"', link)
+        assert match is not None, link
+        cursor = match.group(1)
+        decoded = operations_log._decode_cursor(cursor)
+        self.assertIsNotNone(decoded)
+        assert decoded is not None
+        ts, entry_id = decoded
+        # Second row in newest-first order is index 1 of the requested 2.
+        self.assertEqual(entry_id, rows[1]['id'])
+        self.assertEqual(ts, rows[1]['occurred_at'])
+
+    def test_list_invalid_cursor(self) -> None:
+        response = self.client.get('/operations-log/?cursor=!!!bad!!!')
+        self.assertEqual(response.status_code, 400)
+
+    def test_list_limit_out_of_range(self) -> None:
+        response = self.client.get('/operations-log/?limit=0')
+        self.assertEqual(response.status_code, 400)
+        response = self.client.get('/operations-log/?limit=501')
+        self.assertEqual(response.status_code, 400)
+
+    def test_list_project_slug_filter(self) -> None:
+        self.mock_query.return_value = self._rows(1)
+        response = self.client.get('/operations-log/?project_slug=imbi-api')
+        self.assertEqual(response.status_code, 200)
+        sent_sql, sent_params = self.mock_query.await_args.args
+        self.assertIn('project_slug = {project_slug:String}', sent_sql)
+        self.assertEqual(sent_params['project_slug'], 'imbi-api')
+
+    def test_list_since_until(self) -> None:
+        self.mock_query.return_value = []
+        since = '2026-04-01T00:00:00Z'
+        until = '2026-05-01T00:00:00Z'
+        response = self.client.get(
+            f'/operations-log/?since={since}&until={until}'
+        )
+        self.assertEqual(response.status_code, 200)
+        sent_sql, sent_params = self.mock_query.await_args.args
+        self.assertIn('occurred_at >= {since:DateTime64(3)}', sent_sql)
+        self.assertIn('occurred_at < {until:DateTime64(3)}', sent_sql)
+        self.assertIn('since', sent_params)
+        self.assertIn('until', sent_params)
+
+    def test_list_invalid_since(self) -> None:
+        response = self.client.get('/operations-log/?since=not-a-date')
+        self.assertEqual(response.status_code, 400)
+
+    def test_list_forbidden_without_permission(self) -> None:
+        non_admin = api_models.User(
+            email='bob@example.com',
+            display_name='Bob',
+            password_hash='$argon2id$hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = api_permissions.AuthContext(
+            user=non_admin,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        async def _current_user() -> api_permissions.AuthContext:
+            return self.auth_context
+
+        self.test_app.dependency_overrides[
+            api_permissions.get_current_user
+        ] = _current_user
+
+        response = self.client.get('/operations-log/')
+        self.assertEqual(response.status_code, 403)
+        self.mock_query.assert_not_awaited()

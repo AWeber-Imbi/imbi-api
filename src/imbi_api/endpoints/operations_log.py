@@ -16,8 +16,11 @@ import base64
 import datetime
 import logging
 import typing
+import urllib.parse
 
 import fastapi
+import fastapi.encoders
+import fastapi.responses
 import nanoid
 import pydantic
 from imbi_common import clickhouse, models
@@ -167,6 +170,139 @@ async def _fetch_current(
     """Fetch the current (non-deleted) row for an entry id."""
     rows = await clickhouse.query(_SINGLE_ENTRY_SQL, {'id': entry_id})
     return rows[0] if rows else None
+
+
+_FILTER_FIELDS: tuple[tuple[str, str], ...] = (
+    ('project_id', 'String'),
+    ('project_slug', 'String'),
+    ('environment_slug', 'String'),
+    ('entry_type', 'String'),
+    ('ticket_slug', 'String'),
+    ('performed_by', 'String'),
+)
+
+
+def _parse_iso(value: str, field_name: str) -> datetime.datetime:
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError as err:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Invalid ISO timestamp for {field_name!r}',
+        ) from err
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.UTC)
+    return parsed.astimezone(datetime.UTC)
+
+
+def _build_link_header(
+    request: fastapi.Request,
+    next_cursor: str | None,
+) -> str:
+    url = request.url
+    base_params = {
+        k: v for k, v in request.query_params.multi_items() if k != 'cursor'
+    }
+
+    def _url_with(params: dict[str, str]) -> str:
+        scheme_host_path = f'{url.scheme}://{url.netloc}{url.path}'
+        if not params:
+            return scheme_host_path
+        return f'{scheme_host_path}?{urllib.parse.urlencode(params)}'
+
+    links = [f'<{_url_with(base_params)}>; rel="first"']
+    if next_cursor is not None:
+        next_params = dict(base_params)
+        next_params['cursor'] = next_cursor
+        links.append(f'<{_url_with(next_params)}>; rel="next"')
+    return ', '.join(links)
+
+
+@operations_log_router.get('/')
+async def list_operation_logs(
+    request: fastapi.Request,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:read'),
+        ),
+    ],
+    limit: int = DEFAULT_LIMIT,
+    cursor: str | None = None,
+    project_id: str | None = None,
+    project_slug: str | None = None,
+    environment_slug: str | None = None,
+    entry_type: str | None = None,
+    ticket_slug: str | None = None,
+    performed_by: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> fastapi.Response:
+    """List operations log entries (newest first, keyset paginated)."""
+    if limit < 1 or limit > MAX_LIMIT:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'limit must be 1..{MAX_LIMIT}',
+        )
+
+    clauses: list[str] = ['is_deleted = 0']
+    params: dict[str, typing.Any] = {}
+
+    filters: dict[str, str | None] = {
+        'project_id': project_id,
+        'project_slug': project_slug,
+        'environment_slug': environment_slug,
+        'entry_type': entry_type,
+        'ticket_slug': ticket_slug,
+        'performed_by': performed_by,
+    }
+    for field, ch_type in _FILTER_FIELDS:
+        value = filters.get(field)
+        if value is not None:
+            clauses.append(f'{field} = {{{field}:{ch_type}}}')
+            params[field] = value
+
+    if since is not None:
+        params['since'] = _parse_iso(since, 'since')
+        clauses.append('occurred_at >= {since:DateTime64(3)}')
+    if until is not None:
+        params['until'] = _parse_iso(until, 'until')
+        clauses.append('occurred_at < {until:DateTime64(3)}')
+
+    if cursor is not None:
+        decoded = _decode_cursor(cursor)
+        if decoded is None:
+            raise fastapi.HTTPException(
+                status_code=400, detail='Invalid cursor'
+            )
+        cursor_ts, cursor_id = decoded
+        params['cursor_ts'] = cursor_ts
+        params['cursor_id'] = cursor_id
+        clauses.append(
+            '(occurred_at, id) < '
+            '({cursor_ts:DateTime64(3)}, {cursor_id:String})'
+        )
+
+    where = ' AND '.join(clauses)
+    sql: str = (
+        'SELECT * FROM operations_log FINAL WHERE '  # noqa: S608
+        + where
+        + f' ORDER BY occurred_at DESC, id DESC LIMIT {limit + 1}'
+    )
+
+    rows = await clickhouse.query(sql, params)
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows.pop()
+        last = rows[-1]
+        next_cursor = _encode_cursor(last['occurred_at'], last['id'])
+
+    body = [_row_to_response(r) for r in rows]
+    response = fastapi.responses.JSONResponse(
+        fastapi.encoders.jsonable_encoder(body)
+    )
+    response.headers['Link'] = _build_link_header(request, next_cursor)
+    return response
 
 
 @operations_log_router.get('/{entry_id}')
