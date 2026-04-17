@@ -42,7 +42,6 @@ READONLY_PATHS: frozenset[str] = frozenset(
         '/occurred_at',
         '/recorded_at',
         '/recorded_by',
-        '/_row_version',
         '/row_version',
         '/is_deleted',
     ]
@@ -155,8 +154,9 @@ async def create_operation_log(
     if entry.performed_by is None:
         entry.performed_by = entry.recorded_by
 
-    await _insert_row(_model_to_row(entry))
-    return _row_to_response(entry.model_dump(mode='json'))
+    row = _model_to_row(entry)
+    await _insert_row(row)
+    return _row_to_response(fastapi.encoders.jsonable_encoder(row))
 
 
 _SINGLE_ENTRY_SQL: typing.Final[str] = (
@@ -173,13 +173,13 @@ async def _fetch_current(
     return rows[0] if rows else None
 
 
-_FILTER_FIELDS: tuple[tuple[str, str], ...] = (
-    ('project_id', 'String'),
-    ('project_slug', 'String'),
-    ('environment_slug', 'String'),
-    ('entry_type', 'String'),
-    ('ticket_slug', 'String'),
-    ('performed_by', 'String'),
+_FILTER_FIELDS: tuple[str, ...] = (
+    'project_id',
+    'project_slug',
+    'environment_slug',
+    'entry_type',
+    'ticket_slug',
+    'performed_by',
 )
 
 
@@ -244,16 +244,16 @@ async def _list_impl(
     clauses: list[str] = ['is_deleted = 0']
     params: dict[str, typing.Any] = {}
 
-    # Forced filters win; merge them first.
-    all_filters: dict[str, str | None] = dict(query_filters or {})
-    for key, value in (forced_filters or {}).items():
-        all_filters[key] = value
+    all_filters: dict[str, str | None] = {
+        **(query_filters or {}),
+        **(forced_filters or {}),
+    }
 
-    for field, ch_type in _FILTER_FIELDS:
-        filter_value = all_filters.get(field)
-        if filter_value is not None:
-            clauses.append(f'{field} = {{{field}:{ch_type}}}')
-            params[field] = filter_value
+    for field in _FILTER_FIELDS:
+        value = all_filters.get(field)
+        if value is not None:
+            clauses.append(f'{field} = {{{field}:String}}')
+            params[field] = value
 
     if since is not None:
         params['since'] = _parse_iso(since, 'since')
@@ -357,7 +357,7 @@ async def list_project_operation_logs(
     until: str | None = None,
 ) -> fastapi.Response:
     """List operations log entries for a specific project."""
-    del org_slug  # only used for URL scoping; not a filter column
+    del org_slug
     return await _list_impl(
         request=request,
         limit=limit,
@@ -413,8 +413,6 @@ async def patch_operation_log(
             detail=f'Operations log entry {entry_id!r} not found',
         )
 
-    # Build patch target dict: rename _row_version -> row_version for
-    # model validation, and drop is_deleted (readonly in API).
     target = dict(current)
     target['row_version'] = target.pop('_row_version')
     target.pop('is_deleted', None)
@@ -430,7 +428,6 @@ async def patch_operation_log(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    # Preserve identity; bump version; keep tombstone false.
     entry.id = entry_id
     entry.occurred_at = current['occurred_at']
     entry.recorded_at = current['recorded_at']
@@ -439,8 +436,9 @@ async def patch_operation_log(
     entry.row_version = int(current['_row_version']) + 1
     entry.is_deleted = False
 
-    await _insert_row(_model_to_row(entry))
-    return _row_to_response(entry.model_dump(mode='json'))
+    row = _model_to_row(entry)
+    await _insert_row(row)
+    return _row_to_response(fastapi.encoders.jsonable_encoder(row))
 
 
 @operations_log_router.delete('/{entry_id}', status_code=204)

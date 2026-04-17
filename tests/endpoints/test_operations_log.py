@@ -102,6 +102,34 @@ class _OpsLogTestBase(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.insert_patcher.stop)
         self.addCleanup(self.query_patcher.stop)
 
+    def _revoke_permissions(self) -> None:
+        """Swap the auth context to a non-admin user with no permissions.
+
+        Admin users bypass ``require_permission``, so tests that exercise
+        403 responses need a regular user.
+        """
+        self.auth_context = api_permissions.AuthContext(
+            user=api_models.User(
+                email='bob@example.com',
+                display_name='Bob',
+                password_hash='$argon2id$hash',
+                is_active=True,
+                is_admin=False,
+                is_service_account=False,
+                created_at=datetime.datetime.now(datetime.UTC),
+            ),
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        async def _current_user() -> api_permissions.AuthContext:
+            return self.auth_context
+
+        self.test_app.dependency_overrides[
+            api_permissions.get_current_user
+        ] = _current_user
+
 
 class CursorCodecTests(unittest.TestCase):
     def test_round_trip(self) -> None:
@@ -173,29 +201,7 @@ class PostOperationLogTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 400)
 
     def test_create_forbidden_without_permission(self) -> None:
-        non_admin = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context = api_permissions.AuthContext(
-            user=non_admin,
-            session_id='test-session',
-            auth_method='jwt',
-            permissions=set(),
-        )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
-
+        self._revoke_permissions()
         response = self.client.post(
             '/operations-log/', json=self._valid_body()
         )
@@ -225,29 +231,7 @@ class GetSingleEntryTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 404)
 
     def test_get_forbidden_without_permission(self) -> None:
-        non_admin = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context = api_permissions.AuthContext(
-            user=non_admin,
-            session_id='test-session',
-            auth_method='jwt',
-            permissions=set(),
-        )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
-
+        self._revoke_permissions()
         response = self.client.get('/operations-log/entry-abc')
         self.assertEqual(response.status_code, 403)
         self.mock_query.assert_not_awaited()
@@ -342,29 +326,7 @@ class ListEntriesTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 400)
 
     def test_list_forbidden_without_permission(self) -> None:
-        non_admin = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context = api_permissions.AuthContext(
-            user=non_admin,
-            session_id='test-session',
-            auth_method='jwt',
-            permissions=set(),
-        )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
-
+        self._revoke_permissions()
         response = self.client.get('/operations-log/')
         self.assertEqual(response.status_code, 403)
         self.mock_query.assert_not_awaited()
@@ -394,10 +356,8 @@ class PatchOperationLogTests(_OpsLogTestBase):
         body = response.json()
         self.assertEqual(body['description'], 'Rolled out v2.4.1')
         self.mock_insert.assert_awaited_once()
-        # Check that the insert carried a bumped _row_version
         assert self.mock_insert.await_args is not None
         args, _kwargs = self.mock_insert.await_args
-        # args = (table, values, column_names)
         column_names = args[2]
         values = args[1][0]
         columns = dict(zip(column_names, values, strict=True))
@@ -463,29 +423,7 @@ class PatchOperationLogTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 404)
 
     def test_patch_forbidden_without_permission(self) -> None:
-        non_admin = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context = api_permissions.AuthContext(
-            user=non_admin,
-            session_id='test-session',
-            auth_method='jwt',
-            permissions=set(),
-        )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
-
+        self._revoke_permissions()
         response = self.client.patch(
             '/operations-log/entry-abc',
             json=[
@@ -521,16 +459,7 @@ class ProjectScopedListTests(_OpsLogTestBase):
         self.assertIn('rel="first"', response.headers['Link'])
 
     def test_project_scoped_forbidden_without_permission(self) -> None:
-        self.auth_context.user = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context.permissions = set()
+        self._revoke_permissions()
         response = self.client.get(
             '/organizations/engineering/projects/proj-xyz/operations-log/'
         )
@@ -569,28 +498,6 @@ class DeleteOperationLogTests(_OpsLogTestBase):
         self.assertEqual(response.status_code, 404)
 
     def test_delete_forbidden_without_permission(self) -> None:
-        non_admin = api_models.User(
-            email='bob@example.com',
-            display_name='Bob',
-            password_hash='$argon2id$hash',
-            is_active=True,
-            is_admin=False,
-            is_service_account=False,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        self.auth_context = api_permissions.AuthContext(
-            user=non_admin,
-            session_id='test-session',
-            auth_method='jwt',
-            permissions=set(),
-        )
-
-        async def _current_user() -> api_permissions.AuthContext:
-            return self.auth_context
-
-        self.test_app.dependency_overrides[
-            api_permissions.get_current_user
-        ] = _current_user
-
+        self._revoke_permissions()
         response = self.client.delete('/operations-log/entry-abc')
         self.assertEqual(response.status_code, 403)
