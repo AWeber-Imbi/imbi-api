@@ -496,3 +496,61 @@ class PatchOperationLogTests(_OpsLogTestBase):
             ],
         )
         self.assertEqual(response.status_code, 403)
+
+
+class DeleteOperationLogTests(_OpsLogTestBase):
+    def test_delete_204(self) -> None:
+        self.mock_query.return_value = [_sample_row()]
+        response = self.client.delete('/operations-log/entry-abc')
+        self.assertEqual(response.status_code, 204)
+        self.mock_insert.assert_awaited_once()
+        args, _kwargs = self.mock_insert.await_args
+        column_names = args[2]
+        values = args[1][0]
+        row = dict(zip(column_names, values, strict=True))
+        self.assertEqual(row['id'], 'entry-abc')
+        self.assertEqual(row['is_deleted'], 1)
+        self.assertEqual(row['_row_version'], 2)
+
+    def test_delete_idempotent_after_tombstone(self) -> None:
+        # First delete: row exists.
+        self.mock_query.return_value = [_sample_row()]
+        first = self.client.delete('/operations-log/entry-abc')
+        self.assertEqual(first.status_code, 204)
+
+        # Second delete: tombstoned rows are invisible due to is_deleted = 0.
+        self.mock_query.return_value = []
+        second = self.client.delete('/operations-log/entry-abc')
+        self.assertEqual(second.status_code, 404)
+
+    def test_delete_not_found(self) -> None:
+        self.mock_query.return_value = []
+        response = self.client.delete('/operations-log/missing')
+        self.assertEqual(response.status_code, 404)
+
+    def test_delete_forbidden_without_permission(self) -> None:
+        non_admin = api_models.User(
+            email='bob@example.com',
+            display_name='Bob',
+            password_hash='$argon2id$hash',
+            is_active=True,
+            is_admin=False,
+            is_service_account=False,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        self.auth_context = api_permissions.AuthContext(
+            user=non_admin,
+            session_id='test-session',
+            auth_method='jwt',
+            permissions=set(),
+        )
+
+        async def _current_user() -> api_permissions.AuthContext:
+            return self.auth_context
+
+        self.test_app.dependency_overrides[
+            api_permissions.get_current_user
+        ] = _current_user
+
+        response = self.client.delete('/operations-log/entry-abc')
+        self.assertEqual(response.status_code, 403)

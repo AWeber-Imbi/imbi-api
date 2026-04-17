@@ -373,3 +373,29 @@ async def patch_operation_log(
 
     await _insert_row(_model_to_row(entry))
     return _row_to_response(entry.model_dump(mode='json'))
+
+
+@operations_log_router.delete('/{entry_id}', status_code=204)
+async def delete_operation_log(
+    entry_id: str,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('operations_log:delete'),
+        ),
+    ],
+) -> fastapi.Response:
+    """Soft-delete an operations log entry (tombstone insert)."""
+    current = await _fetch_current(entry_id)
+    if current is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Operations log entry {entry_id!r} not found',
+        )
+
+    tombstone = dict(current)
+    tombstone['_row_version'] = int(current['_row_version']) + 1
+    tombstone['is_deleted'] = 1
+
+    await _insert_row(tombstone)
+    return fastapi.Response(status_code=204)
