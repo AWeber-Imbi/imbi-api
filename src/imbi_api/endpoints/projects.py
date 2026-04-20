@@ -321,9 +321,13 @@ def _flatten_edge_props(
     projections (collect(node{...}) when OPTIONAL MATCH found nothing).
     """
     raw_pts: list[typing.Any] = project.get('project_types') or []
-    project['project_types'] = [pt for pt in raw_pts if pt]
+    project['project_types'] = [
+        pt for pt in raw_pts if isinstance(pt, dict) and pt
+    ]
     raw_envs: list[typing.Any] = project.get('environments') or []
-    envs: list[dict[str, typing.Any]] = [e for e in raw_envs if e]
+    envs: list[dict[str, typing.Any]] = [
+        e for e in raw_envs if isinstance(e, dict) and e
+    ]
     project['environments'] = envs
     for env in envs:
         raw_edge = env.pop('_edge', None)
