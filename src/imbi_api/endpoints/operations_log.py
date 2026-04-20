@@ -52,6 +52,39 @@ DEFAULT_LIMIT: int = 50
 MAX_LIMIT: int = 500
 
 
+# Mirror of ``OperationLog`` without internal bookkeeping fields
+# (``row_version``, ``is_deleted``). Declared as the ``response_model``
+# so the OpenAPI schema reflects what clients actually receive.
+class OperationLogResponse(pydantic.BaseModel):
+    """Public projection of an OperationLog entry."""
+
+    id: str
+    occurred_at: datetime.datetime
+    recorded_at: datetime.datetime
+    recorded_by: str
+    performed_by: str | None = None
+    completed_at: datetime.datetime | None = None
+    project_id: str
+    project_slug: str
+    environment_slug: str
+    entry_type: typing.Literal[
+        'Configured',
+        'Decommissioned',
+        'Deployed',
+        'Migrated',
+        'Provisioned',
+        'Restarted',
+        'Rolled Back',
+        'Scaled',
+        'Upgraded',
+    ]
+    description: str
+    link: str | None = None
+    notes: str | None = None
+    ticket_slug: str | None = None
+    version: str | None = None
+
+
 def _encode_cursor(occurred_at: datetime.datetime, entry_id: str) -> str:
     """Encode a (timestamp, id) cursor as urlsafe base64."""
     payload = f'{occurred_at.isoformat()}|{entry_id}'.encode()
@@ -78,16 +111,36 @@ def _decode_cursor(
         ts = datetime.datetime.fromisoformat(ts_str)
     except ValueError:
         return None
-    return ts, entry_id
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.UTC)
+    return ts.astimezone(datetime.UTC), entry_id
+
+
+_TIMESTAMP_FIELDS: frozenset[str] = frozenset(
+    {'occurred_at', 'recorded_at', 'completed_at'}
+)
 
 
 def _row_to_response(row: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """Strip internal bookkeeping columns before returning to the client."""
-    return {
-        k: v
-        for k, v in row.items()
-        if k not in {'_row_version', 'row_version', 'is_deleted'}
-    }
+    """Strip internal bookkeeping columns before returning to the client.
+
+    ClickHouse DateTime64 values come back as naive ``datetime`` objects
+    even though they are stored as UTC. Attach ``tzinfo=UTC`` so that the
+    JSON serializer emits an offset (``...Z``/``+00:00``) and clients can
+    parse unambiguously.
+    """
+    out: dict[str, typing.Any] = {}
+    for k, v in row.items():
+        if k in {'_row_version', 'row_version', 'is_deleted'}:
+            continue
+        if (
+            k in _TIMESTAMP_FIELDS
+            and isinstance(v, datetime.datetime)
+            and v.tzinfo is None
+        ):
+            v = v.replace(tzinfo=datetime.UTC)
+        out[k] = v
+    return out
 
 
 def _model_to_row(entry: models.OperationLog) -> dict[str, typing.Any]:
@@ -116,7 +169,11 @@ async def _insert_row(row: dict[str, typing.Any]) -> None:
     )
 
 
-@operations_log_router.post('/', status_code=201)
+@operations_log_router.post(
+    '/',
+    status_code=201,
+    response_model=OperationLogResponse,
+)
 async def create_operation_log(
     data: dict[str, typing.Any],
     auth: typing.Annotated[
@@ -326,7 +383,10 @@ async def _list_impl(
     return response
 
 
-@operations_log_router.get('/')
+@operations_log_router.get(
+    '/',
+    response_model=list[OperationLogResponse],
+)
 async def list_operation_logs(
     request: fastapi.Request,
     auth: typing.Annotated[
@@ -364,7 +424,10 @@ async def list_operation_logs(
     )
 
 
-@operations_log_project_router.get('/')
+@operations_log_project_router.get(
+    '/',
+    response_model=list[OperationLogResponse],
+)
 async def list_project_operation_logs(
     request: fastapi.Request,
     org_slug: str,
@@ -402,7 +465,10 @@ async def list_project_operation_logs(
     )
 
 
-@operations_log_router.get('/{entry_id}')
+@operations_log_router.get(
+    '/{entry_id}',
+    response_model=OperationLogResponse,
+)
 async def get_operation_log(
     entry_id: str,
     auth: typing.Annotated[
@@ -422,7 +488,10 @@ async def get_operation_log(
     return _row_to_response(row)
 
 
-@operations_log_router.patch('/{entry_id}')
+@operations_log_router.patch(
+    '/{entry_id}',
+    response_model=OperationLogResponse,
+)
 async def patch_operation_log(
     entry_id: str,
     operations: list[json_patch.PatchOperation],
