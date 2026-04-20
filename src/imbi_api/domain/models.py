@@ -895,7 +895,7 @@ class WebhookResponse(pydantic.BaseModel):
         )
         rules: list[WebhookRuleResponse] = []
         for r in raw_rules:
-            if r is not None:
+            if r:
                 raw_config: str = r.get('handler_config', '{}')
                 config: dict[str, typing.Any] | list[typing.Any]
                 try:

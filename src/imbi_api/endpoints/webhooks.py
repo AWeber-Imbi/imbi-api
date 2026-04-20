@@ -87,9 +87,10 @@ OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)
 WITH w, tps, impl, r
 ORDER BY r.ordinal
 WITH w, tps, impl,
-     collect(r{{
-            .filter_expression, .handler,
-            .handler_config, .ordinal}})
+     collect(CASE WHEN r IS NOT NULL
+             THEN r{{.filter_expression, .handler,
+                    .handler_config, .ordinal}}
+             END)
         AS all_rules
 RETURN w{{.*}} AS webhook,
        tps{{.*}} AS tps,
@@ -231,9 +232,10 @@ async def list_webhooks(
     WITH w, tps, impl, r
     ORDER BY r.ordinal
     WITH w, tps, impl,
-         collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
+         collect(CASE WHEN r IS NOT NULL
+                 THEN r{{.filter_expression, .handler,
+                        .handler_config, .ordinal}}
+                 END)
             AS all_rules
     RETURN w{{.*}} AS webhook,
            tps{{.*}} AS tps,
@@ -274,9 +276,10 @@ async def get_webhook(
     WITH w, tps, impl, r
     ORDER BY r.ordinal
     WITH w, tps, impl,
-         collect(r{{
-                .filter_expression, .handler,
-                .handler_config, .ordinal}})
+         collect(CASE WHEN r IS NOT NULL
+                 THEN r{{.filter_expression, .handler,
+                        .handler_config, .ordinal}}
+                 END)
             AS all_rules
     RETURN w{{.*}} AS webhook,
            tps{{.*}} AS tps,

@@ -316,8 +316,17 @@ def _flatten_edge_props(
     top-level environment dict so they appear as peer fields.
     Protected environment keys are excluded to prevent
     accidental overwrites.
+
+    Also strips empty dicts that AGE can inject via null map
+    projections (collect(node{...}) when OPTIONAL MATCH found nothing).
     """
-    envs: list[dict[str, typing.Any]] = project.get('environments') or []
+    project['project_types'] = [
+        pt for pt in (project.get('project_types') or []) if pt
+    ]
+    envs: list[dict[str, typing.Any]] = [
+        e for e in (project.get('environments') or []) if e
+    ]
+    project['environments'] = envs
     for env in envs:
         raw_edge = env.pop('_edge', None)
         if raw_edge:
@@ -364,14 +373,18 @@ _RETURN_FRAGMENT: typing.LiteralString = """
     WITH p, o, t
     OPTIONAL MATCH (p)-[:TYPE]->(pt:ProjectType)
           -[:BELONGS_TO]->(o)
-    WITH p, o, t, collect(pt{{.*, organization: o{{.*}}}}) AS pts
+    WITH p, o, t, collect(CASE WHEN pt IS NOT NULL
+                          THEN pt{{.*, organization: o{{.*}}}}
+                          END) AS pts
     OPTIONAL MATCH (p)-[d:DEPLOYED_IN]->(env:Environment)
           -[:BELONGS_TO]->(o)
     WITH p, o, t, pts,
-         collect(env{{.*,
-                     sort_order: coalesce(env.sort_order, 0),
-                     _edge: properties(d),
-                     organization: o{{.*}}}}) AS envs
+         collect(CASE WHEN env IS NOT NULL
+                 THEN env{{.*,
+                          sort_order: coalesce(env.sort_order, 0),
+                          _edge: properties(d),
+                          organization: o{{.*}}}}
+                 END) AS envs
     OPTIONAL MATCH (p)-[:DEPENDS_ON]->(out:Project)
     WITH p, o, t, pts, envs, count(out) AS outbound_count
     OPTIONAL MATCH (p)<-[:DEPENDS_ON]-(in_:Project)
