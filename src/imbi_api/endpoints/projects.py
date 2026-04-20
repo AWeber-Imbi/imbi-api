@@ -320,12 +320,10 @@ def _flatten_edge_props(
     Also strips empty dicts that AGE can inject via null map
     projections (collect(node{...}) when OPTIONAL MATCH found nothing).
     """
-    project['project_types'] = [
-        pt for pt in (project.get('project_types') or []) if pt
-    ]
-    envs: list[dict[str, typing.Any]] = [
-        e for e in (project.get('environments') or []) if e
-    ]
+    raw_pts: list[typing.Any] = project.get('project_types') or []
+    project['project_types'] = [pt for pt in raw_pts if pt]
+    raw_envs: list[typing.Any] = project.get('environments') or []
+    envs: list[dict[str, typing.Any]] = [e for e in raw_envs if e]
     project['environments'] = envs
     for env in envs:
         raw_edge = env.pop('_edge', None)
