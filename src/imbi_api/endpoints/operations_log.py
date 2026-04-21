@@ -52,6 +52,23 @@ DEFAULT_LIMIT: int = 50
 MAX_LIMIT: int = 500
 
 
+# Aggregate counts for the list-endpoint envelope. Computed once for
+# the full filter universe (not paged) so the UI summary tiles stay
+# accurate even when the client only loads a single page.
+class OperationLogMetrics(pydantic.BaseModel):
+    event_count: int
+    deploys: int
+    projects: int
+    environments: int
+    team_members: int
+    deploys_by_environment: dict[str, int]
+
+
+class OperationLogListResponse(pydantic.BaseModel):
+    metrics: OperationLogMetrics | None = None
+    data: list[OperationLogResponse]
+
+
 # Mirror of ``OperationLog`` without internal bookkeeping fields
 # (``row_version``, ``is_deleted``). Declared as the ``response_model``
 # so the OpenAPI schema reflects what clients actually receive.
@@ -304,6 +321,48 @@ def _build_link_header(
     return ', '.join(links)
 
 
+async def _compute_metrics(
+    filter_sql: str, filter_params: dict[str, typing.Any]
+) -> OperationLogMetrics:
+    """Run aggregate queries for the summary tiles.
+
+    `filter_sql` is the WHERE-clause body (without `WHERE`) shared with the
+    list query; `filter_params` supplies its placeholders.
+    """
+    totals_sql: str = (
+        'SELECT '
+        'count() AS event_count, '
+        "countIf(entry_type = 'Deployed') AS deploys, "
+        'uniqExact(project_slug) AS projects, '
+        'uniqExact(environment_slug) AS environments, '
+        'uniqExact(performed_by) AS team_members '
+        'FROM operations_log FINAL WHERE '
+    ) + filter_sql
+    env_sql: str = (
+        'SELECT environment_slug, count() AS c '
+        'FROM operations_log FINAL WHERE '
+        + filter_sql
+        + " AND entry_type = 'Deployed' "
+        'GROUP BY environment_slug'
+    )
+    totals_rows = await clickhouse.query(totals_sql, filter_params)
+    env_rows = await clickhouse.query(env_sql, filter_params)
+    totals = totals_rows[0] if totals_rows else {}
+    deploys_by_env = {
+        str(row['environment_slug']): int(row['c'])
+        for row in env_rows
+        if row.get('environment_slug')
+    }
+    return OperationLogMetrics(
+        event_count=int(totals.get('event_count', 0) or 0),
+        deploys=int(totals.get('deploys', 0) or 0),
+        projects=int(totals.get('projects', 0) or 0),
+        environments=int(totals.get('environments', 0) or 0),
+        team_members=int(totals.get('team_members', 0) or 0),
+        deploys_by_environment=deploys_by_env,
+    )
+
+
 async def _list_impl(
     *,
     request: fastapi.Request,
@@ -347,6 +406,11 @@ async def _list_impl(
         params['until'] = _parse_iso(until, 'until')
         clauses.append('occurred_at < {until:DateTime64(3)}')
 
+    # Pre-cursor clause set is also what feeds the /metrics aggregate so
+    # the summary reflects the full filter universe, not the current page.
+    metrics_clauses = list(clauses)
+    metrics_params = dict(params)
+
     if cursor is not None:
         decoded = _decode_cursor(cursor)
         if decoded is None:
@@ -375,7 +439,20 @@ async def _list_impl(
         last = rows[-1]
         next_cursor = _encode_cursor(last['occurred_at'], last['id'])
 
-    body = [_row_to_response(r) for r in rows]
+    # Only compute metrics on the first page (no cursor) — the client
+    # stores them once and paginates through ``data`` afterward.
+    metrics: OperationLogMetrics | None = None
+    if cursor is None:
+        metrics = await _compute_metrics(
+            ' AND '.join(metrics_clauses), metrics_params
+        )
+
+    body = {
+        'metrics': (
+            metrics.model_dump(mode='json') if metrics is not None else None
+        ),
+        'data': [_row_to_response(r) for r in rows],
+    }
     response = fastapi.responses.JSONResponse(
         fastapi.encoders.jsonable_encoder(body)
     )
@@ -385,7 +462,7 @@ async def _list_impl(
 
 @operations_log_router.get(
     '/',
-    response_model=list[OperationLogResponse],
+    response_model=OperationLogListResponse,
 )
 async def list_operation_logs(
     request: fastapi.Request,
@@ -426,7 +503,7 @@ async def list_operation_logs(
 
 @operations_log_project_router.get(
     '/',
-    response_model=list[OperationLogResponse],
+    response_model=OperationLogListResponse,
 )
 async def list_project_operation_logs(
     request: fastapi.Request,
