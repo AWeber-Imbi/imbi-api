@@ -426,10 +426,11 @@ async def _list_impl(
         )
 
     where = ' AND '.join(clauses)
+    params['row_limit'] = limit + 1
     sql: str = (
         'SELECT * FROM operations_log FINAL WHERE '  # noqa: S608
         + where
-        + f' ORDER BY occurred_at DESC, id DESC LIMIT {limit + 1}'
+        + ' ORDER BY occurred_at DESC, id DESC LIMIT {row_limit:UInt32}'
     )
 
     rows = await clickhouse.query(sql, params)
