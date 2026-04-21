@@ -234,7 +234,7 @@ async def create_operation_log(
 
     row = _model_to_row(entry)
     await _insert_row(row)
-    return _row_to_response(fastapi.encoders.jsonable_encoder(row))
+    return _row_to_response(row)
 
 
 _SINGLE_ENTRY_SQL: typing.Final[str] = (
@@ -615,7 +615,7 @@ async def patch_operation_log(
 
     row = _model_to_row(entry)
     await _insert_row(row)
-    return _row_to_response(fastapi.encoders.jsonable_encoder(row))
+    return _row_to_response(row)
 
 
 @operations_log_router.delete('/{entry_id}', status_code=204)
