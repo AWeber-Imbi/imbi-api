@@ -355,6 +355,29 @@ class PatchReleaseTestCase(_ReleasesTestBase):
         self.assertEqual(body['description'], 'New desc')
         self.assertEqual(len(body['links']), 1)
 
+    def test_patch_title_to_empty_string(self) -> None:
+        """Explicit empty-string patches of ``title`` must persist."""
+        self.mock_db.execute.side_effect = [
+            [{'release': _release_row()}],
+            [{'release': _release_row(title='')}],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.patch(
+                self._url('/1.2.3'),
+                json=[
+                    {'op': 'replace', 'path': '/title', 'value': ''},
+                ],
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['title'], '')
+        # Confirm the SET clause received the empty string, not the old
+        # title — i.e. the fix for truthiness-vs-presence is effective.
+        update_call = self.mock_db.execute.await_args_list[1]
+        self.assertEqual(update_call.args[1]['title'], '')
+
     def test_patch_readonly_version(self) -> None:
         self.mock_db.execute.side_effect = [[{'release': _release_row()}]]
         with mock.patch(

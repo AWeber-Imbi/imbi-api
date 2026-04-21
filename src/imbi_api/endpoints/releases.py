@@ -433,7 +433,10 @@ async def patch_release(
     # ``patched`` is the post-JSON-Patch document — treat it as the
     # source of truth rather than the ``ReleaseUpdate`` view so that
     # explicit nulls (e.g. ``remove`` of ``/description``) survive.
-    merged_title = patched.get('title') or data['title']
+    # Use key presence, not truthiness, so explicit empty strings
+    # (``replace /title ""``) are persisted rather than silently
+    # reverted to the old value.
+    merged_title = patched['title'] if 'title' in patched else data['title']
     merged_description = patched.get('description')
     merged_links_raw = patched.get('links', raw_links)
     serialized_links = _serialize_links(merged_links_raw)
