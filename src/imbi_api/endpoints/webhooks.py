@@ -13,39 +13,9 @@ from imbi_common.auth import encryption
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.domain import models
+from imbi_api.graph_sql import props_template, set_clause
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _props_template(props: dict[str, typing.Any]) -> str:
-    """Build a Cypher property-map template with double-escaped braces.
-
-    Each key becomes ``key: {key}`` inside doubled braces so that
-    ``psycopg.sql.SQL.format()`` resolves them correctly::
-
-        >>> _props_template({'name': 'x', 'slug': 'y'})
-        '{{name: {name}, slug: {slug}}}'
-
-    """
-    if not props:
-        return ''
-    pairs = [f'{k}: {{{k}}}' for k in props]
-    return '{{' + ', '.join(pairs) + '}}'
-
-
-def _set_clause(
-    alias: str,
-    props: dict[str, typing.Any],
-) -> str:
-    """Build a Cypher SET clause from a property dict.
-
-    Returns a string like ``SET w.name = {name}, w.slug = {slug}``.
-
-    """
-    if not props:
-        return ''
-    assignments = ', '.join(f'{alias}.{k} = {{{k}}}' for k in props)
-    return f'SET {assignments}'
 
 
 def _rules_create_clauses(
@@ -130,7 +100,7 @@ async def create_webhook(
             encryptor.encrypt(data.secret) if data.secret is not None else None
         ),
     }
-    create_tpl = _props_template(props)
+    create_tpl = props_template(props)
 
     # Build rule creation params as scalars
     rule_dicts: list[dict[str, str | int]] = []
@@ -357,7 +327,7 @@ async def update_webhook(
         'notification_path': data.notification_path,
         'secret': encrypted_secret,
     }
-    set_clause = _set_clause('w', props)
+    set_stmt = set_clause('w', props)
 
     rule_dicts: list[dict[str, str | int]] = []
     for idx, rule in enumerate(data.rules):
@@ -389,7 +359,7 @@ async def update_webhook(
             ' (w)-[old_impl:IMPLEMENTED_BY]->()'
             ' DELETE old_impl'
             ' WITH DISTINCT w, o, tps'
-            f' {set_clause}'
+            f' {set_stmt}'
             ' CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)'
             ' SET impl.identifier_selector'
             ' = {identifier_selector}'
@@ -417,7 +387,7 @@ async def update_webhook(
             ' (w)-[old_impl:IMPLEMENTED_BY]->()'
             ' DELETE old_impl'
             ' WITH DISTINCT w'
-            f' {set_clause}' + rule_clauses + ' RETURN w.slug AS slug'
+            f' {set_stmt}' + rule_clauses + ' RETURN w.slug AS slug'
         )
         params = {
             'old_slug': slug,
@@ -551,7 +521,7 @@ async def patch_webhook(
         'notification_path': data.notification_path,
         'secret': encrypted_secret,
     }
-    set_clause = _set_clause('w', props)
+    set_stmt = set_clause('w', props)
 
     rule_dicts: list[dict[str, str | int]] = []
     for idx, rule in enumerate(data.rules):
@@ -582,7 +552,7 @@ async def patch_webhook(
             ' (w)-[old_impl:IMPLEMENTED_BY]->()'
             ' DELETE old_impl'
             ' WITH DISTINCT w, o, tps'
-            f' {set_clause}'
+            f' {set_stmt}'
             ' CREATE (w)-[impl:IMPLEMENTED_BY]->(tps)'
             ' SET impl.identifier_selector'
             ' = {identifier_selector}'
@@ -610,7 +580,7 @@ async def patch_webhook(
             ' (w)-[old_impl:IMPLEMENTED_BY]->()'
             ' DELETE old_impl'
             ' WITH DISTINCT w'
-            f' {set_clause}' + rule_clauses + ' RETURN w.slug AS slug'
+            f' {set_stmt}' + rule_clauses + ' RETURN w.slug AS slug'
         )
         params = {
             'old_slug': slug,
