@@ -152,6 +152,9 @@ async def create_link_definition(
     )
     org = graph.parse_agtype(records[0]['o'])
     result['organization'] = org
+    # The projects href is intentionally empty because list_projects does
+    # not yet support a link_definition query filter; only the count is
+    # meaningful here.
     result['relationships'] = build_relationships(
         '',
         {'projects': ('', 0)},
@@ -203,6 +206,8 @@ async def list_link_definitions(
         org = graph.parse_agtype(record['o'])
         ld['organization'] = org
         pc = graph.parse_agtype(record['project_count'])
+        # See note in create_link_definition: projects href is empty
+        # until list_projects supports a link_definition filter.
         ld['relationships'] = build_relationships(
             '',
             {'projects': ('', pc or 0)},
@@ -265,6 +270,8 @@ async def get_link_definition(
     org = graph.parse_agtype(records[0]['o'])
     result['organization'] = org
     pc = graph.parse_agtype(records[0]['project_count'])
+    # See note in create_link_definition: projects href is empty
+    # until list_projects supports a link_definition filter.
     result['relationships'] = build_relationships(
         '',
         {'projects': ('', pc or 0)},
@@ -369,6 +376,8 @@ async def _persist_link_definition(
     org = graph.parse_agtype(updated[0]['o'])
     result['organization'] = org
     pc = graph.parse_agtype(updated[0]['project_count'])
+    # See note in create_link_definition: projects href is empty
+    # until list_projects supports a link_definition filter.
     result['relationships'] = build_relationships(
         '',
         {'projects': ('', pc or 0)},

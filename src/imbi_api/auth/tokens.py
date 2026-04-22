@@ -41,6 +41,12 @@ async def issue_token_pair(
 ) -> tuple[str, str, dict[str, typing.Any]]:
     """Mint an access+refresh pair and persist TokenMetadata nodes.
 
+    Callers (login, refresh, oauth_callback, client_credentials) must
+    verify the principal exists before invoking this helper. The
+    Cypher ``MATCH`` below is a silent no-op if the principal is
+    missing, so a raise-here guard would duplicate existing checks at
+    every call site.
+
     Args:
         db: Graph database connection.
         principal_type: ``'user'`` or ``'service_account'``.

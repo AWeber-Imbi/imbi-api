@@ -15,7 +15,15 @@ LOGGER = logging.getLogger(__name__)
 
 
 def get_rate_limit_key(request: typing.Any) -> str:
-    """Extract rate limit key from request."""
+    """Extract rate limit key from request.
+
+    Uses ``slowapi.util.get_remote_address`` which returns
+    ``request.client.host``. When deploying behind a reverse proxy,
+    ``ProxyHeadersMiddleware`` (configured in ``app.create_app``)
+    rewrites ``client.host`` from the trusted ``X-Forwarded-For``
+    chain before this function runs, so the key reflects the real
+    client rather than the proxy address.
+    """
     return f'ip:{slowapi_util.get_remote_address(request)}'
 
 

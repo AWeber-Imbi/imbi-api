@@ -327,7 +327,13 @@ async def seed_permissions(db: graph.Graph) -> int:
 
 
 async def seed_default_roles(db: graph.Graph) -> int:
-    """Seed default roles and GRANTS edges in a single batched query."""
+    """Seed default roles and GRANTS edges in a single batched query.
+
+    Must run after ``seed_permissions``: the second UNWIND below does a
+    ``MATCH (gp:Permission {{name: grant.perm}})`` that will silently
+    produce no GRANTS edges if any referenced permission is missing.
+    ``bootstrap_auth_system`` enforces this ordering.
+    """
     role_maps: list[str] = []
     grant_maps: list[str] = []
     params: dict[str, typing.Any] = {}
