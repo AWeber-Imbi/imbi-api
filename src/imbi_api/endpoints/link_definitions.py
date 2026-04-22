@@ -21,6 +21,21 @@ link_definitions_router = fastapi.APIRouter(
 )
 
 
+def _projects_relationship(
+    project_count: int,
+) -> dict[str, models.RelationshipLink]:
+    """Build the ``projects`` relationship for a link definition.
+
+    The href is intentionally empty because ``list_projects`` does not
+    yet support a ``link_definition`` query filter; only the count is
+    meaningful today.
+    """
+    return build_relationships(
+        '',
+        {'projects': ('', project_count)},
+    )
+
+
 class LinkDefinitionCreate(pydantic.BaseModel):
     """Request model for creating a link definition."""
 
@@ -152,13 +167,7 @@ async def create_link_definition(
     )
     org = graph.parse_agtype(records[0]['o'])
     result['organization'] = org
-    # The projects href is intentionally empty because list_projects does
-    # not yet support a link_definition query filter; only the count is
-    # meaningful here.
-    result['relationships'] = build_relationships(
-        '',
-        {'projects': ('', 0)},
-    )
+    result['relationships'] = _projects_relationship(0)
     return result
 
 
@@ -206,12 +215,7 @@ async def list_link_definitions(
         org = graph.parse_agtype(record['o'])
         ld['organization'] = org
         pc = graph.parse_agtype(record['project_count'])
-        # See note in create_link_definition: projects href is empty
-        # until list_projects supports a link_definition filter.
-        ld['relationships'] = build_relationships(
-            '',
-            {'projects': ('', pc or 0)},
-        )
+        ld['relationships'] = _projects_relationship(pc or 0)
         results.append(ld)
     return results
 
@@ -270,12 +274,7 @@ async def get_link_definition(
     org = graph.parse_agtype(records[0]['o'])
     result['organization'] = org
     pc = graph.parse_agtype(records[0]['project_count'])
-    # See note in create_link_definition: projects href is empty
-    # until list_projects supports a link_definition filter.
-    result['relationships'] = build_relationships(
-        '',
-        {'projects': ('', pc or 0)},
-    )
+    result['relationships'] = _projects_relationship(pc or 0)
     return result
 
 
@@ -376,12 +375,7 @@ async def _persist_link_definition(
     org = graph.parse_agtype(updated[0]['o'])
     result['organization'] = org
     pc = graph.parse_agtype(updated[0]['project_count'])
-    # See note in create_link_definition: projects href is empty
-    # until list_projects supports a link_definition filter.
-    result['relationships'] = build_relationships(
-        '',
-        {'projects': ('', pc or 0)},
-    )
+    result['relationships'] = _projects_relationship(pc or 0)
     return result
 
 

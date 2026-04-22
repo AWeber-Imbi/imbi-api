@@ -175,8 +175,14 @@ class LoginEndpointTestCase(unittest.TestCase):
         self.mock_db.match.return_value = [self.test_user]
         # merge() for token metadata and last_login update
         self.mock_db.merge.return_value = None
-        # execute() for MFA check (returns empty = no MFA)
-        self.mock_db.execute.return_value = []
+        # execute() is called twice during login: MFA check (no MFA ->
+        # []) and the principal existence check inside issue_token_pair
+        # (returns a row so tokens are issued).
+        self.mock_db.execute.side_effect = [
+            [],
+            [{'p': {'email': self.test_user.email}}],
+            None,
+        ]
 
         response = self.client.post(
             '/auth/login',
@@ -338,8 +344,13 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         ]
         # merge() for revoking old token
         self.mock_db.merge.return_value = None
-        # execute() for storing new token metadata
-        self.mock_db.execute.return_value = []
+        # execute() is called for the principal existence check inside
+        # issue_token_pair (returns a row) and for storing new token
+        # metadata.
+        self.mock_db.execute.side_effect = [
+            [{'p': {'email': self.test_user.email}}],
+            None,
+        ]
 
         with mock.patch(
             'imbi_api.settings.get_auth_settings'

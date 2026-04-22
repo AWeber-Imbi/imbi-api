@@ -388,8 +388,15 @@ class LoginPasswordRehashTestCase(unittest.TestCase):
 
         # db.match returns user
         self.mock_db.match.return_value = [test_user]
-        # db.execute returns empty for TOTP and token
-        self.mock_db.execute.return_value = []
+        # db.execute is called for the MFA/TOTP check (no TOTP -> []),
+        # the principal existence check inside issue_token_pair (must
+        # return a row so tokens are issued), and the token metadata
+        # CREATE.
+        self.mock_db.execute.side_effect = [
+            [],
+            [{'p': {'email': test_user.email}}],
+            None,
+        ]
         # db.merge returns None (void)
         self.mock_db.merge.return_value = None
 
@@ -1276,7 +1283,13 @@ class TokenRefreshTestCase(unittest.TestCase):
             [test_user],
         ]
         self.mock_db.merge.return_value = None
-        self.mock_db.execute.return_value = []
+        # execute() runs the principal existence check inside
+        # issue_token_pair (returns a row) and then the token metadata
+        # CREATE.
+        self.mock_db.execute.side_effect = [
+            [{'p': {'email': test_user.email}}],
+            None,
+        ]
 
         with mock.patch(
             'imbi_api.settings.get_auth_settings',

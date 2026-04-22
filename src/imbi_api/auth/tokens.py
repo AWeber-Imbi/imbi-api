@@ -7,6 +7,7 @@ tokens were just generated locally and the signature is trusted.
 """
 
 import datetime
+import logging
 import typing
 
 import jwt
@@ -15,11 +16,61 @@ from imbi_common.auth import core
 
 from imbi_api import settings
 
+LOGGER = logging.getLogger(__name__)
+
 PrincipalType = typing.Literal['user', 'service_account']
 
-_PRINCIPAL_CYPHER: dict[PrincipalType, tuple[str, str]] = {
-    'user': ('User', 'email'),
-    'service_account': ('ServiceAccount', 'slug'),
+
+class PrincipalNotFoundError(Exception):
+    """Raised when no principal node matches the given id."""
+
+
+_USER_CHECK: typing.LiteralString = (
+    'MATCH (p:User {{email: {principal_id}}}) RETURN p LIMIT 1'
+)
+_SERVICE_ACCOUNT_CHECK: typing.LiteralString = (
+    'MATCH (p:ServiceAccount {{slug: {principal_id}}}) RETURN p LIMIT 1'
+)
+_USER_CREATE: typing.LiteralString = (
+    'MATCH (p:User {{email: {principal_id}}}) '
+    'CREATE (at:TokenMetadata {{'
+    'jti: {access_jti}, '
+    "token_type: 'access', "
+    'issued_at: {issued_at}, '
+    'expires_at: {access_exp}, '
+    'revoked: false'
+    '}})-[:ISSUED_TO]->(p) '
+    'CREATE (rt:TokenMetadata {{'
+    'jti: {refresh_jti}, '
+    "token_type: 'refresh', "
+    'issued_at: {issued_at}, '
+    'expires_at: {refresh_exp}, '
+    'revoked: false'
+    '}})-[:ISSUED_TO]->(p)'
+)
+_SERVICE_ACCOUNT_CREATE: typing.LiteralString = (
+    'MATCH (p:ServiceAccount {{slug: {principal_id}}}) '
+    'CREATE (at:TokenMetadata {{'
+    'jti: {access_jti}, '
+    "token_type: 'access', "
+    'issued_at: {issued_at}, '
+    'expires_at: {access_exp}, '
+    'revoked: false'
+    '}})-[:ISSUED_TO]->(p) '
+    'CREATE (rt:TokenMetadata {{'
+    'jti: {refresh_jti}, '
+    "token_type: 'refresh', "
+    'issued_at: {issued_at}, '
+    'expires_at: {refresh_exp}, '
+    'revoked: false'
+    '}})-[:ISSUED_TO]->(p)'
+)
+
+_PRINCIPAL_QUERIES: dict[
+    PrincipalType, tuple[typing.LiteralString, typing.LiteralString]
+] = {
+    'user': (_USER_CHECK, _USER_CREATE),
+    'service_account': (_SERVICE_ACCOUNT_CHECK, _SERVICE_ACCOUNT_CREATE),
 }
 
 
@@ -41,12 +92,6 @@ async def issue_token_pair(
 ) -> tuple[str, str, dict[str, typing.Any]]:
     """Mint an access+refresh pair and persist TokenMetadata nodes.
 
-    Callers (login, refresh, oauth_callback, client_credentials) must
-    verify the principal exists before invoking this helper. The
-    Cypher ``MATCH`` below is a silent no-op if the principal is
-    missing, so a raise-here guard would duplicate existing checks at
-    every call site.
-
     Args:
         db: Graph database connection.
         principal_type: ``'user'`` or ``'service_account'``.
@@ -59,7 +104,29 @@ async def issue_token_pair(
         contains ``access_jti``, ``refresh_jti``, ``issued_at``,
         ``access_expires_at``, and ``refresh_expires_at``.
 
+    Raises:
+        PrincipalNotFoundError: No principal matched ``principal_id``.
+            Raised before any JWT is signed so tokens are never issued
+            without a corresponding ``TokenMetadata``/``ISSUED_TO`` row.
+
     """
+    check_query, create_query = _PRINCIPAL_QUERIES[principal_type]
+
+    existing = await db.execute(
+        check_query,
+        {'principal_id': principal_id},
+        columns=['p'],
+    )
+    if not existing:
+        LOGGER.warning(
+            'issue_token_pair: no %s matching %r',
+            principal_type,
+            principal_id,
+        )
+        raise PrincipalNotFoundError(
+            f'No {principal_type} found for {principal_id!r}'
+        )
+
     access_token = core.create_access_token(
         principal_id,
         extra_claims=extra_claims,
@@ -82,26 +149,8 @@ async def issue_token_pair(
         seconds=auth_settings.refresh_token_expire_seconds
     )
 
-    label, match_prop = _PRINCIPAL_CYPHER[principal_type]
-    query = (
-        f'MATCH (p:{label} {{{{{match_prop}: {{principal_id}}}}}}) '
-        'CREATE (at:TokenMetadata {{'
-        'jti: {access_jti}, '
-        "token_type: 'access', "
-        'issued_at: {issued_at}, '
-        'expires_at: {access_exp}, '
-        'revoked: false'
-        '}})-[:ISSUED_TO]->(p) '
-        'CREATE (rt:TokenMetadata {{'
-        'jti: {refresh_jti}, '
-        "token_type: 'refresh', "
-        'issued_at: {issued_at}, '
-        'expires_at: {refresh_exp}, '
-        'revoked: false'
-        '}})-[:ISSUED_TO]->(p)'
-    )
     await db.execute(
-        query,
+        create_query,
         {
             'principal_id': principal_id,
             'access_jti': access_claims['jti'],
