@@ -176,12 +176,11 @@ class LoginEndpointTestCase(unittest.TestCase):
         # merge() for token metadata and last_login update
         self.mock_db.merge.return_value = None
         # execute() is called twice during login: MFA check (no MFA ->
-        # []) and the principal existence check inside issue_token_pair
-        # (returns a row so tokens are issued).
+        # []) and the atomic MATCH/CREATE inside issue_token_pair that
+        # both persists token metadata and returns principal_count.
         self.mock_db.execute.side_effect = [
             [],
-            [{'p': {'email': self.test_user.email}}],
-            None,
+            [{'principal_count': 1}],
         ]
 
         response = self.client.post(
@@ -344,12 +343,11 @@ class TokenRefreshEndpointTestCase(unittest.TestCase):
         ]
         # merge() for revoking old token
         self.mock_db.merge.return_value = None
-        # execute() is called for the principal existence check inside
-        # issue_token_pair (returns a row) and for storing new token
-        # metadata.
-        self.mock_db.execute.side_effect = [
-            [{'p': {'email': self.test_user.email}}],
-            None,
+        # execute() runs the atomic MATCH/CREATE inside
+        # issue_token_pair that persists token metadata and returns
+        # principal_count.
+        self.mock_db.execute.return_value = [
+            {'principal_count': 1},
         ]
 
         with mock.patch(

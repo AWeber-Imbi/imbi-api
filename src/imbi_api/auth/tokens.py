@@ -25,12 +25,6 @@ class PrincipalNotFoundError(Exception):
     """Raised when no principal node matches the given id."""
 
 
-_USER_CHECK: typing.LiteralString = (
-    'MATCH (p:User {{email: {principal_id}}}) RETURN p LIMIT 1'
-)
-_SERVICE_ACCOUNT_CHECK: typing.LiteralString = (
-    'MATCH (p:ServiceAccount {{slug: {principal_id}}}) RETURN p LIMIT 1'
-)
 _USER_CREATE: typing.LiteralString = (
     'MATCH (p:User {{email: {principal_id}}}) '
     'CREATE (at:TokenMetadata {{'
@@ -46,7 +40,8 @@ _USER_CREATE: typing.LiteralString = (
     'issued_at: {issued_at}, '
     'expires_at: {refresh_exp}, '
     'revoked: false'
-    '}})-[:ISSUED_TO]->(p)'
+    '}})-[:ISSUED_TO]->(p) '
+    'RETURN count(p) AS principal_count'
 )
 _SERVICE_ACCOUNT_CREATE: typing.LiteralString = (
     'MATCH (p:ServiceAccount {{slug: {principal_id}}}) '
@@ -63,14 +58,13 @@ _SERVICE_ACCOUNT_CREATE: typing.LiteralString = (
     'issued_at: {issued_at}, '
     'expires_at: {refresh_exp}, '
     'revoked: false'
-    '}})-[:ISSUED_TO]->(p)'
+    '}})-[:ISSUED_TO]->(p) '
+    'RETURN count(p) AS principal_count'
 )
 
-_PRINCIPAL_QUERIES: dict[
-    PrincipalType, tuple[typing.LiteralString, typing.LiteralString]
-] = {
-    'user': (_USER_CHECK, _USER_CREATE),
-    'service_account': (_SERVICE_ACCOUNT_CHECK, _SERVICE_ACCOUNT_CREATE),
+_PRINCIPAL_QUERIES: dict[PrincipalType, typing.LiteralString] = {
+    'user': _USER_CREATE,
+    'service_account': _SERVICE_ACCOUNT_CREATE,
 }
 
 
@@ -92,6 +86,14 @@ async def issue_token_pair(
 ) -> tuple[str, str, dict[str, typing.Any]]:
     """Mint an access+refresh pair and persist TokenMetadata nodes.
 
+    The MATCH/CREATE runs in a single Cypher statement and returns
+    the number of principals matched. Zero matches means no
+    ``TokenMetadata``/``ISSUED_TO`` row was written, so the
+    freshly-signed tokens are discarded by raising
+    ``PrincipalNotFoundError``. This keeps the check atomic with the
+    write (avoiding the TOCTOU gap of a separate existence query)
+    and fails closed if a principal is removed mid-flight.
+
     Args:
         db: Graph database connection.
         principal_type: ``'user'`` or ``'service_account'``.
@@ -106,26 +108,10 @@ async def issue_token_pair(
 
     Raises:
         PrincipalNotFoundError: No principal matched ``principal_id``.
-            Raised before any JWT is signed so tokens are never issued
-            without a corresponding ``TokenMetadata``/``ISSUED_TO`` row.
+            No JWT is returned when this is raised.
 
     """
-    check_query, create_query = _PRINCIPAL_QUERIES[principal_type]
-
-    existing = await db.execute(
-        check_query,
-        {'principal_id': principal_id},
-        columns=['p'],
-    )
-    if not existing:
-        LOGGER.warning(
-            'issue_token_pair: no %s matching %r',
-            principal_type,
-            principal_id,
-        )
-        raise PrincipalNotFoundError(
-            f'No {principal_type} found for {principal_id!r}'
-        )
+    create_query = _PRINCIPAL_QUERIES[principal_type]
 
     access_token = core.create_access_token(
         principal_id,
@@ -149,7 +135,7 @@ async def issue_token_pair(
         seconds=auth_settings.refresh_token_expire_seconds
     )
 
-    await db.execute(
+    records = await db.execute(
         create_query,
         {
             'principal_id': principal_id,
@@ -159,7 +145,23 @@ async def issue_token_pair(
             'access_exp': access_expires_at.isoformat(),
             'refresh_exp': refresh_expires_at.isoformat(),
         },
+        columns=['principal_count'],
     )
+    matched = 0
+    if records:
+        raw = graph.parse_agtype(records[0].get('principal_count'))
+        matched = int(raw or 0)
+    if matched == 0:
+        # Never log or raise with the raw principal id: for users it is
+        # a full email address (PII) and for service accounts it may
+        # appear in logs that are aggregated with less privileged
+        # audiences. The generic message below is enough for callers to
+        # convert into a 401; detailed principal context is already
+        # available in the caller's own logs.
+        LOGGER.warning(
+            'issue_token_pair: no %s principal matched', principal_type
+        )
+        raise PrincipalNotFoundError(f'No {principal_type} found')
 
     return (
         access_token,
