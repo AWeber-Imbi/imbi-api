@@ -72,6 +72,38 @@ RETURN w{{.*}} AS webhook,
 """
 
 
+_UPDATE_RETURN_TAIL_WITH_TPS: typing.LiteralString = (
+    ' WITH w, tps, impl'
+    ' OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)'
+    ' WITH w, tps, impl, r ORDER BY r.ordinal'
+    ' WITH w, tps, impl,'
+    ' collect(CASE WHEN r IS NOT NULL'
+    ' THEN r{{.filter_expression, .handler,'
+    ' .handler_config, .ordinal}} END) AS all_rules'
+    ' RETURN w{{.*}} AS webhook, tps{{.*}} AS tps,'
+    ' impl.identifier_selector AS identifier_selector,'
+    ' [x IN all_rules'
+    ' | x {{.filter_expression, .handler,'
+    ' .handler_config}}] AS rules'
+)
+
+
+_UPDATE_RETURN_TAIL_NO_TPS: typing.LiteralString = (
+    ' WITH w'
+    ' OPTIONAL MATCH (r:WebhookRule)-[:ACTIONS]->(w)'
+    ' WITH w, r ORDER BY r.ordinal'
+    ' WITH w,'
+    ' collect(CASE WHEN r IS NOT NULL'
+    ' THEN r{{.filter_expression, .handler,'
+    ' .handler_config, .ordinal}} END) AS all_rules'
+    ' RETURN w{{.*}} AS webhook, null AS tps,'
+    ' null AS identifier_selector,'
+    ' [x IN all_rules'
+    ' | x {{.filter_expression, .handler,'
+    ' .handler_config}}] AS rules'
+)
+
+
 webhooks_router = fastapi.APIRouter(tags=['Webhooks'])
 
 
@@ -287,37 +319,7 @@ async def update_webhook(
     ],
 ) -> models.WebhookResponse:
     """Update a webhook (full replacement including rules)."""
-    # Verify exists
-    check_query: typing.LiteralString = """
-    MATCH (w:Webhook {{slug: {slug}}})
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    RETURN w{{.*}} AS webhook
-    """
-    existing = await db.execute(
-        check_query,
-        {'slug': slug, 'org_slug': org_slug},
-        ['webhook'],
-    )
-
-    if not existing:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=f'Webhook with slug {slug!r} not found',
-        )
-
     encryptor = encryption.TokenEncryption.get_instance()
-
-    # Distinguish omitted secret (preserve existing) from explicit
-    # null (clear) or a new value (encrypt and store).
-    existing_webhook = graph.parse_agtype(
-        existing[0]['webhook'],
-    )
-    if 'secret' not in data.model_fields_set:
-        encrypted_secret = existing_webhook.get('secret')
-    elif data.secret is None:
-        encrypted_secret = None
-    else:
-        encrypted_secret = encryptor.encrypt(data.secret)
 
     props: dict[str, typing.Any] = {
         'name': data.name,
@@ -325,8 +327,11 @@ async def update_webhook(
         'description': data.description,
         'icon': data.icon,
         'notification_path': data.notification_path,
-        'secret': encrypted_secret,
     }
+    if 'secret' in data.model_fields_set:
+        props['secret'] = (
+            None if data.secret is None else encryptor.encrypt(data.secret)
+        )
     set_stmt = set_clause('w', props)
 
     rule_dicts: list[dict[str, str | int]] = []
@@ -364,7 +369,7 @@ async def update_webhook(
             ' SET impl.identifier_selector'
             ' = {identifier_selector}'
             + rule_clauses
-            + ' RETURN w.slug AS slug'
+            + _UPDATE_RETURN_TAIL_WITH_TPS
         )
         params: dict[str, typing.Any] = {
             'old_slug': slug,
@@ -387,7 +392,7 @@ async def update_webhook(
             ' (w)-[old_impl:IMPLEMENTED_BY]->()'
             ' DELETE old_impl'
             ' WITH DISTINCT w'
-            f' {set_stmt}' + rule_clauses + ' RETURN w.slug AS slug'
+            f' {set_stmt}' + rule_clauses + _UPDATE_RETURN_TAIL_NO_TPS
         )
         params = {
             'old_slug': slug,
@@ -397,10 +402,10 @@ async def update_webhook(
         }
 
     try:
-        write_records = await db.execute(
+        records = await db.execute(
             write_query,
             params,
-            ['slug'],
+            ['webhook', 'tps', 'identifier_selector', 'rules'],
         )
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
@@ -412,17 +417,12 @@ async def update_webhook(
             ),
         ) from e
 
-    if not write_records:
+    if not records:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Webhook with slug {slug!r} not found',
         )
 
-    records = await db.execute(
-        _FETCH_WEBHOOK_QUERY,
-        {'slug': data.slug, 'org_slug': org_slug},
-        ['webhook', 'tps', 'identifier_selector', 'rules'],
-    )
     return models.WebhookResponse.from_graph_record(records[0])
 
 

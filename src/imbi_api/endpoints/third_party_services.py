@@ -322,26 +322,6 @@ async def update_third_party_service(
         409: Slug conflict
 
     """
-    # Fetch existing to validate it exists
-    fetch_query: typing.LiteralString = """
-    MATCH (s:ThirdPartyService {{slug: {slug}}})
-          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
-    OPTIONAL MATCH (s)-[:MANAGED_BY]->(t:Team)
-    RETURN s{{.*, organization: o{{.*}}, team: t{{.*}}}}
-        AS service
-    """
-    records = await db.execute(
-        fetch_query,
-        {'slug': slug, 'org_slug': org_slug},
-        ['service'],
-    )
-
-    if not records:
-        raise fastapi.HTTPException(
-            status_code=404,
-            detail=(f'Third-party service with slug {slug!r} not found'),
-        )
-
     return await _execute_service_update(slug, org_slug, data, db)
 
 
