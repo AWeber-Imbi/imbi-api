@@ -58,10 +58,23 @@ class AuthContext(pydantic.BaseModel):
         return self.user
 
 
+PrincipalLabel = typing.Literal['User', 'ServiceAccount']
+PrincipalMatchProp = typing.Literal['email', 'slug']
+
+_ALLOWED_PRINCIPAL_SELECTORS: frozenset[
+    tuple[PrincipalLabel, PrincipalMatchProp]
+] = frozenset(
+    {
+        ('User', 'email'),
+        ('ServiceAccount', 'slug'),
+    }
+)
+
+
 async def load_principal_permissions(
     db: graph.Graph,
-    label: str,
-    match_prop: str,
+    label: PrincipalLabel,
+    match_prop: PrincipalMatchProp,
     value: str,
 ) -> set[str]:
     """Get permission names granted to a principal (user or SA).
@@ -80,7 +93,17 @@ async def load_principal_permissions(
 
     Returns:
         Set of permission names (for example, ``'blueprint:read'``).
+
+    Raises:
+        ValueError: If ``(label, match_prop)`` is not an allowed
+            principal selector. ``label`` and ``match_prop`` are
+            interpolated into the Cypher template, so this guard
+            prevents Cypher injection via future non-constant inputs.
     """
+    if (label, match_prop) not in _ALLOWED_PRINCIPAL_SELECTORS:
+        raise ValueError(
+            f'Unsupported principal selector: ({label!r}, {match_prop!r})'
+        )
     query = (
         f'MATCH (p:{label} {{{{{match_prop}: {{value}}}}}})'
         '-[m:MEMBER_OF]->(o:Organization) '
