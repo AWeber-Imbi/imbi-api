@@ -1327,17 +1327,16 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        # Inspect the UPDATE execute call params
+        # Non-secret PATCH must not touch secret columns.
         update_call = self.mock_db.execute.call_args_list[-1]
         params = update_call.args[1]
-        self.assertEqual(
-            params['client_secret'],
-            self.app_data['client_secret'],
-        )
-        self.assertEqual(
-            params['webhook_secret'],
-            self.app_data['webhook_secret'],
-        )
+        for field in (
+            'client_secret',
+            'webhook_secret',
+            'private_key',
+            'signing_secret',
+        ):
+            self.assertNotIn(field, params)
 
     def test_patch_application_not_found(self) -> None:
         self.mock_db.execute.return_value = []
@@ -1394,6 +1393,22 @@ class ServiceApplicationEndpointsTestCase(unittest.TestCase):
                         'value': 'not-a-status',
                     },
                 ],
+            )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_application_rejects_unknown_path(self) -> None:
+        """Unknown JSON Patch paths are rejected, not silently dropped."""
+        self.mock_db.execute.return_value = [{'app': self.app_data}]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.patch(
+                '/organizations/engineering'
+                '/third-party-services/stripe'
+                '/applications/my-app',
+                json=[{'op': 'add', 'path': '/bogus', 'value': 'x'}],
             )
 
         self.assertEqual(response.status_code, 400)

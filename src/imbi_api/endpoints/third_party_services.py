@@ -790,7 +790,7 @@ class _ServiceApplicationPatchFields(pydantic.BaseModel):
     )
     status: typing.Literal['active', 'inactive', 'revoked'] = 'active'
 
-    model_config = pydantic.ConfigDict(extra='ignore')
+    model_config = pydantic.ConfigDict(extra='forbid')
 
 
 @third_party_services_router.patch(
@@ -834,9 +834,6 @@ async def patch_service_application(
 
     """
     existing = await _fetch_application(db, org_slug, slug, app_slug)
-    preserved_secrets = {
-        field: existing.get(field) for field in models.SECRET_FIELDS
-    }
 
     patchable = {
         k: v for k, v in existing.items() if k not in models.SECRET_FIELDS
@@ -854,8 +851,6 @@ async def patch_service_application(
         ) from e
 
     props = validated.model_dump(mode='json')
-    for field in models.SECRET_FIELDS:
-        props[field] = preserved_secrets.get(field)
 
     graph_props = _serialize_json_fields(props, _APP_JSON_FIELDS)
     app_set = set_clause('a', graph_props)
