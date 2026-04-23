@@ -950,6 +950,11 @@ class CreateProjectRelationshipTestCase(_RelationshipsTestBase):
 
         self.assertEqual(first.status_code, 204)
         self.assertEqual(second.status_code, 204)
+        self.assertEqual(self.mock_db.execute.call_count, 2)
+        for call in self.mock_db.execute.call_args_list:
+            query = call.args[0]
+            self.assertIn('MERGE', query)
+            self.assertIn('DEPENDS_ON', query)
 
     def test_source_not_found(self) -> None:
         """Returns 404 when source project is missing."""
