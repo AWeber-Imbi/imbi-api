@@ -503,7 +503,7 @@ async def refresh_token(
     # the second gets ``revoked_count = 0`` and a clean 401 instead
     # of AGE raising ``Entity failed to be updated: 3`` on the
     # concurrently-updated vertex.
-    revoke_query = (
+    revoke_query: typing.LiteralString = (
         'MATCH (n:TokenMetadata {{jti: {jti}}}) '
         "WHERE n.revoked = false AND n.token_type = 'refresh' "
         'SET n.revoked = true, n.revoked_at = {revoked_at} '
