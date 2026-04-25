@@ -491,6 +491,28 @@ class NoteUpdate(pydantic.BaseModel):
     is_pinned: bool | None = None
 
 
+def _resolve_patched_field(
+    field: str,
+    touched: set[str],
+    new_value: typing.Any,
+    fallback: typing.Any,
+) -> typing.Any:
+    """Return the resolved value for a non-nullable field after a JSON Patch.
+
+    If the patch touched ``field`` and ``new_value`` is ``None`` (an explicit
+    ``null``), raise 400 — silent no-ops would make the response disagree with
+    the patch document. Otherwise return ``new_value`` when touched, else
+    ``fallback``.
+    """
+    if field in touched:
+        if new_value is None:
+            raise fastapi.HTTPException(
+                status_code=400, detail=f'{field} cannot be null'
+            )
+        return new_value
+    return fallback
+
+
 @notes_project_router.patch('/{note_id}', response_model=NoteResponse)
 async def patch_note(
     org_slug: str,
@@ -535,21 +557,18 @@ async def patch_note(
             detail=f'Validation error: {e.errors()}',
         ) from e
 
-    new_title = (
-        update.title
-        if update.title is not None
-        else str(existing.get('title') or '')
+    # Use ``touched`` (not ``is not None``) so that explicit ``null`` values
+    # in the patch document are rejected rather than silently treated as
+    # "field omitted". ``apply_patch()`` preserves explicit nulls, so the
+    # PATCH result must agree with the patch document.
+    new_title = _resolve_patched_field(
+        'title', touched, update.title, str(existing.get('title') or '')
     )
-    new_content = (
-        update.content if update.content is not None else existing['content']
+    new_content = _resolve_patched_field(
+        'content', touched, update.content, existing['content']
     )
-    # Replace tag edges only when an op actually targeted ``/tags``. The
-    # patched dict always carries a ``tags`` key from ``current``, so
-    # ``update.tags is not None`` alone can't distinguish "left alone" from
-    # "set to []".
-    replace_tags = any(
-        op.path == '/tags' or op.path.startswith('/tags/') for op in operations
-    )
+    # Replace tag edges only when an op actually targeted ``/tags``.
+    replace_tags = 'tags' in touched
     new_tags: list[str] = (
         list(dict.fromkeys(update.tags or []))
         if replace_tags
@@ -557,10 +576,11 @@ async def patch_note(
     )
     if replace_tags:
         await _validate_tag_slugs(db, org_slug, new_tags)
-    new_is_pinned = (
-        update.is_pinned
-        if update.is_pinned is not None
-        else bool(existing.get('is_pinned', False))
+    new_is_pinned = _resolve_patched_field(
+        'is_pinned',
+        touched,
+        update.is_pinned,
+        bool(existing.get('is_pinned', False)),
     )
 
     now = datetime.datetime.now(datetime.UTC)

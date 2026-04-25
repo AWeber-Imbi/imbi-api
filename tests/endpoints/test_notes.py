@@ -442,6 +442,60 @@ class NoteEndpointsTestCase(unittest.TestCase):
         write_call = self.mock_db.execute.await_args_list[1]
         self.assertTrue(write_call.args[1]['is_pinned'])
 
+    def test_patch_title_null_rejected(self) -> None:
+        """Explicit ``replace /title -> null`` must 400, not silently no-op."""
+        self.mock_db.execute.return_value = [
+            {
+                'n': self._note_data(),
+                'p': self._project(),
+                'tags': [],
+            }
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/projects/proj-abc/notes/note-1',
+                json=[{'op': 'replace', 'path': '/title', 'value': None}],
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_is_pinned_null_rejected(self) -> None:
+        """Explicit ``replace /is_pinned -> null`` must 400."""
+        self.mock_db.execute.return_value = [
+            {
+                'n': self._note_data(),
+                'p': self._project(),
+                'tags': [],
+            }
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/projects/proj-abc/notes/note-1',
+                json=[{'op': 'replace', 'path': '/is_pinned', 'value': None}],
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_content_null_rejected(self) -> None:
+        """Explicit ``replace /content -> null`` must 400."""
+        self.mock_db.execute.return_value = [
+            {
+                'n': self._note_data(),
+                'p': self._project(),
+                'tags': [],
+            }
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/projects/proj-abc/notes/note-1',
+                json=[{'op': 'replace', 'path': '/content', 'value': None}],
+            )
+        self.assertEqual(response.status_code, 400)
+
     def test_patch_readonly_path_rejected(self) -> None:
         self.mock_db.execute.return_value = [
             {
