@@ -11,7 +11,6 @@ import logging
 import typing
 
 import fastapi
-import psycopg.errors
 import pydantic
 from imbi_common import graph
 
@@ -238,6 +237,23 @@ async def create_note_template(
     tag_slugs = list(dict.fromkeys(data.tags))
     await _validate_tag_slugs(db, org_slug, tag_slugs)
 
+    # Slugs are unique per-org, not globally — enforce in app code.
+    duplicate_query: typing.LiteralString = """
+    MATCH (nt:NoteTemplate {{slug: {slug}}})
+          -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
+    RETURN nt.slug AS slug
+    """
+    existing = await db.execute(
+        duplicate_query,
+        {'slug': data.slug, 'org_slug': org_slug},
+        columns=['slug'],
+    )
+    if existing:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=f'Note template with slug {data.slug!r} already exists',
+        )
+
     now = datetime.datetime.now(datetime.UTC)
     props: dict[str, typing.Any] = {
         'id': data.slug,
@@ -260,13 +276,7 @@ async def create_note_template(
         f' RETURN nt, o'
     )
     params = {**props, 'org_slug': org_slug}
-    try:
-        records = await db.execute(query, params, columns=['nt', 'o'])
-    except psycopg.errors.UniqueViolation as e:
-        raise fastapi.HTTPException(
-            status_code=409,
-            detail=(f'Note template with slug {data.slug!r} already exists'),
-        ) from e
+    records = await db.execute(query, params, columns=['nt', 'o'])
 
     if not records:
         raise fastapi.HTTPException(
@@ -369,6 +379,26 @@ async def _persist_update(
     if 'icon' in props and props['icon'] is not None:
         props['icon'] = str(props['icon'])
 
+    new_slug = props.get('slug', original_slug)
+    if new_slug != original_slug:
+        duplicate_query: typing.LiteralString = """
+        MATCH (nt:NoteTemplate {{slug: {slug}}})
+              -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
+        RETURN nt.slug AS slug
+        """
+        existing = await db.execute(
+            duplicate_query,
+            {'slug': new_slug, 'org_slug': org_slug},
+            columns=['slug'],
+        )
+        if existing:
+            raise fastapi.HTTPException(
+                status_code=409,
+                detail=(
+                    f'Note template with slug {new_slug!r} already exists'
+                ),
+            )
+
     set_stmt = set_clause('nt', props)
     update_query = (
         f'MATCH (nt:NoteTemplate {{{{slug: {{slug}}}}}})'
@@ -378,16 +408,7 @@ async def _persist_update(
         f' RETURN nt.slug AS slug'
     )
     params = {**props, 'slug': original_slug, 'org_slug': org_slug}
-    try:
-        records = await db.execute(update_query, params, columns=['slug'])
-    except psycopg.errors.UniqueViolation as e:
-        raise fastapi.HTTPException(
-            status_code=409,
-            detail=(
-                f'Note template with slug'
-                f' {props.get("slug", original_slug)!r} already exists'
-            ),
-        ) from e
+    records = await db.execute(update_query, params, columns=['slug'])
 
     if not records:
         raise fastapi.HTTPException(

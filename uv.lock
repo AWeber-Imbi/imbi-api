@@ -944,7 +944,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fnote-templates#9790faf95d825b9c7729ce8724bc7117f827d61d" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fnote-templates#22d06913e8e837d50da068ab2e129c25c4ee0db4" }
 dependencies = [
     { name = "cryptography" },
     { name = "jsonschema-models" },

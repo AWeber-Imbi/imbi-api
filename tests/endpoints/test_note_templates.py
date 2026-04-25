@@ -5,7 +5,6 @@ import typing
 import unittest
 from unittest import mock
 
-import psycopg.errors
 from fastapi.testclient import TestClient
 from imbi_common import graph
 
@@ -79,8 +78,9 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
     # -- Create --------------------------------------------------------
 
     def test_create_success_no_tags(self) -> None:
-        # No tags -> validate skipped, then create + fetch
+        # No tags -> dup check (empty), create, fetch
         self.mock_db.execute.side_effect = [
+            [],
             [
                 {
                     'nt': self._template_row()['nt'],
@@ -108,7 +108,7 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
         self.assertEqual(body['tags'], [])
 
     def test_create_with_tags(self) -> None:
-        # Calls: validate_tags, create, attach_tags, fetch
+        # Calls: validate_tags, dup check, create, attach_tags, fetch
         fetch_with_tags = {
             'nt': self._template_row()['nt'],
             'o': self._template_row()['o'],
@@ -122,6 +122,7 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
                 {'tag_slug': 'adr', 'found': True},
                 {'tag_slug': 'architecture', 'found': True},
             ],
+            [],
             [
                 {
                     'nt': self._template_row()['nt'],
@@ -180,7 +181,8 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_create_slug_conflict(self) -> None:
-        self.mock_db.execute.side_effect = psycopg.errors.UniqueViolation()
+        # No tags -> first execute is the per-org duplicate check.
+        self.mock_db.execute.return_value = [{'slug': 'adr'}]
         with mock.patch(
             'imbi_common.graph.parse_agtype', side_effect=lambda x: x
         ):
@@ -337,9 +339,10 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_update_slug_conflict(self) -> None:
+        # fetch existing, then per-org dup check returns conflict
         self.mock_db.execute.side_effect = [
             [self._template_row()],
-            psycopg.errors.UniqueViolation(),
+            [{'slug': 'taken'}],
         ]
         with mock.patch(
             'imbi_common.graph.parse_agtype', side_effect=lambda x: x
