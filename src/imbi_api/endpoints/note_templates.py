@@ -321,7 +321,11 @@ async def list_note_templates(
     results: list[dict[str, typing.Any]] = []
     for record in records:
         template = _parse_template_row(record)
-        slugs = template.get('project_type_slugs') or []
+        raw_slugs = typing.cast(
+            list[typing.Any] | None,
+            template.get('project_type_slugs'),
+        )
+        slugs: list[str] = [str(s) for s in (raw_slugs or [])]
         if project_type is not None and slugs and project_type not in slugs:
             continue
         results.append(template)
