@@ -50,7 +50,7 @@ class NoteTemplateBase(pydantic.BaseModel):
     title: str | None = None
     content: str = ''
     tags: list[str] = pydantic.Field(
-        default_factory=list,
+        default=[],
         description='Tag slugs to attach. Must already exist in the org.',
     )
     project_type_slugs: list[str] = []
