@@ -162,12 +162,15 @@ async def _attach_tags(
 ) -> None:
     if not tag_slugs:
         return
+    # MERGE keeps this idempotent — defensive against any future caller
+    # that doesn't first run ``_detach_all_tags``. The TAGGED_WITH edge
+    # carries no properties, so no AGE MERGE-with-properties pitfall.
     query: typing.LiteralString = """
     MATCH (nt:NoteTemplate {{slug: {tpl_slug}}})
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}}),
           (t:Tag)-[:BELONGS_TO]->(o)
     WHERE t.slug IN {tag_slugs}
-    CREATE (nt)-[:TAGGED_WITH]->(t)
+    MERGE (nt)-[:TAGGED_WITH]->(t)
     RETURN count(t) AS attached
     """
     await db.execute(
