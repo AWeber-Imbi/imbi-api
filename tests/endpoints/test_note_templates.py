@@ -204,9 +204,7 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
         self.mock_db.execute.return_value = [
             self._template_row(),
             {
-                'nt': self._template_row(
-                    name='Runbook', slug='runbook'
-                )['nt'],
+                'nt': self._template_row(name='Runbook', slug='runbook')['nt'],
                 'o': self._template_row()['o'],
                 'tags': [],
             },
