@@ -376,6 +376,35 @@ class NoteTemplateEndpointsTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
 
+    def test_patch_invalid_type_rejected(self) -> None:
+        # apply_patch is type-blind — re-validation must catch this
+        self.mock_db.execute.return_value = [self._template_row()]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/note-templates/adr',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/sort_order',
+                        'value': 'oops',
+                    }
+                ],
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_empty_name_rejected(self) -> None:
+        self.mock_db.execute.return_value = [self._template_row()]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/note-templates/adr',
+                json=[{'op': 'replace', 'path': '/name', 'value': ''}],
+            )
+        self.assertEqual(response.status_code, 400)
+
     def test_patch_template_not_found(self) -> None:
         self.mock_db.execute.return_value = []
         response = self.client.patch(

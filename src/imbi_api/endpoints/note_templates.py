@@ -520,6 +520,15 @@ async def patch_note_template(
     patched = json_patch.apply_patch(
         current, operations, _TEMPLATE_READONLY_PATHS
     )
+    # Re-validate against the schema — apply_patch is type-blind, so a
+    # patch like ``/sort_order = 'oops'`` would otherwise reach the DB.
+    try:
+        patched = NoteTemplateBase.model_validate(patched).model_dump()
+    except pydantic.ValidationError as e:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Validation error: {e.errors()}',
+        ) from e
 
     tag_slugs: list[str] | None = None
     touched: set[str] = set()
