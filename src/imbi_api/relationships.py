@@ -1,16 +1,6 @@
 """Utilities for building hypermedia-style relationship links."""
 
-import functools
-
 from imbi_common.models import RelationshipLink
-
-from imbi_api import settings
-
-
-@functools.cache
-def api_prefix() -> str:
-    """Configured API path prefix (e.g. '/api', or '' when unset)."""
-    return settings.ServerConfig().api_prefix
 
 
 def relationship_link(href: str, count: int) -> RelationshipLink:
@@ -22,7 +12,11 @@ def build_relationships(
     base_url: str,
     links: dict[str, tuple[str, int]],
 ) -> dict[str, RelationshipLink]:
-    """Build a relationships dict from name -> (path_suffix, count)."""
+    """Build a relationships dict from name -> (path_suffix, count).
+
+    `base_url` is typically computed via `request.url_path_for(...)` so
+    the configured API prefix is included automatically.
+    """
     return {
         name: RelationshipLink(href=f'{base_url}{suffix}', count=count)
         for name, (suffix, count) in links.items()

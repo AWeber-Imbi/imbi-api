@@ -4,7 +4,7 @@ import unittest.mock
 
 import fastapi
 
-from imbi_api import app, relationships, version
+from imbi_api import app, settings, version
 
 
 class CreateAppTestCase(unittest.TestCase):
@@ -42,12 +42,6 @@ class CreateAppTestCase(unittest.TestCase):
 class ApiPrefixTestCase(unittest.TestCase):
     """Test cases for the IMBI_API_API_PREFIX configuration."""
 
-    def setUp(self) -> None:
-        relationships.api_prefix.cache_clear()
-
-    def tearDown(self) -> None:
-        relationships.api_prefix.cache_clear()
-
     def test_prefix_applies_to_routes_but_not_uploads_or_docs(self) -> None:
         with unittest.mock.patch.dict(
             os.environ, {'IMBI_API_API_PREFIX': '/api'}
@@ -72,4 +66,4 @@ class ApiPrefixTestCase(unittest.TestCase):
         with unittest.mock.patch.dict(
             os.environ, {'IMBI_API_API_PREFIX': 'api/'}
         ):
-            self.assertEqual(relationships.api_prefix(), '/api')
+            self.assertEqual(settings.ServerConfig().api_prefix, '/api')

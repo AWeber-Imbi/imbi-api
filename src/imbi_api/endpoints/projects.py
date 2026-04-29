@@ -18,7 +18,7 @@ from imbi_common import blueprints, graph, models
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.graph_sql import escape_prop, props_template, set_clause
-from imbi_api.relationships import api_prefix, build_relationships
+from imbi_api.relationships import build_relationships
 
 LOGGER = logging.getLogger(__name__)
 
@@ -345,6 +345,7 @@ _RETURN_FRAGMENT: typing.LiteralString = """
 async def create_project(
     org_slug: str,
     data: ProjectCreate,
+    request: fastapi.Request,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -514,6 +515,7 @@ async def create_project(
     _attach_project_relationships(
         project_data,
         org_slug,
+        request,
         graph.parse_agtype(records[0]['outbound_count']),
         graph.parse_agtype(records[0]['inbound_count']),
     )
@@ -523,6 +525,7 @@ async def create_project(
 def _attach_project_relationships(
     project: dict[str, typing.Any],
     org_slug: str,
+    request: fastapi.Request,
     outbound_count: int = 0,
     inbound_count: int = 0,
 ) -> None:
@@ -530,32 +533,40 @@ def _attach_project_relationships(
     project_id = project.get('id') or ''
     team = project.get('team', {})
     team_slug = team.get('slug', '') if team else ''
-    prefix = api_prefix()
-    base = f'{prefix}/organizations/{org_slug}/projects/{project_id}'
+    project_url = request.app.url_path_for(
+        'get_project', org_slug=org_slug, project_id=project_id
+    )
+    team_url = (
+        request.app.url_path_for('get_team', org_slug=org_slug, slug=team_slug)
+        if team_slug
+        else ''
+    )
     rels: dict[str, typing.Any] = dict(
         build_relationships(
             '',
             {
-                'team': (
-                    f'{prefix}/organizations/{org_slug}/teams/{team_slug}',
-                    1 if team_slug else 0,
-                ),
+                'team': (team_url, 1 if team_slug else 0),
                 'environments': (
-                    f'{base}/environments',
+                    f'{project_url}/environments',
                     len(project.get('environments') or []),
                 ),
             },
         )
     )
-    rels['href'] = f'{base}/relationships'
+    rels['href'] = request.app.url_path_for(
+        'get_project_relationships',
+        org_slug=org_slug,
+        project_id=project_id,
+    )
     rels['outbound_count'] = outbound_count
     rels['inbound_count'] = inbound_count
     project['relationships'] = rels
 
 
-@projects_router.get('/')
+@projects_router.get('/', name='list_projects')
 async def list_projects(
     org_slug: str,
+    request: fastapi.Request,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -598,6 +609,7 @@ async def list_projects(
         _attach_project_relationships(
             project_data,
             org_slug,
+            request,
             graph.parse_agtype(record['outbound_count']),
             graph.parse_agtype(record['inbound_count']),
         )
@@ -754,10 +766,11 @@ async def get_project_schema(
     return ProjectSchemaResponse(sections=sections)
 
 
-@projects_router.get('/{project_id}')
+@projects_router.get('/{project_id}', name='get_project')
 async def get_project(
     org_slug: str,
     project_id: str,
+    request: fastapi.Request,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -795,6 +808,7 @@ async def get_project(
     _attach_project_relationships(
         project_data,
         org_slug,
+        request,
         graph.parse_agtype(records[0]['outbound_count']),
         graph.parse_agtype(records[0]['inbound_count']),
     )
@@ -893,7 +907,9 @@ _PROJECT_EXISTS_QUERY: typing.LiteralString = """
 """
 
 
-@projects_router.get('/{project_id}/relationships')
+@projects_router.get(
+    '/{project_id}/relationships', name='get_project_relationships'
+)
 async def list_project_relationships(
     org_slug: str,
     project_id: str,
@@ -1164,6 +1180,7 @@ async def _execute_project_update(
     existing_p: dict[str, typing.Any],
     existing_team: str,
     existing_types: list[str],
+    request: fastapi.Request,
     db: graph.Pool,
 ) -> ProjectResponse:
     """Execute the shared update logic for the PATCH handler.
@@ -1342,6 +1359,7 @@ async def _execute_project_update(
     _attach_project_relationships(
         updated_data,
         org_slug,
+        request,
         graph.parse_agtype(updated[0]['outbound_count']),
         graph.parse_agtype(updated[0]['inbound_count']),
     )
@@ -1353,6 +1371,7 @@ async def patch_project(
     org_slug: str,
     project_id: str,
     operations: list[json_patch.PatchOperation],
+    request: fastapi.Request,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -1473,6 +1492,7 @@ async def patch_project(
         project_data,
         current_team_slug,
         current_type_slugs,
+        request,
         db,
     )
 
