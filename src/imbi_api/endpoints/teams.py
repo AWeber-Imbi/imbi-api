@@ -12,7 +12,7 @@ from imbi_common import blueprints, graph, models
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.graph_sql import props_template, set_clause
-from imbi_api.relationships import build_relationships
+from imbi_api.relationships import api_prefix, build_relationships
 
 LOGGER = logging.getLogger(__name__)
 
@@ -109,11 +109,11 @@ async def create_team(
     team_props['organization'] = org_props
     slug = team_props['slug']
     team_props['relationships'] = build_relationships(
-        '',
+        api_prefix(),
         {
-            'projects': (f'/api/projects?team={slug}', 0),
+            'projects': (f'/projects?team={slug}', 0),
             'members': (
-                f'/api/organizations/{org_slug}/teams/{slug}/members',
+                f'/organizations/{org_slug}/teams/{slug}/members',
                 0,
             ),
         },
@@ -163,11 +163,11 @@ async def list_teams(
         mc = graph.parse_agtype(record['member_count'])
         slug = team['slug']
         team['relationships'] = build_relationships(
-            '',
+            api_prefix(),
             {
-                'projects': (f'/api/projects?team={slug}', pc or 0),
+                'projects': (f'/projects?team={slug}', pc or 0),
                 'members': (
-                    f'/api/organizations/{org_slug}/teams/{slug}/members',
+                    f'/organizations/{org_slug}/teams/{slug}/members',
                     mc or 0,
                 ),
             },
@@ -226,11 +226,11 @@ async def get_team(
     pc = graph.parse_agtype(records[0]['project_count'])
     mc = graph.parse_agtype(records[0]['member_count'])
     team['relationships'] = build_relationships(
-        '',
+        api_prefix(),
         {
-            'projects': (f'/api/projects?team={slug}', pc or 0),
+            'projects': (f'/projects?team={slug}', pc or 0),
             'members': (
-                f'/api/organizations/{org_slug}/teams/{slug}/members',
+                f'/organizations/{org_slug}/teams/{slug}/members',
                 mc or 0,
             ),
         },
@@ -330,11 +330,11 @@ async def _persist_team(
     mc = graph.parse_agtype(updated[0]['member_count'])
     slug = team_data['slug']
     team_data['relationships'] = build_relationships(
-        '',
+        api_prefix(),
         {
-            'projects': (f'/api/projects?team={slug}', pc or 0),
+            'projects': (f'/projects?team={slug}', pc or 0),
             'members': (
-                f'/api/organizations/{org_slug}/teams/{slug}/members',
+                f'/organizations/{org_slug}/teams/{slug}/members',
                 mc or 0,
             ),
         },

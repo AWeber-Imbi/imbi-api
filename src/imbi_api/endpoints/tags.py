@@ -19,7 +19,7 @@ from imbi_common import graph, models
 
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
-from imbi_api.relationships import build_relationships
+from imbi_api.relationships import api_prefix, build_relationships
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _tag_relationships(
     note_count: int,
 ) -> dict[str, models.RelationshipLink]:
     return build_relationships(
-        f'/api/organizations/{org_slug}/tags/{tag_slug}',
+        f'{api_prefix()}/organizations/{org_slug}/tags/{tag_slug}',
         {'notes': ('/notes', note_count)},
     )
 

@@ -12,7 +12,7 @@ from imbi_common import blueprints, graph, models
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.graph_sql import props_template, set_clause
-from imbi_api.relationships import build_relationships
+from imbi_api.relationships import api_prefix, build_relationships
 
 LOGGER = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ async def create_project_type(
         '',
         {
             'projects': (
-                f'/api/projects?project-type={pt_props["slug"]}',
+                f'{api_prefix()}/projects?project-type={pt_props["slug"]}',
                 0,
             ),
         },
@@ -168,7 +168,7 @@ async def list_project_types(
             '',
             {
                 'projects': (
-                    f'/api/projects?project-type={pt["slug"]}',
+                    f'{api_prefix()}/projects?project-type={pt["slug"]}',
                     pc or 0,
                 ),
             },
@@ -229,7 +229,7 @@ async def get_project_type(
         '',
         {
             'projects': (
-                f'/api/projects?project-type={pt["slug"]}',
+                f'{api_prefix()}/projects?project-type={pt["slug"]}',
                 pc or 0,
             ),
         },
@@ -335,7 +335,7 @@ async def _persist_project_type(
         '',
         {
             'projects': (
-                f'/api/projects?project-type={pt["slug"]}',
+                f'{api_prefix()}/projects?project-type={pt["slug"]}',
                 pc or 0,
             ),
         },

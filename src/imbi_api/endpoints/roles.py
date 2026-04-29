@@ -12,7 +12,7 @@ from imbi_common import graph
 from imbi_api import models
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
-from imbi_api.relationships import relationship_link
+from imbi_api.relationships import api_prefix, relationship_link
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,13 +25,14 @@ def _build_relationships(
     user_count: int = 0,
 ) -> dict[str, models.RelationshipLink]:
     """Build relationships dict for a role."""
+    prefix = api_prefix()
     return {
         'permissions': relationship_link(
-            f'/api/roles/{slug}/permissions',
+            f'{prefix}/roles/{slug}/permissions',
             permission_count,
         ),
         'users': relationship_link(
-            f'/api/roles/{slug}/users',
+            f'{prefix}/roles/{slug}/users',
             user_count,
         ),
     }

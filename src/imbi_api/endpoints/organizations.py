@@ -11,7 +11,7 @@ from imbi_common import graph, models
 
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
-from imbi_api.relationships import build_relationships
+from imbi_api.relationships import api_prefix, build_relationships
 
 from .environments import environments_router
 from .link_definitions import link_definitions_router
@@ -126,7 +126,7 @@ async def create_organization(
     result = created.model_dump()
     slug = result['slug']
     result['relationships'] = build_relationships(
-        f'/api/organizations/{slug}',
+        f'{api_prefix()}/organizations/{slug}',
         {
             'teams': ('/teams', 0),
             'members': ('/members', 0),
@@ -177,7 +177,7 @@ async def list_organizations(
         project_count = graph.parse_agtype(record['project_count'])
         slug = org_data['slug']
         org_data['relationships'] = build_relationships(
-            f'/api/organizations/{slug}',
+            f'{api_prefix()}/organizations/{slug}',
             {
                 'teams': ('/teams', team_count),
                 'members': ('/members', member_count),
@@ -237,7 +237,7 @@ async def get_organization(
     org_data: dict[str, typing.Any] = graph.parse_agtype(records[0]['o'])
     slug = org_data['slug']
     org_data['relationships'] = build_relationships(
-        f'/api/organizations/{slug}',
+        f'{api_prefix()}/organizations/{slug}',
         {
             'teams': (
                 '/teams',
@@ -326,7 +326,7 @@ async def _persist_organization(
     counts = count_records[0] if count_records else {}
     org_dict = org.model_dump()
     org_dict['relationships'] = build_relationships(
-        f'/api/organizations/{org.slug}',
+        f'{api_prefix()}/organizations/{org.slug}',
         {
             'teams': (
                 '/teams',

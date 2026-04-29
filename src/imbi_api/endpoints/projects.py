@@ -18,7 +18,7 @@ from imbi_common import blueprints, graph, models
 from imbi_api import patch as json_patch
 from imbi_api.auth import permissions
 from imbi_api.graph_sql import escape_prop, props_template, set_clause
-from imbi_api.relationships import build_relationships
+from imbi_api.relationships import api_prefix, build_relationships
 
 LOGGER = logging.getLogger(__name__)
 
@@ -530,13 +530,14 @@ def _attach_project_relationships(
     project_id = project.get('id') or ''
     team = project.get('team', {})
     team_slug = team.get('slug', '') if team else ''
-    base = f'/api/organizations/{org_slug}/projects/{project_id}'
+    prefix = api_prefix()
+    base = f'{prefix}/organizations/{org_slug}/projects/{project_id}'
     rels: dict[str, typing.Any] = dict(
         build_relationships(
             '',
             {
                 'team': (
-                    f'/api/organizations/{org_slug}/teams/{team_slug}',
+                    f'{prefix}/organizations/{org_slug}/teams/{team_slug}',
                     1 if team_slug else 0,
                 ),
                 'environments': (

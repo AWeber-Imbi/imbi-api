@@ -1,6 +1,16 @@
 """Utilities for building hypermedia-style relationship links."""
 
+import functools
+
 from imbi_common.models import RelationshipLink
+
+from imbi_api import settings
+
+
+@functools.cache
+def api_prefix() -> str:
+    """Configured API path prefix (e.g. '/api', or '' when unset)."""
+    return settings.ServerConfig().api_prefix
 
 
 def relationship_link(href: str, count: int) -> RelationshipLink:
