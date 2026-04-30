@@ -799,9 +799,11 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 datetime.UTC,
             ).isoformat(),
         }
-        # execute(): user fetch, then the atomic MATCH/CREATE inside
-        # issue_token_pair that returns principal_count.
+        # execute(): SET tokens on the existing identity, user fetch,
+        # then the atomic MATCH/CREATE inside issue_token_pair that
+        # returns principal_count.
         self.mock_db.execute.side_effect = [
+            [],
             [{'u': user_data}],
             [{'principal_count': 1}],
         ]
