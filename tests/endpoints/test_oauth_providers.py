@@ -180,10 +180,21 @@ class AdminOAuthProvidersEndpointTestCase(unittest.TestCase):
         response = client.get('/admin/oauth-providers')
         self.assertEqual(response.status_code, 403)
 
-    def test_list_empty(self) -> None:
+    def test_list_empty_returns_blanks_for_all_known_types(self) -> None:
         response = self.client.get('/admin/oauth-providers')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        body = response.json()
+        slugs = [row['slug'] for row in body]
+        self.assertEqual(sorted(slugs), ['github', 'google', 'oidc'])
+        for row in body:
+            self.assertFalse(row['configured'])
+            self.assertFalse(row['enabled'])
+            self.assertFalse(row['has_secret'])
+            self.assertTrue(
+                row['callback_url'].endswith(
+                    f'/auth/oauth/{row["slug"]}/callback'
+                )
+            )
 
     def test_put_creates_provider_and_redacts_secret(self) -> None:
         with _patch_encryptor():

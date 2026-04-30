@@ -9,6 +9,7 @@ import fastapi
 import pydantic
 from imbi_common import graph
 
+from imbi_api import settings
 from imbi_api.auth import permissions
 from imbi_api.auth import providers as oauth_providers
 from imbi_api.domain import models
@@ -23,6 +24,19 @@ oauth_providers_router = fastapi.APIRouter(
 
 _ProviderType = typing.Literal['google', 'github', 'oidc']
 
+_KNOWN_TYPES: tuple[_ProviderType, ...] = ('google', 'github', 'oidc')
+
+_TYPE_DEFAULTS: dict[_ProviderType, tuple[str, str]] = {
+    'google': ('Google', 'si-google'),
+    'github': ('GitHub', 'si-github'),
+    'oidc': ('OIDC', 'key-round'),
+}
+
+
+def _callback_url_for(slug: str) -> str:
+    base = settings.get_auth_settings().oauth_callback_base_url.rstrip('/')
+    return f'{base}/auth/oauth/{slug}/callback'
+
 
 class OAuthProviderRead(pydantic.BaseModel):
     """Read-only response model for OAuth providers.
@@ -35,10 +49,12 @@ class OAuthProviderRead(pydantic.BaseModel):
     type: _ProviderType
     name: str
     enabled: bool
+    configured: bool
+    callback_url: str
     client_id: str | None = None
     issuer_url: str | None = None
     allowed_domains: list[str] = []
-    icon: str = 'key'
+    icon: str = 'key-round'
     has_secret: bool = False
 
     @classmethod
@@ -48,11 +64,26 @@ class OAuthProviderRead(pydantic.BaseModel):
             type=provider.type,
             name=provider.name,
             enabled=provider.enabled,
+            configured=True,
+            callback_url=_callback_url_for(provider.slug),
             client_id=provider.client_id,
             issuer_url=provider.issuer_url,
             allowed_domains=list(provider.allowed_domains),
             icon=provider.icon,
             has_secret=bool(provider.client_secret_encrypted),
+        )
+
+    @classmethod
+    def blank(cls, slug: _ProviderType) -> OAuthProviderRead:
+        name, icon = _TYPE_DEFAULTS[slug]
+        return cls(
+            slug=slug,
+            type=slug,
+            name=name,
+            enabled=False,
+            configured=False,
+            callback_url=_callback_url_for(slug),
+            icon=icon,
         )
 
 
@@ -85,9 +116,21 @@ async def list_oauth_providers(
         ),
     ],
 ) -> list[OAuthProviderRead]:
-    """List every configured OAuth provider."""
+    """List every supported OAuth provider type.
+
+    Always returns one row per known type, synthesizing a blank
+    placeholder (``configured=False``) for any type that has not been
+    persisted yet so the admin UI can render a uniform card grid and
+    surface the redirect URL even before the provider is saved.
+    """
     rows = await oauth_providers.list_providers(db)
-    return [OAuthProviderRead.from_model(r) for r in rows]
+    by_slug = {r.slug: r for r in rows}
+    return [
+        OAuthProviderRead.from_model(by_slug[slug])
+        if slug in by_slug
+        else OAuthProviderRead.blank(slug)
+        for slug in _KNOWN_TYPES
+    ]
 
 
 @oauth_providers_router.get('/{slug}', response_model=OAuthProviderRead)
