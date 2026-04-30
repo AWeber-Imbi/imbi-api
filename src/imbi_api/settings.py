@@ -125,9 +125,6 @@ class Auth(settings.Auth):  # type: ignore[misc]
     )
     oauth_auto_create_users: bool = True
 
-    # Local password authentication
-    local_auth_enabled: bool = True
-
 
 class Email(pydantic_settings.BaseSettings):
     """Email sending configuration."""

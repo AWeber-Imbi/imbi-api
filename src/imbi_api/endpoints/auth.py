@@ -15,8 +15,8 @@ from imbi_common import graph
 from imbi_common.auth import core, encryption
 
 from imbi_api import models, settings
+from imbi_api.auth import local_auth, oauth, permissions, tokens
 from imbi_api.auth import models as auth_models
-from imbi_api.auth import oauth, permissions, tokens
 from imbi_api.auth import password as password_auth
 from imbi_api.auth import providers as oauth_providers
 from imbi_api.middleware import rate_limit
@@ -41,11 +41,11 @@ async def get_auth_providers(
         AuthProvidersResponse: List of providers with configuration
 
     """
-    auth_settings = settings.get_auth_settings()
     providers: list[auth_models.AuthProvider] = []
 
-    # Local password authentication is a deployment setting.
-    if auth_settings.local_auth_enabled:
+    # Local password authentication is a database-stored toggle.
+    local_config = await local_auth.get_config(db)
+    if local_config.enabled:
         providers.append(
             auth_models.AuthProvider(
                 id='local',

@@ -9,6 +9,7 @@ from fastapi import testclient
 from imbi_common import graph
 
 from imbi_api import app, settings
+from imbi_api.auth import local_auth
 from imbi_api.auth import models as auth_models
 from imbi_api.auth import providers as oauth_providers
 from imbi_api.domain import models as domain_models
@@ -80,11 +81,15 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         self.client = testclient.TestClient(self.test_app)
         oauth_providers._provider_cache.clear()
         oauth_providers._list_cache.clear()
+        local_auth._invalidate_cache()
+        # Default: no LocalAuthConfig row -> enabled by default
+        self.mock_db.match.return_value = []
 
     def tearDown(self) -> None:
         settings._auth_settings = None
         oauth_providers._provider_cache.clear()
         oauth_providers._list_cache.clear()
+        local_auth._invalidate_cache()
 
     def test_get_providers_default_config(self) -> None:
         with _patch_providers([]):
@@ -145,12 +150,11 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
             {'local', 'google', 'github', 'oidc'},
         )
 
-    @mock.patch.dict(
-        'os.environ',
-        {'IMBI_AUTH_LOCAL_AUTH_ENABLED': 'false'},
-    )
     def test_get_providers_local_auth_disabled(self) -> None:
-        settings._auth_settings = None
+        # DB returns a disabled LocalAuthConfig row
+        self.mock_db.match.return_value = [
+            domain_models.LocalAuthConfig(enabled=False),
+        ]
         with _patch_providers([]):
             response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)

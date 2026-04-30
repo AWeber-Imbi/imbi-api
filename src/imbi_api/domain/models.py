@@ -23,6 +23,7 @@ __all__ = [
     'EmptyRelationship',
     'ExistsInCreate',
     'ExistsInResponse',
+    'LocalAuthConfig',
     'MembershipProperties',
     'OAuth2TokenResponse',
     'OAuthIdentity',
@@ -158,6 +159,20 @@ class OAuthIdentity(models.GraphModel):
             if refresh_token is None:
                 raise ValueError('Failed to decrypt OAuth refresh token')
         return (access_token, refresh_token)
+
+
+class LocalAuthConfig(models.GraphModel):
+    """Singleton config row for local password authentication.
+
+    A single row keyed by the literal ``'global'`` controls whether
+    email/password sign-in is offered alongside OAuth providers.
+    """
+
+    key: typing.Literal['global'] = 'global'
+    enabled: bool = True
+    updated_at: datetime.datetime = pydantic.Field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
 
 
 class OAuthProvider(models.GraphModel):
