@@ -860,9 +860,19 @@ def _ensure_login_write_allowed(
     auth: permissions.AuthContext,
     existing_usage: str | None,
     touched_fields: collections.abc.Iterable[str],
+    new_usage: str | None = None,
 ) -> None:
-    """Require ``auth_providers:write`` for credential edits on login rows."""
-    if existing_usage not in ('login', 'both'):
+    """Require ``auth_providers:write`` for credential edits on login rows.
+
+    Gates the request when the row is *currently* a login provider OR when
+    this request would *make it one* (preventing a single PATCH from both
+    promoting ``integration`` -> ``login`` and rotating credentials in a
+    way that escapes the auth-providers permission boundary).
+    """
+    if existing_usage not in ('login', 'both') and new_usage not in (
+        'login',
+        'both',
+    ):
         return
     if not any(f in _LOGIN_GATED_FIELDS for f in touched_fields):
         return
@@ -976,7 +986,12 @@ async def patch_service_application(
     touched: list[str] = [
         op.path.lstrip('/').split('/')[0] for op in operations
     ]
-    _ensure_login_write_allowed(auth, existing.get('usage'), touched)
+    _ensure_login_write_allowed(
+        auth,
+        existing.get('usage'),
+        touched,
+        new_usage=validated.usage,
+    )
 
     props = validated.model_dump(mode='json')
 

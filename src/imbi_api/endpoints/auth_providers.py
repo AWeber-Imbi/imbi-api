@@ -265,6 +265,27 @@ async def create_auth_provider(
         _FETCH_BY_SLUG, {'slug': data.slug}, ['app', 'service', 'organization']
     )
     if existing_records:
+        # Reject collisions whose parent service/org doesn't match the
+        # request: silently rewriting another service's provider would
+        # both mis-attribute the response and let one tenant clobber
+        # another's OAuth credentials.
+        existing_svc = graph.parse_agtype(existing_records[0].get('service'))
+        existing_org = graph.parse_agtype(
+            existing_records[0].get('organization')
+        )
+        existing_svc_slug = (existing_svc or {}).get('slug')
+        existing_org_slug = (existing_org or {}).get('slug')
+        if (
+            existing_svc_slug != data.third_party_service_slug
+            or existing_org_slug != data.org_slug
+        ):
+            raise fastapi.HTTPException(
+                status_code=409,
+                detail=(
+                    f'Auth provider {data.slug!r} already exists under '
+                    f'{existing_org_slug!r}/{existing_svc_slug!r}'
+                ),
+            )
         update_props = {
             'name': data.name,
             'description': data.description,

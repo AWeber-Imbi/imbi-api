@@ -486,3 +486,36 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
                 '/admin/auth-providers/google/demote-to-login'
             )
         self.assertEqual(response.status_code, 409)
+
+    def test_create_collision_under_different_service_returns_409(
+        self,
+    ) -> None:
+        # Existing row's parent svc/org differs from the request — must 409.
+        existing = _row('google', usage='login')
+        # The default `_row` uses svc='svc', org='eng'. POST a different
+        # parent so the collision guard fires.
+        self.db.execute.side_effect = [
+            [existing],  # initial fetch finds the row
+        ]
+        with (
+            _patch_encryptor(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            response = self.client.post(
+                '/admin/auth-providers',
+                json={
+                    'org_slug': 'other-org',
+                    'third_party_service_slug': 'other-svc',
+                    'slug': 'google',
+                    'name': 'Google',
+                    'oauth_app_type': 'google',
+                    'client_id': 'cid',
+                    'client_secret': 'shh',
+                    'usage': 'login',
+                },
+            )
+        self.assertEqual(response.status_code, 409)
+        # Update SET must NOT have been issued.
+        self.assertEqual(self.db.execute.call_count, 1)
