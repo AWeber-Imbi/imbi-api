@@ -1019,6 +1019,18 @@ async def find_or_create_oauth_identity(
                 f'A user with email {profile["email"]} already exists. '
                 'OAuth auto-link by email is disabled.'
             )
+        # Refuse to link an existing local account to an OAuth identity
+        # that the IdP has not vouched for. Without this, any IdP that
+        # returns an unverified email could take over a local account
+        # by simply asserting that address. ``email_verified`` is set
+        # by ``normalize_oauth_profile`` per provider type (always True
+        # for GitHub's primary email; from the claim for Google/OIDC).
+        if not profile.get('email_verified'):
+            raise ValueError(
+                f'Refusing to auto-link OAuth identity to existing user '
+                f'{profile["email"]}: provider did not assert '
+                'email_verified=true.'
+            )
         user = existing
         LOGGER.info(
             'Linked OAuth %s identity to existing user %s',

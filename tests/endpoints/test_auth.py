@@ -1063,6 +1063,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         mock_profile = {
             'id': 'google-999',
             'email': 'existing@example.com',
+            'email_verified': True,
             'name': 'Existing User',
         }
 
@@ -1120,6 +1121,79 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             location = response.headers['location']
             self.assertIn('/dashboard#', location)
             self.assertIn('access_token=', location)
+
+    @mock.patch.dict(
+        'os.environ',
+        {
+            'IMBI_AUTH_ENCRYPTION_KEY': (
+                'nhia5yBgff552rNZAvT4GGu-IE0dMVsXQaM2auHNXRo='
+            ),
+            'IMBI_AUTH_OAUTH_AUTO_LINK_BY_EMAIL': 'true',
+        },
+    )
+    def test_oauth_callback_refuses_auto_link_unverified_email(
+        self,
+    ) -> None:
+        """Auto-link must refuse profiles without email_verified=True."""
+        from imbi_common.auth import encryption
+
+        from imbi_api import models
+
+        settings._auth_settings = None
+        encryption.TokenEncryption.reset_instance()
+
+        existing_user = models.User(
+            email='existing@example.com',
+            display_name='Existing User',
+            is_active=True,
+            password_hash='existing-hash',
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        mock_state_data = auth_models.OAuthStateData(
+            provider='google',
+            redirect_uri='/dashboard',
+            nonce='test-nonce',
+            timestamp=int(datetime.datetime.now(datetime.UTC).timestamp()),
+        )
+        mock_token_response = {
+            'access_token': 'google-access-token',
+            'expires_in': 3600,
+        }
+        # No email_verified key → falsy → auto-link must be refused.
+        mock_profile = {
+            'id': 'google-999',
+            'email': 'existing@example.com',
+            'name': 'Existing User',
+        }
+        self.mock_db.match.side_effect = [[], [existing_user]]
+
+        with (
+            _patch_providers([_stub_provider('google')]),
+            mock.patch(
+                'imbi_api.auth.oauth.verify_oauth_state',
+                return_value=mock_state_data,
+            ),
+            mock.patch(
+                'imbi_api.auth.oauth.exchange_oauth_code',
+                return_value=mock_token_response,
+            ),
+            mock.patch(
+                'imbi_api.auth.oauth.fetch_oauth_profile',
+                return_value=mock_profile,
+            ),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.get(
+                '/auth/oauth/google/callback?code=test-code&state=test-state',
+                follow_redirects=False,
+            )
+
+        # Callback redirects to error URL on failure.
+        self.assertEqual(response.status_code, 307)
+        self.assertIn('error=', response.headers['location'])
 
     @mock.patch.dict(
         'os.environ',

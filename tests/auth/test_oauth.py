@@ -147,6 +147,7 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
         raw_profile = {
             'id': '12345',
             'email': 'user@example.com',
+            'verified_email': True,
             'name': 'Test User',
             'picture': 'https://example.com/avatar.jpg',
         }
@@ -155,10 +156,21 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
 
         self.assertEqual(normalized['id'], '12345')
         self.assertEqual(normalized['email'], 'user@example.com')
+        self.assertTrue(normalized['email_verified'])
         self.assertEqual(normalized['name'], 'Test User')
         self.assertEqual(
             normalized['avatar_url'], 'https://example.com/avatar.jpg'
         )
+
+    def test_normalize_google_profile_unverified_email(self) -> None:
+        """Google profile without verified_email returns False."""
+        raw_profile = {
+            'id': '12345',
+            'email': 'user@example.com',
+            'name': 'Test User',
+        }
+        normalized = oauth.normalize_oauth_profile('google', raw_profile)
+        self.assertFalse(normalized['email_verified'])
 
     def test_normalize_github_profile(self) -> None:
         """Test normalizing GitHub OAuth profile."""
@@ -174,6 +186,7 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
 
         self.assertEqual(normalized['id'], '67890')  # Converted to string
         self.assertEqual(normalized['email'], 'user@example.com')
+        self.assertTrue(normalized['email_verified'])
         self.assertEqual(normalized['name'], 'Test User')
         self.assertEqual(
             normalized['avatar_url'],
@@ -199,6 +212,7 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
         raw_profile = {
             'sub': 'oidc-user-123',
             'email': 'user@example.com',
+            'email_verified': True,
             'name': 'Test User',
             'picture': 'https://example.com/avatar.jpg',
         }
@@ -207,10 +221,21 @@ class OAuthProfileNormalizationTestCase(unittest.TestCase):
 
         self.assertEqual(normalized['id'], 'oidc-user-123')
         self.assertEqual(normalized['email'], 'user@example.com')
+        self.assertTrue(normalized['email_verified'])
         self.assertEqual(normalized['name'], 'Test User')
         self.assertEqual(
             normalized['avatar_url'], 'https://example.com/avatar.jpg'
         )
+
+    def test_normalize_oidc_profile_unverified_email(self) -> None:
+        """OIDC profile without email_verified claim returns False."""
+        raw_profile = {
+            'sub': 'oidc-user-123',
+            'email': 'user@example.com',
+            'name': 'Test User',
+        }
+        normalized = oauth.normalize_oauth_profile('oidc', raw_profile)
+        self.assertFalse(normalized['email_verified'])
 
     def test_normalize_oidc_profile_preferred_username(self) -> None:
         """Test OIDC profile with preferred_username instead of name."""

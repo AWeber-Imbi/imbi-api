@@ -229,9 +229,13 @@ def normalize_oauth_profile(
         email = raw_profile.get('email')
         if not email:
             raise ValueError('Google profile missing required email field')
+        # Google's userinfo endpoint sets verified_email on the primary
+        # account; default to False when the claim is absent so a
+        # malformed payload can't bypass auto-link verification.
         return {
             'id': raw_profile['id'],
             'email': email,
+            'email_verified': bool(raw_profile.get('verified_email', False)),
             'name': raw_profile['name'],
             'avatar_url': raw_profile.get('picture'),
         }
@@ -242,9 +246,12 @@ def normalize_oauth_profile(
                 'GitHub profile missing email address. '
                 'User must grant email access or make email public.'
             )
+        # GitHub's /user endpoint only returns the primary email when
+        # verified, so a present email implies verified ownership.
         return {
             'id': str(raw_profile['id']),
             'email': email,
+            'email_verified': True,
             'name': raw_profile['name'] or raw_profile['login'],
             'avatar_url': raw_profile.get('avatar_url'),
         }
@@ -265,9 +272,12 @@ def normalize_oauth_profile(
             or email.split('@')[0]
         )
 
+        # OIDC: trust only an explicit ``email_verified=true`` claim
+        # (RFC 7519 / OIDC core). Absent or false → treated as unverified.
         return {
             'id': user_id,
             'email': email,
+            'email_verified': bool(raw_profile.get('email_verified', False)),
             'name': name,
             'avatar_url': raw_profile.get('picture'),
         }
