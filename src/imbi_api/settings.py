@@ -221,12 +221,18 @@ def get_auth_settings() -> Auth:
 def get_server_config() -> ServerConfig:
     """Get the singleton ServerConfig instance.
 
-    Used to compute public URLs (OAuth callbacks, hypermedia links)
-    that must be reachable from outside the cluster.
+    Prefers values from a config file (when discoverable) over a fresh
+    ``ServerConfig()`` so TOML overrides for ``[server]`` (notably the
+    public URL) win over env-only defaults. Falls back to a plain
+    ``ServerConfig()`` when no config file is found or it fails to
+    parse, preserving dev-loopback behavior.
     """
     global _server_config
     if _server_config is None:
-        _server_config = ServerConfig()
+        try:
+            _server_config = load_config().server
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            _server_config = ServerConfig()
     return _server_config
 
 

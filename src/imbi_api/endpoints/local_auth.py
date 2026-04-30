@@ -42,9 +42,7 @@ async def get_local_auth(
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
-        fastapi.Depends(
-            permissions.require_permission('oauth_providers:read')
-        ),
+        fastapi.Depends(permissions.require_permission('auth_providers:read')),
     ],
 ) -> LocalAuthRead:
     """Return the current local-auth config (defaults to enabled)."""
@@ -62,7 +60,7 @@ async def set_local_auth(
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
-            permissions.require_permission('oauth_providers:write')
+            permissions.require_permission('auth_providers:write')
         ),
     ],
 ) -> LocalAuthRead:

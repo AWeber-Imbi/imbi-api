@@ -15,10 +15,15 @@ from imbi_common import graph
 from imbi_common.auth import core, encryption
 
 from imbi_api import models, settings
-from imbi_api.auth import local_auth, oauth, permissions, tokens
+from imbi_api.auth import (
+    local_auth,
+    login_providers,
+    oauth,
+    permissions,
+    tokens,
+)
 from imbi_api.auth import models as auth_models
 from imbi_api.auth import password as password_auth
-from imbi_api.auth import providers as oauth_providers
 from imbi_api.middleware import rate_limit
 
 LOGGER = logging.getLogger(__name__)
@@ -56,16 +61,21 @@ async def get_auth_providers(
             )
         )
 
-    rows = await oauth_providers.list_providers(db, enabled_only=True)
-    for row in rows:
+    apps = await login_providers.list_login_apps(db, enabled_only=True)
+    icon_for: dict[str, str] = {
+        'google': 'si-google',
+        'github': 'si-github',
+        'oidc': 'key-round',
+    }
+    for app in apps:
         providers.append(
             auth_models.AuthProvider(
-                id=row.slug,
+                id=app.slug,
                 type='oauth',
-                name=row.name,
+                name=app.name,
                 enabled=True,
-                auth_url=f'/auth/oauth/{row.slug}',
-                icon=row.icon,
+                auth_url=f'/auth/oauth/{app.slug}',
+                icon=icon_for.get(app.oauth_app_type, 'key-round'),
             )
         )
 
@@ -705,33 +715,24 @@ async def oauth_login(
     """
     auth_settings = settings.get_auth_settings()
 
-    # Validate provider is enabled
-    if provider not in ['google', 'github', 'oidc']:
+    # Provider is now an arbitrary slug. Resolve via login_providers.
+    app = await login_providers.get_login_app(db, provider)
+    if app is None or app.status != 'active':
         raise fastapi.HTTPException(
-            status_code=400,
+            status_code=404,
             detail=f'Invalid provider: {provider}',
         )
 
-    row = await oauth_providers.get_provider(db, provider)
-    if row is None or not row.enabled:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f'{provider} OAuth not enabled',
-        )
-
-    # Generate OAuth state for CSRF protection
     state_token, _ = oauth.generate_oauth_state(
         provider, redirect_uri, auth_settings
     )
 
-    # Build callback URL from the public-facing API URL + prefix
     callback_url = settings.oauth_callback_url(provider)
 
-    # Build authorization URL based on provider
     auth_url = ''
-    if provider == 'google':
+    if app.oauth_app_type == 'google':
         params = {
-            'client_id': row.client_id or '',
+            'client_id': app.client_id or '',
             'redirect_uri': callback_url,
             'response_type': 'code',
             'scope': 'openid email profile',
@@ -741,9 +742,9 @@ async def oauth_login(
             'https://accounts.google.com/o/oauth2/v2/auth?'
             + urlparse.urlencode(params)
         )
-    elif provider == 'github':
+    elif app.oauth_app_type == 'github':
         params = {
-            'client_id': row.client_id or '',
+            'client_id': app.client_id or '',
             'redirect_uri': callback_url,
             'scope': 'read:user user:email',
             'state': state_token,
@@ -752,19 +753,26 @@ async def oauth_login(
             'https://github.com/login/oauth/authorize?'
             + urlparse.urlencode(params)
         )
-    elif provider == 'oidc':
-        issuer = (row.issuer_url or '').rstrip('/')
+    elif app.oauth_app_type == 'oidc':
+        # Prefer the parent ThirdPartyService's authorization_endpoint;
+        # fall back to a Keycloak-shaped magic URL only as a last resort.
         params = {
-            'client_id': row.client_id or '',
+            'client_id': app.client_id or '',
             'redirect_uri': callback_url,
             'response_type': 'code',
             'scope': 'openid email profile',
             'state': state_token,
         }
-        auth_url = (
-            f'{issuer}/protocol/openid-connect/auth?'
-            + urlparse.urlencode(params)
-        )
+        if app.authorization_endpoint:
+            auth_url = (
+                app.authorization_endpoint + '?' + urlparse.urlencode(params)
+            )
+        else:
+            issuer = (app.issuer_url or '').rstrip('/')
+            auth_url = (
+                f'{issuer}/protocol/openid-connect/auth?'
+                + urlparse.urlencode(params)
+            )
 
     LOGGER.info('OAuth login initiated for provider %s', provider)
     return fastapi.responses.RedirectResponse(url=auth_url)
@@ -838,7 +846,8 @@ async def oauth_callback(
             db, provider, profile, token_response, auth_settings
         )
 
-        # Get associated user — fetch via graph query
+        # Get associated user — fetch via graph query keyed on the
+        # OAuthIdentity's oauth_app_type (stored in `provider`).
         user_q: typing.LiteralString = """
         MATCH (oi:OAuthIdentity {{
             provider: {provider},
@@ -849,7 +858,7 @@ async def oauth_callback(
         user_records = await db.execute(
             user_q,
             {
-                'provider': provider,
+                'provider': oauth_identity.provider,
                 'provider_user_id': profile['id'],
             },
             ['u'],
@@ -949,23 +958,27 @@ async def find_or_create_oauth_identity(
             OAuth)
 
     """
-    # Enforce domain restrictions for Google OAuth (config in DB)
-    if provider == 'google':
-        google_row = await oauth_providers.get_provider(db, 'google')
-        if google_row and google_row.allowed_domains:
-            email_domain = profile['email'].split('@')[1].lower()
-            allowed = [d.lower() for d in google_row.allowed_domains]
-            if email_domain not in allowed:
-                raise ValueError(
-                    f'Email domain {email_domain} not in allowed'
-                    f' domains: ' + ', '.join(google_row.allowed_domains)
-                )
+    # ``provider`` is now a ServiceApplication slug. Resolve to the
+    # row to determine oauth_app_type for storage and to enforce any
+    # Google domain restrictions on the row.
+    app = await login_providers.get_login_app(db, provider)
+    if app is None:
+        raise ValueError(f'Login provider {provider!r} not found')
+    oauth_app_type = app.oauth_app_type
+    if oauth_app_type == 'google' and app.allowed_domains:
+        email_domain = profile['email'].split('@')[1].lower()
+        allowed = [d.lower() for d in app.allowed_domains]
+        if email_domain not in allowed:
+            raise ValueError(
+                f'Email domain {email_domain} not in allowed'
+                f' domains: ' + ', '.join(app.allowed_domains)
+            )
 
-    # Try to find existing OAuth identity
+    # OAuthIdentity.provider stores the oauth_app_type, not the slug.
     identity_results = await db.match(
         models.OAuthIdentity,
         {
-            'provider': provider,
+            'provider': oauth_app_type,
             'provider_user_id': profile['id'],
         },
     )
@@ -1037,10 +1050,7 @@ async def find_or_create_oauth_identity(
     # Create OAuth identity (Phase 5: with encrypted tokens)
     now = datetime.datetime.now(datetime.UTC)
     identity = models.OAuthIdentity(
-        provider=typing.cast(
-            typing.Literal['google', 'github', 'oidc'],
-            provider,
-        ),
+        provider=oauth_app_type,
         provider_user_id=profile['id'],
         email=profile['email'],
         display_name=profile['name'],
@@ -1077,7 +1087,7 @@ async def find_or_create_oauth_identity(
     await db.execute(
         rel_query,
         {
-            'provider': provider,
+            'provider': oauth_app_type,
             'provider_user_id': profile['id'],
             'email': user.email,
         },

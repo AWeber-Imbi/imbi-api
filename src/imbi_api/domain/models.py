@@ -27,7 +27,6 @@ __all__ = [
     'MembershipProperties',
     'OAuth2TokenResponse',
     'OAuthIdentity',
-    'OAuthProvider',
     'OrgMembership',
     'OrganizationEdge',
     'PasswordChangeRequest',
@@ -173,27 +172,6 @@ class LocalAuthConfig(models.GraphModel):
     updated_at: datetime.datetime | None = pydantic.Field(
         default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )
-
-
-class OAuthProvider(models.GraphModel):
-    """OAuth provider configuration stored in the graph.
-
-    ``slug`` is the merge key (and primary identifier).  Keeping
-    ``slug`` distinct from ``type`` leaves room for multiple OIDC
-    IdPs in the future where ``type='oidc'`` and ``slug='okta'`` /
-    ``'auth0'`` etc.  For v1 we constrain ``slug`` to the same
-    three values as ``type``.
-    """
-
-    slug: typing.Literal['google', 'github', 'oidc']
-    type: typing.Literal['google', 'github', 'oidc']
-    name: str
-    enabled: bool = False
-    client_id: str | None = None
-    client_secret_encrypted: str | None = None
-    issuer_url: str | None = None
-    allowed_domains: list[str] = []  # noqa: RUF012
-    icon: str = 'key'
 
 
 class MembershipProperties(pydantic.BaseModel):
@@ -707,6 +685,37 @@ SECRET_FIELDS = (
 )
 
 
+_OAuthAppType = typing.Literal['google', 'github', 'oidc']
+_AppUsage = typing.Literal['login', 'integration', 'both']
+
+
+def validate_login_app_fields(
+    usage: str,
+    oauth_app_type: str | None,
+    client_id: str | None,
+    issuer_url: str | None,
+    allowed_domains: list[str],
+) -> None:
+    """Cross-field validation for login-shaped service applications."""
+    if usage in ('login', 'both'):
+        if oauth_app_type is None:
+            raise ValueError(
+                "oauth_app_type is required when usage is 'login' or 'both'"
+            )
+        if not client_id:
+            raise ValueError(
+                "client_id is required when usage is 'login' or 'both'"
+            )
+        if oauth_app_type == 'oidc' and not issuer_url:
+            raise ValueError(
+                "issuer_url is required when oauth_app_type is 'oidc'"
+            )
+    if allowed_domains and oauth_app_type != 'google':
+        raise ValueError(
+            "allowed_domains is only meaningful for oauth_app_type='google'"
+        )
+
+
 class ServiceApplicationCreate(pydantic.BaseModel):
     """Request model for creating a service application."""
 
@@ -730,6 +739,21 @@ class ServiceApplicationCreate(pydantic.BaseModel):
         default_factory=dict,
     )
     status: typing.Literal['active', 'inactive', 'revoked'] = 'active'
+    usage: _AppUsage = 'integration'
+    oauth_app_type: _OAuthAppType | None = None
+    issuer_url: str | None = None
+    allowed_domains: list[str] = pydantic.Field(default_factory=list)
+
+    @pydantic.model_validator(mode='after')
+    def _validate_login_fields(self) -> typing.Self:
+        validate_login_app_fields(
+            self.usage,
+            self.oauth_app_type,
+            self.client_id,
+            self.issuer_url,
+            self.allowed_domains,
+        )
+        return self
 
 
 class ServiceApplicationResponse(pydantic.BaseModel):
@@ -745,6 +769,11 @@ class ServiceApplicationResponse(pydantic.BaseModel):
     scopes: list[str] = []
     settings: dict[str, str | int | bool] = {}
     status: str = 'active'
+    usage: _AppUsage = 'integration'
+    oauth_app_type: _OAuthAppType | None = None
+    issuer_url: str | None = None
+    allowed_domains: list[str] = []
+    is_global: bool = False
 
 
 class ServiceApplicationSecrets(pydantic.BaseModel):

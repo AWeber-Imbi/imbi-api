@@ -9,9 +9,8 @@ from fastapi import testclient
 from imbi_common import graph
 
 from imbi_api import app, settings
-from imbi_api.auth import local_auth
+from imbi_api.auth import local_auth, login_providers
 from imbi_api.auth import models as auth_models
-from imbi_api.auth import providers as oauth_providers
 from imbi_api.domain import models as domain_models
 from imbi_api.middleware import rate_limit
 
@@ -26,44 +25,44 @@ def _stub_provider(
     name: str | None = None,
     icon: str | None = None,
     allowed_domains: list[str] | None = None,
-) -> domain_models.OAuthProvider:
-    icons = {'google': 'google', 'github': 'github', 'oidc': 'key'}
+) -> login_providers.LoginApp:
     names = {'google': 'Google', 'github': 'GitHub', 'oidc': 'OIDC'}
-    return domain_models.OAuthProvider(
-        slug=slug,  # type: ignore[arg-type]
-        type=slug,  # type: ignore[arg-type]
-        name=name or names[slug],
-        enabled=enabled,
+    return login_providers.LoginApp(
+        slug=slug,
+        name=name or names.get(slug, slug),
+        oauth_app_type=slug,  # type: ignore[arg-type]
         client_id=client_id,
         client_secret_encrypted=client_secret,
         issuer_url=issuer_url,
         allowed_domains=allowed_domains or [],
-        icon=icon or icons[slug],
+        scopes=[],
+        status='active' if enabled else 'inactive',
+        callback_url=f'http://localhost:8000/auth/oauth/{slug}/callback',
     )
 
 
 def _patch_providers(
-    rows: list[domain_models.OAuthProvider],
+    rows: list[login_providers.LoginApp],
 ) -> typing.Any:
-    """Stub the provider repository helpers for endpoint tests."""
+    """Stub the login_providers repository helpers for endpoint tests."""
     by_slug = {r.slug: r for r in rows}
 
     async def fake_list(
         db: typing.Any, *, enabled_only: bool = False
-    ) -> list[domain_models.OAuthProvider]:
+    ) -> list[login_providers.LoginApp]:
         if enabled_only:
-            return [r for r in rows if r.enabled]
+            return [r for r in rows if r.status == 'active']
         return list(rows)
 
     async def fake_get(
         db: typing.Any, slug: str
-    ) -> domain_models.OAuthProvider | None:
+    ) -> login_providers.LoginApp | None:
         return by_slug.get(slug)
 
     return mock.patch.multiple(
-        oauth_providers,
-        list_providers=fake_list,
-        get_provider=fake_get,
+        login_providers,
+        list_login_apps=fake_list,
+        get_login_app=fake_get,
     )
 
 
@@ -79,16 +78,14 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
             lambda: self.mock_db
         )
         self.client = testclient.TestClient(self.test_app)
-        oauth_providers._provider_cache.clear()
-        oauth_providers._list_cache.clear()
+        login_providers.invalidate_cache()
         local_auth._invalidate_cache()
         # Default: no LocalAuthConfig row -> enabled by default
         self.mock_db.match.return_value = []
 
     def tearDown(self) -> None:
         settings._auth_settings = None
-        oauth_providers._provider_cache.clear()
-        oauth_providers._list_cache.clear()
+        login_providers.invalidate_cache()
         local_auth._invalidate_cache()
 
     def test_get_providers_default_config(self) -> None:
@@ -112,7 +109,7 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         google = next(p for p in data['providers'] if p['id'] == 'google')
         self.assertEqual(google['type'], 'oauth')
         self.assertEqual(google['auth_url'], '/auth/oauth/google')
-        self.assertEqual(google['icon'], 'google')
+        self.assertEqual(google['icon'], 'si-google')
 
     def test_get_providers_github_enabled(self) -> None:
         with _patch_providers([_stub_provider('github')]):
@@ -122,7 +119,7 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         self.assertEqual(len(data['providers']), 2)
         github = next(p for p in data['providers'] if p['id'] == 'github')
         self.assertEqual(github['auth_url'], '/auth/oauth/github')
-        self.assertEqual(github['icon'], 'github')
+        self.assertEqual(github['icon'], 'si-github')
 
     def test_get_providers_oidc_enabled(self) -> None:
         with _patch_providers([_stub_provider('oidc', name='Custom OIDC')]):
@@ -132,7 +129,7 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         self.assertEqual(len(data['providers']), 2)
         oidc = next(p for p in data['providers'] if p['id'] == 'oidc')
         self.assertEqual(oidc['name'], 'Custom OIDC')
-        self.assertEqual(oidc['icon'], 'key')
+        self.assertEqual(oidc['icon'], 'key-round')
 
     def test_get_providers_all_enabled(self) -> None:
         with _patch_providers(
@@ -192,9 +189,10 @@ class OAuthFlowTestCase(unittest.TestCase):
         settings._auth_settings = None
 
     def test_oauth_login_invalid_provider(self) -> None:
-        """Test OAuth login with invalid provider."""
-        response = self.client.get('/auth/oauth/invalid')
-        self.assertEqual(response.status_code, 400)
+        """Test OAuth login with unknown provider slug."""
+        with _patch_providers([]):
+            response = self.client.get('/auth/oauth/invalid')
+        self.assertEqual(response.status_code, 404)
         self.assertIn(
             'Invalid provider',
             response.json()['detail'],
@@ -204,9 +202,9 @@ class OAuthFlowTestCase(unittest.TestCase):
         """Test OAuth login with disabled provider."""
         with _patch_providers([_stub_provider('google', enabled=False)]):
             response = self.client.get('/auth/oauth/google')
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 404)
         self.assertIn(
-            'not enabled',
+            'Invalid provider',
             response.json()['detail'],
         )
 

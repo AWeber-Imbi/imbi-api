@@ -7,9 +7,7 @@ import httpx
 import jwt
 
 from imbi_api import settings
-from imbi_api.auth import models, oauth
-from imbi_api.auth import providers as oauth_providers
-from imbi_api.domain import models as domain_models
+from imbi_api.auth import login_providers, models, oauth
 
 
 def _stub_provider(
@@ -20,20 +18,20 @@ def _stub_provider(
     client_secret: str | None = None,
     issuer_url: str | None = None,
     name: str = 'Provider',
-) -> domain_models.OAuthProvider:
-    """Build a provider row with a clear-text secret stand-in.
+) -> login_providers.LoginApp:
+    """Build a login-app row with a clear-text secret stand-in.
 
     The tests patch ``TokenEncryption.get_instance`` so the
     ``client_secret_encrypted`` value round-trips as plaintext.
     """
-    return domain_models.OAuthProvider(
-        slug=slug,  # type: ignore[arg-type]
-        type=slug,  # type: ignore[arg-type]
+    return login_providers.LoginApp(
+        slug=slug,
         name=name,
-        enabled=enabled,
+        oauth_app_type=slug,  # type: ignore[arg-type]
         client_id=client_id,
         client_secret_encrypted=client_secret,
         issuer_url=issuer_url,
+        status='active' if enabled else 'inactive',
     )
 
 
@@ -505,25 +503,32 @@ class _DBProviderTestBase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         oauth._oidc_discovery_cache.clear()
-        oauth_providers._provider_cache.clear()
-        oauth_providers._list_cache.clear()
-        self.providers_by_slug: dict[
-            str, domain_models.OAuthProvider | None
-        ] = {}
+        login_providers.invalidate_cache()
+        self.providers_by_slug: dict[str, login_providers.LoginApp | None] = {}
         self.db = mock.AsyncMock()
 
-        async def _fake_match(
-            model: typing.Any,
-            criteria: dict[str, typing.Any] | None = None,
-            order_by: str | None = None,
-        ) -> list[typing.Any]:
-            slug = (criteria or {}).get('slug')
-            if slug is None:
-                return [p for p in self.providers_by_slug.values() if p]
-            row = self.providers_by_slug.get(slug)
-            return [row] if row else []
+        async def _fake_get(
+            db: typing.Any, slug: str
+        ) -> login_providers.LoginApp | None:
+            return self.providers_by_slug.get(slug)
 
-        self.db.match.side_effect = _fake_match
+        async def _fake_list(
+            db: typing.Any, *, enabled_only: bool = False
+        ) -> list[login_providers.LoginApp]:
+            rows = [p for p in self.providers_by_slug.values() if p]
+            if enabled_only:
+                rows = [r for r in rows if r.status == 'active']
+            return rows
+
+        self._patch = mock.patch.multiple(
+            login_providers,
+            get_login_app=_fake_get,
+            list_login_apps=_fake_list,
+        )
+        self._patch.start()
+
+    def tearDown(self) -> None:
+        self._patch.stop()
 
     def seed(self, slug: str, **kwargs: typing.Any) -> None:
         self.providers_by_slug[slug] = _stub_provider(slug, **kwargs)
@@ -615,7 +620,7 @@ class OAuthProviderConfigTestCase(_DBProviderTestBase):
     async def test_get_provider_config_unsupported(self) -> None:
         with self.assertRaises(ValueError) as context:
             await oauth._get_provider_config('unsupported', self.db)
-        self.assertIn('unsupported', str(context.exception).lower())
+        self.assertIn('not enabled', str(context.exception).lower())
 
     async def test_get_provider_config_oidc_missing_issuer(self) -> None:
         self.seed('oidc', client_id='x', client_secret='y', issuer_url=None)
@@ -668,7 +673,7 @@ class OAuthUserinfoUrlTestCase(_DBProviderTestBase):
     async def test_get_userinfo_url_unsupported(self) -> None:
         with self.assertRaises(ValueError) as context:
             await oauth._get_userinfo_url('unsupported', self.db)
-        self.assertIn('unsupported', str(context.exception).lower())
+        self.assertIn('not enabled', str(context.exception).lower())
 
 
 class OAuthTokenExchangeTestCase(_DBProviderTestBase):

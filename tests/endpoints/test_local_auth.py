@@ -11,8 +11,7 @@ from fastapi import testclient
 from imbi_common import graph
 
 from imbi_api import app, models
-from imbi_api.auth import local_auth
-from imbi_api.auth import providers as oauth_providers
+from imbi_api.auth import local_auth, login_providers
 from imbi_api.domain import models as domain_models
 
 
@@ -50,11 +49,10 @@ def _build_app(
 
 
 class _Rows:
-    """Configurable singleton store for LocalAuthConfig + OAuthProvider."""
+    """Configurable singleton store for LocalAuthConfig."""
 
     def __init__(self) -> None:
         self.local: domain_models.LocalAuthConfig | None = None
-        self.providers: dict[str, domain_models.OAuthProvider] = {}
 
     async def match(
         self,
@@ -64,13 +62,7 @@ class _Rows:
     ) -> list[typing.Any]:
         if model is domain_models.LocalAuthConfig:
             return [self.local] if self.local is not None else []
-        rows = list(self.providers.values())
-        if criteria:
-            for key, value in criteria.items():
-                rows = [r for r in rows if getattr(r, key) == value]
-        if order_by:
-            rows.sort(key=lambda r: getattr(r, order_by))
-        return rows
+        return []
 
     async def merge(
         self,
@@ -79,19 +71,26 @@ class _Rows:
     ) -> None:
         if isinstance(node, domain_models.LocalAuthConfig):
             self.local = node
-        elif isinstance(node, domain_models.OAuthProvider):
-            self.providers[node.slug] = node
+
+    async def execute(
+        self,
+        query: typing.Any,
+        params: dict[str, typing.Any] | None = None,
+        columns: list[str] | None = None,
+    ) -> list[dict[str, typing.Any]]:
+        # No login providers in this test fixture.
+        return []
 
 
 def _wire_db(db: mock.AsyncMock, rows: _Rows) -> None:
     db.match.side_effect = rows.match
     db.merge.side_effect = rows.merge
+    db.execute.side_effect = rows.execute
 
 
 def _reset_caches() -> None:
     local_auth._invalidate_cache()
-    oauth_providers._provider_cache.clear()
-    oauth_providers._list_cache.clear()
+    login_providers.invalidate_cache()
 
 
 class AdminLocalAuthEndpointTestCase(unittest.TestCase):
@@ -100,7 +99,7 @@ class AdminLocalAuthEndpointTestCase(unittest.TestCase):
     def setUp(self) -> None:
         _reset_caches()
         self.test_app, self.db = _build_app(
-            {'oauth_providers:read', 'oauth_providers:write'}
+            {'auth_providers:read', 'auth_providers:write'}
         )
         self.rows = _Rows()
         _wire_db(self.db, self.rows)
@@ -127,7 +126,7 @@ class AdminLocalAuthEndpointTestCase(unittest.TestCase):
 
     def test_put_requires_write_permission(self) -> None:
         _reset_caches()
-        read_only_app, read_only_db = _build_app({'oauth_providers:read'})
+        read_only_app, read_only_db = _build_app({'auth_providers:read'})
         rows = _Rows()
         _wire_db(read_only_db, rows)
         client = testclient.TestClient(read_only_app)

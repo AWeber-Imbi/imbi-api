@@ -10,7 +10,7 @@ from imbi_common import graph
 from imbi_common.auth import encryption
 
 from imbi_api import settings
-from imbi_api.auth import models, providers
+from imbi_api.auth import login_providers, models
 
 # Cache for OIDC discovery documents with TTL
 # Format: {issuer_url: (discovery_data, timestamp)}
@@ -31,16 +31,13 @@ async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
         ValueError: If discovery fails
 
     """
-    # Check cache first (with TTL validation)
     if issuer_url in _oidc_discovery_cache:
         discovery_data, cached_at = _oidc_discovery_cache[issuer_url]
         age = time.time() - cached_at
         if age < _OIDC_CACHE_TTL_SECONDS:
             return discovery_data
-        # Cache expired, remove it
         del _oidc_discovery_cache[issuer_url]
 
-    # Fetch discovery document
     issuer = issuer_url.rstrip('/')
     discovery_url = f'{issuer}/.well-known/openid-configuration'
 
@@ -57,13 +54,11 @@ async def _discover_oidc_endpoints(issuer_url: str) -> dict[str, typing.Any]:
 
     discovery_data = typing.cast(dict[str, typing.Any], response.json())
 
-    # Validate required fields
     if 'token_endpoint' not in discovery_data:
         raise ValueError('OIDC discovery missing token_endpoint')
     if 'userinfo_endpoint' not in discovery_data:
         raise ValueError('OIDC discovery missing userinfo_endpoint')
 
-    # Cache the result with timestamp
     _oidc_discovery_cache[issuer_url] = (discovery_data, time.time())
     return discovery_data
 
@@ -74,7 +69,7 @@ def generate_oauth_state(
     """Generate OAuth state parameter with CSRF protection.
 
     Args:
-        provider: OAuth provider identifier
+        provider: OAuth provider slug
         redirect_uri: Where to redirect after OAuth flow
         auth_settings: Auth settings instance
 
@@ -89,7 +84,6 @@ def generate_oauth_state(
         timestamp=int(time.time()),
     )
 
-    # Encode state data as JWT for tamper resistance
     state_token = jwt.encode(
         state_data.model_dump(),
         auth_settings.jwt_secret,
@@ -117,7 +111,6 @@ def verify_oauth_state(
 
     """
     try:
-        # Decode state JWT
         payload = jwt.decode(
             state_token,
             auth_settings.jwt_secret,
@@ -127,7 +120,6 @@ def verify_oauth_state(
     except jwt.InvalidTokenError as e:
         raise ValueError(f'Invalid OAuth state token: {e}') from e
 
-    # Check age
     age = int(time.time()) - state_data.timestamp
     if age > max_age_seconds:
         raise ValueError(f'OAuth state expired (age: {age}s)')
@@ -136,7 +128,7 @@ def verify_oauth_state(
 
 
 async def exchange_oauth_code(
-    provider: str,
+    slug: str,
     code: str,
     redirect_uri: str,
     db: graph.Graph,
@@ -144,7 +136,7 @@ async def exchange_oauth_code(
     """Exchange OAuth authorization code for tokens.
 
     Args:
-        provider: OAuth provider identifier
+        slug: ServiceApplication slug for the login provider
         code: Authorization code from provider
         redirect_uri: Redirect URI used in authorization request
         db: Graph database used to look up provider configuration
@@ -156,12 +148,8 @@ async def exchange_oauth_code(
         ValueError: If provider is invalid or token exchange fails
 
     """
-    # Get provider configuration
-    token_url, client_id, client_secret = await _get_provider_config(
-        provider, db
-    )
+    token_url, client_id, client_secret = await _get_provider_config(slug, db)
 
-    # Exchange code for token
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             token_url,
@@ -185,14 +173,14 @@ async def exchange_oauth_code(
 
 
 async def fetch_oauth_profile(
-    provider: str,
+    slug: str,
     access_token: str,
     db: graph.Graph,
 ) -> dict[str, typing.Any]:
     """Fetch user profile from OAuth provider.
 
     Args:
-        provider: OAuth provider identifier
+        slug: ServiceApplication slug for the login provider
         access_token: Access token from provider
         db: Graph database used to look up provider configuration
 
@@ -203,10 +191,9 @@ async def fetch_oauth_profile(
         ValueError: If provider is invalid or profile fetch fails
 
     """
-    # Get userinfo URL
-    userinfo_url = await _get_userinfo_url(provider, db)
+    app = await _load_active_login_app(slug, db)
+    userinfo_url = await _get_userinfo_url(slug, db)
 
-    # Fetch userinfo
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             userinfo_url,
@@ -219,28 +206,26 @@ async def fetch_oauth_profile(
             )
 
         raw_profile = response.json()
-
-        # Normalize profile data
-        return normalize_oauth_profile(provider, raw_profile)
+        return normalize_oauth_profile(app.oauth_app_type, raw_profile)
 
 
 def normalize_oauth_profile(
-    provider: str, raw_profile: dict[str, typing.Any]
+    oauth_app_type: str, raw_profile: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """Normalize OAuth profile to common format.
 
     Args:
-        provider: OAuth provider identifier
+        oauth_app_type: One of ``'google'``, ``'github'``, ``'oidc'``
         raw_profile: Raw profile data from provider
 
     Returns:
         Normalized profile with keys: id, email, name, avatar_url
 
     Raises:
-        ValueError: If provider is invalid
+        ValueError: If oauth_app_type is invalid or profile fields missing
 
     """
-    if provider == 'google':
+    if oauth_app_type == 'google':
         email = raw_profile.get('email')
         if not email:
             raise ValueError('Google profile missing required email field')
@@ -250,8 +235,7 @@ def normalize_oauth_profile(
             'name': raw_profile['name'],
             'avatar_url': raw_profile.get('picture'),
         }
-    elif provider == 'github':
-        # GitHub users can set email to private, so it may be None
+    elif oauth_app_type == 'github':
         email = raw_profile.get('email')
         if not email:
             raise ValueError(
@@ -264,20 +248,17 @@ def normalize_oauth_profile(
             'name': raw_profile['name'] or raw_profile['login'],
             'avatar_url': raw_profile.get('avatar_url'),
         }
-    elif provider == 'oidc':
-        # Generic OIDC profile (OpenID Connect standard claims)
+    elif oauth_app_type == 'oidc':
         email = raw_profile.get('email')
         if not email:
             raise ValueError('OIDC profile missing required email claim')
 
-        # Validate identity field (sub or id must be present)
         user_id = raw_profile.get('sub') or raw_profile.get('id')
         if not user_id:
             raise ValueError(
                 'OIDC profile missing required identity field (sub or id)'
             )
 
-        # Generate name from available fields
         name = (
             raw_profile.get('name')
             or raw_profile.get('preferred_username')
@@ -291,92 +272,72 @@ def normalize_oauth_profile(
             'avatar_url': raw_profile.get('picture'),
         }
     else:
-        raise ValueError(f'Unsupported OAuth provider: {provider}')
+        raise ValueError(f'Unsupported oauth_app_type: {oauth_app_type}')
 
 
-async def _load_enabled_provider(provider: str, db: graph.Graph) -> typing.Any:
-    """Load an enabled provider row or raise ``ValueError``."""
-    if provider not in ('google', 'github', 'oidc'):
-        raise ValueError(f'Unsupported OAuth provider: {provider}')
-    row = await providers.get_provider(db, provider)
-    if row is None or not row.enabled:
-        raise ValueError(f'{provider} OAuth is not enabled')
-    return row
+async def _load_active_login_app(
+    slug: str, db: graph.Graph
+) -> login_providers.LoginApp:
+    """Load an active login app row or raise ``ValueError``."""
+    app = await login_providers.get_login_app(db, slug)
+    if app is None or app.status != 'active':
+        raise ValueError(f'{slug} OAuth is not enabled')
+    return app
 
 
-def _decrypt_secret(row: typing.Any) -> str:
+def _decrypt_secret(app: login_providers.LoginApp) -> str:
     """Decrypt the row's ``client_secret_encrypted`` value."""
-    if not row.client_secret_encrypted:
+    if not app.client_secret_encrypted:
         return ''
     encryptor = encryption.TokenEncryption.get_instance()
-    secret = encryptor.decrypt(row.client_secret_encrypted)
+    secret = encryptor.decrypt(app.client_secret_encrypted)
     if secret is None:
         raise ValueError('Failed to decrypt OAuth client secret')
     return secret
 
 
 async def _get_provider_config(
-    provider: str, db: graph.Graph
+    slug: str, db: graph.Graph
 ) -> tuple[str, str, str]:
     """Get OAuth provider configuration from the graph.
 
-    Args:
-        provider: OAuth provider identifier
-        db: Graph database
-
     Returns:
         Tuple of (token_url, client_id, client_secret)
-
-    Raises:
-        ValueError: If provider is invalid or not configured
-
     """
-    row = await _load_enabled_provider(provider, db)
-    client_id = row.client_id or ''
-    client_secret = _decrypt_secret(row)
-    if provider == 'google':
+    app = await _load_active_login_app(slug, db)
+    client_id = app.client_id or ''
+    client_secret = _decrypt_secret(app)
+    if app.oauth_app_type == 'google':
         return (
             'https://oauth2.googleapis.com/token',
             client_id,
             client_secret,
         )
-    if provider == 'github':
+    if app.oauth_app_type == 'github':
         return (
             'https://github.com/login/oauth/access_token',
             client_id,
             client_secret,
         )
-    # oidc
-    if not row.issuer_url:
+    # oidc: prefer parent ThirdPartyService.token_endpoint, else discover
+    if app.token_endpoint:
+        return (app.token_endpoint, client_id, client_secret)
+    if not app.issuer_url:
         raise ValueError('OIDC issuer URL not configured')
-    discovery = await _discover_oidc_endpoints(row.issuer_url)
+    discovery = await _discover_oidc_endpoints(app.issuer_url)
     return (discovery['token_endpoint'], client_id, client_secret)
 
 
-async def _get_userinfo_url(provider: str, db: graph.Graph) -> str:
-    """Get userinfo URL for OAuth provider.
-
-    Args:
-        provider: OAuth provider identifier
-        db: Graph database
-
-    Returns:
-        Userinfo endpoint URL
-
-    Raises:
-        ValueError: If provider is invalid or not configured
-
-    """
-    if provider == 'google':
-        await _load_enabled_provider(provider, db)
+async def _get_userinfo_url(slug: str, db: graph.Graph) -> str:
+    """Get userinfo URL for OAuth provider."""
+    app = await _load_active_login_app(slug, db)
+    if app.oauth_app_type == 'google':
         return 'https://www.googleapis.com/oauth2/v2/userinfo'
-    if provider == 'github':
-        await _load_enabled_provider(provider, db)
+    if app.oauth_app_type == 'github':
         return 'https://api.github.com/user'
-    if provider == 'oidc':
-        row = await _load_enabled_provider(provider, db)
-        if not row.issuer_url:
+    if app.oauth_app_type == 'oidc':
+        if not app.issuer_url:
             raise ValueError('OIDC issuer URL not configured')
-        discovery = await _discover_oidc_endpoints(row.issuer_url)
+        discovery = await _discover_oidc_endpoints(app.issuer_url)
         return str(discovery['userinfo_endpoint'])
-    raise ValueError(f'Unsupported OAuth provider: {provider}')
+    raise ValueError(f'Unsupported oauth_app_type: {app.oauth_app_type}')
