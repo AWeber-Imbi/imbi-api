@@ -401,19 +401,37 @@ async def create_auth_provider(
     }
     app_tpl = props_template(create_props)
 
-    org_label = resolved_org_slug.replace('-', ' ').title() or 'Default'
     service_label = (
         f'{_OAUTH_APP_TYPE_LABELS[data.oauth_app_type]} Auth Provider'
     )
+    # When the caller didn't pin a specific org, attach the synthetic
+    # parent service to whatever organization already exists in the
+    # graph rather than minting a new "default" one. The actual choice
+    # only matters for the row's data home — visibility on the
+    # third-party-services screens is controlled by usage, not the
+    # parent org. Pre-flight to fail loudly if no org is present yet.
+    if data.org_slug is None:
+        org_lookup_query: typing.LiteralString = (
+            'MATCH (o:Organization) RETURN o.slug AS slug ORDER BY o.slug'
+            ' LIMIT 1'
+        )
+        org_records = await db.execute(org_lookup_query, {}, ['slug'])
+        if not org_records:
+            raise fastapi.HTTPException(
+                status_code=409,
+                detail=(
+                    'No organization exists yet; create one before adding'
+                    ' auth providers'
+                ),
+            )
+        resolved_org_slug = str(graph.parse_agtype(org_records[0]['slug']))
+
     # AGE doesn't support ON CREATE SET, so use COALESCE to leave
-    # existing parent-node attributes untouched when they're already
-    # populated.
+    # existing service attributes untouched when they're already
+    # populated. The org is REQUIRED to exist (we don't auto-create);
+    # only the synthetic ThirdPartyService is MERGEd.
     create_query: str = (
-        'MERGE (o:Organization {{slug: {org_slug}}})'
-        ' SET o.name = COALESCE(o.name, {org_name}),'
-        ' o.description ='
-        " COALESCE(o.description, 'Default organization (auto-created)')"
-        ' WITH o'
+        'MATCH (o:Organization {{slug: {org_slug}}})'
         ' MERGE (s:ThirdPartyService {{slug: {svc_slug}}})'
         ' -[:BELONGS_TO]->(o)'
         ' SET s.name = COALESCE(s.name, {svc_name}),'
@@ -421,11 +439,9 @@ async def create_auth_provider(
         " s.status = COALESCE(s.status, 'active'),"
         " s.identifiers = COALESCE(s.identifiers, '{{}}'),"
         " s.links = COALESCE(s.links, '{{}}')"
-        ' WITH s'
+        ' WITH s, o'
         f' CREATE (a:ServiceApplication {app_tpl})'
         ' CREATE (a)-[:REGISTERED_IN]->(s)'
-        ' WITH a, s'
-        ' MATCH (s)-[:BELONGS_TO]->(o:Organization)'
         ' RETURN a{{.*}} AS app, s{{.*}} AS service,'
         ' o{{.*}} AS organization'
     )
@@ -437,7 +453,6 @@ async def create_auth_provider(
                 'svc_name': service_label,
                 'svc_vendor': _OAUTH_APP_TYPE_LABELS[data.oauth_app_type],
                 'org_slug': resolved_org_slug,
-                'org_name': org_label,
                 **create_props,
             },
             ['app', 'service', 'organization'],
@@ -450,8 +465,8 @@ async def create_auth_provider(
 
     if not records:
         raise fastapi.HTTPException(
-            status_code=500,
-            detail='Failed to create auth provider',
+            status_code=404,
+            detail=f'Organization {resolved_org_slug!r} not found',
         )
 
     login_providers.invalidate_cache(resolved_slug)
