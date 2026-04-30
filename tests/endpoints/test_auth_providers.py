@@ -304,10 +304,12 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 409)
 
-    def test_create_missing_org_or_service_returns_404(self) -> None:
+    def test_create_minimal_payload_uses_defaults(self) -> None:
+        """POST with only OAuth fields auto-merges parent org/service."""
+        new = _row('google', usage='login')
         self.db.execute.side_effect = [
-            [],  # initial fetch — no existing
-            [],  # CREATE returned nothing — org/service missing
+            [],  # _FETCH_BY_SLUG initial check
+            [new],  # MERGE+CREATE
         ]
         with (
             _patch_encryptor(),
@@ -318,16 +320,18 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
             response = self.client.post(
                 '/admin/auth-providers',
                 json={
-                    'org_slug': 'missing',
-                    'third_party_service_slug': 'missing',
-                    'slug': 'google',
-                    'name': 'Google',
                     'oauth_app_type': 'google',
                     'client_id': 'cid',
                     'client_secret': 'shh',
                 },
             )
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 201)
+        # Verify the second call used the derived defaults.
+        merge_args = self.db.execute.call_args_list[1].args[1]
+        self.assertEqual(merge_args['org_slug'], 'default')
+        self.assertEqual(merge_args['svc_slug'], 'auth-google')
+        self.assertEqual(merge_args['slug'], 'google')
+        self.assertEqual(merge_args['name'], 'Google')
 
     def test_create_oidc_requires_issuer_url(self) -> None:
         # validate_login_app_fields rejects OIDC without issuer_url.
