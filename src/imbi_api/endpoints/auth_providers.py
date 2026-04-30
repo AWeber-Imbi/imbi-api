@@ -228,21 +228,6 @@ async def get_auth_provider(
     return AuthProviderResponse(**_row_to_response(app, svc, org))
 
 
-_APP_LIST_FIELDS = ('scopes', 'allowed_domains')
-
-
-def _serialize_list_fields(
-    props: dict[str, typing.Any],
-) -> dict[str, typing.Any]:
-    out = dict(props)
-    for key in _APP_LIST_FIELDS:
-        if key in out and not isinstance(out[key], str):
-            out[key] = json.dumps(out[key])
-    if 'settings' in out and not isinstance(out['settings'], str):
-        out['settings'] = json.dumps(out['settings'])
-    return out
-
-
 _FETCH_BY_SLUG: typing.LiteralString = """
 MATCH (a:ServiceApplication {{slug: {slug}}})
       -[:REGISTERED_IN]->(s:ThirdPartyService)
@@ -280,7 +265,6 @@ async def create_auth_provider(
         _FETCH_BY_SLUG, {'slug': data.slug}, ['app', 'service', 'organization']
     )
     if existing_records:
-        existing_app = graph.parse_agtype(existing_records[0]['app'])
         update_props = {
             'name': data.name,
             'description': data.description,
@@ -313,8 +297,6 @@ async def create_auth_provider(
         LOGGER.info(
             'Auth provider %s updated by %s', data.slug, auth.principal_name
         )
-        # Pass-through previous existing_app to avoid unused warning
-        del existing_app
         return AuthProviderResponse(**_row_to_response(app, svc, org))
 
     # Create a brand-new ServiceApplication under the named org/service.
@@ -564,8 +546,3 @@ async def demote_to_login(
 ) -> AuthProviderResponse:
     """Demote a ``usage='both'`` row back to ``usage='login'``."""
     return await _transition_usage(db, slug, ('both',), 'login')
-
-
-# Silence the linter: `_serialize_list_fields` was retained for parity
-# with `endpoints/third_party_services.py`'s helpers.
-_ = _serialize_list_fields
