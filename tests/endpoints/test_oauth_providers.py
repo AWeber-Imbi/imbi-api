@@ -80,7 +80,12 @@ class _Rows:
         model: typing.Any,
         criteria: dict[str, typing.Any] | None = None,
         order_by: str | None = None,
-    ) -> list[domain_models.OAuthProvider]:
+    ) -> list[typing.Any]:
+        # The mock store only holds OAuthProvider rows; other models
+        # (e.g. LocalAuthConfig) just resolve to "no rows" so callers
+        # get their lazy-default behavior.
+        if model is not domain_models.OAuthProvider:
+            return []
         rows = list(self.by_slug.values())
         if criteria:
             for key, value in criteria.items():
