@@ -269,12 +269,14 @@ async def create_auth_provider(
         # request: silently rewriting another service's provider would
         # both mis-attribute the response and let one tenant clobber
         # another's OAuth credentials.
-        existing_svc = graph.parse_agtype(existing_records[0].get('service'))
-        existing_org = graph.parse_agtype(
-            existing_records[0].get('organization')
+        existing_svc: dict[str, typing.Any] = (
+            graph.parse_agtype(existing_records[0].get('service')) or {}
         )
-        existing_svc_slug = (existing_svc or {}).get('slug')
-        existing_org_slug = (existing_org or {}).get('slug')
+        existing_org: dict[str, typing.Any] = (
+            graph.parse_agtype(existing_records[0].get('organization')) or {}
+        )
+        existing_svc_slug = existing_svc.get('slug')
+        existing_org_slug = existing_org.get('slug')
         if (
             existing_svc_slug != data.third_party_service_slug
             or existing_org_slug != data.org_slug
