@@ -724,9 +724,8 @@ async def oauth_login(
         provider, redirect_uri, auth_settings
     )
 
-    # Build callback URL
-    base_url = auth_settings.oauth_callback_base_url
-    callback_url = f'{base_url}/auth/oauth/{provider}/callback'
+    # Build callback URL from the public-facing API URL + prefix
+    callback_url = settings.oauth_callback_url(provider)
 
     # Build authorization URL based on provider
     auth_url = ''
@@ -822,8 +821,7 @@ async def oauth_callback(
             raise ValueError('Provider mismatch')
 
         # Exchange code for tokens
-        base_url = auth_settings.oauth_callback_base_url
-        callback_url = f'{base_url}/auth/oauth/{provider}/callback'
+        callback_url = settings.oauth_callback_url(provider)
         token_response = await oauth.exchange_oauth_code(
             provider, code, callback_url, db
         )

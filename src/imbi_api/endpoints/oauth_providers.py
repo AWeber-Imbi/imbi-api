@@ -34,8 +34,7 @@ _TYPE_DEFAULTS: dict[_ProviderType, tuple[str, str]] = {
 
 
 def _callback_url_for(slug: str) -> str:
-    base = settings.get_auth_settings().oauth_callback_base_url.rstrip('/')
-    return f'{base}/auth/oauth/{slug}/callback'
+    return settings.oauth_callback_url(slug)
 
 
 class OAuthProviderRead(pydantic.BaseModel):

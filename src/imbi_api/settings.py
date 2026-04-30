@@ -55,7 +55,15 @@ class ServerConfig(pydantic_settings.BaseSettings):
     # serves routes at the root. Applied to routing and to hypermedia
     # link emission. The /docs and /openapi.json endpoints are always
     # served at the root regardless of this value.
-    api_prefix: str = ''
+    api_prefix: str = pydantic.Field(
+        default='', validation_alias='IMBI_API_PREFIX'
+    )
+    # Public origin where the API is reachable from a browser (e.g.
+    # ``https://imbi.example.com``). Combined with ``api_prefix`` to
+    # build OAuth redirect URIs and any other absolute URL handed to a
+    # third party. Falls back to ``http://{host}:{port}`` when unset
+    # so dev-loopback runs work out of the box.
+    url: str = pydantic.Field(default='', validation_alias='IMBI_API_URL')
 
     @pydantic.field_validator('api_prefix')
     @classmethod
@@ -65,6 +73,17 @@ class ServerConfig(pydantic_settings.BaseSettings):
         if not value.startswith('/'):
             value = '/' + value
         return value.rstrip('/')
+
+    @pydantic.field_validator('url')
+    @classmethod
+    def _normalize_url(cls, value: str) -> str:
+        return value.rstrip('/')
+
+    @property
+    def public_base_url(self) -> str:
+        """Public base URL including the API prefix."""
+        base = self.url or f'http://{self.host}:{self.port}'
+        return f'{base}{self.api_prefix}'
 
 
 class Auth(settings.Auth):  # type: ignore[misc]
@@ -105,9 +124,6 @@ class Auth(settings.Auth):  # type: ignore[misc]
         False  # Auto-link OAuth to existing user by email
     )
     oauth_auto_create_users: bool = True
-    oauth_callback_base_url: str = (
-        'http://localhost:8000'  # Base URL for callbacks
-    )
 
     # Local password authentication
     local_auth_enabled: bool = True
@@ -184,8 +200,9 @@ class Storage(pydantic_settings.BaseSettings):
     thumbnail_quality: int = 85
 
 
-# Module-level singleton for extended Auth settings
+# Module-level singletons for extended settings
 _auth_settings: Auth | None = None
+_server_config: ServerConfig | None = None
 
 
 def get_auth_settings() -> Auth:
@@ -202,6 +219,31 @@ def get_auth_settings() -> Auth:
     if _auth_settings is None:
         _auth_settings = Auth()
     return _auth_settings
+
+
+def get_server_config() -> ServerConfig:
+    """Get the singleton ServerConfig instance.
+
+    Used to compute public URLs (OAuth callbacks, hypermedia links)
+    that must be reachable from outside the cluster.
+    """
+    global _server_config
+    if _server_config is None:
+        _server_config = ServerConfig()
+    return _server_config
+
+
+def oauth_callback_url(provider_slug: str) -> str:
+    """Build the public OAuth callback URL for a provider slug.
+
+    Combines ``IMBI_API_URL`` (or the local host:port fallback) with
+    ``IMBI_API_PREFIX`` and the canonical
+    ``/auth/oauth/{slug}/callback`` route.
+    """
+    return (
+        f'{get_server_config().public_base_url}'
+        f'/auth/oauth/{provider_slug}/callback'
+    )
 
 
 class APIConfiguration(settings.Configuration):  # type: ignore[misc]

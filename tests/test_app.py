@@ -40,12 +40,10 @@ class CreateAppTestCase(unittest.TestCase):
 
 
 class ApiPrefixTestCase(unittest.TestCase):
-    """Test cases for the IMBI_API_API_PREFIX configuration."""
+    """Test cases for the IMBI_API_PREFIX configuration."""
 
     def test_prefix_applies_to_routes_but_not_docs(self) -> None:
-        with unittest.mock.patch.dict(
-            os.environ, {'IMBI_API_API_PREFIX': '/api'}
-        ):
+        with unittest.mock.patch.dict(os.environ, {'IMBI_API_PREFIX': '/api'}):
             application = app.create_app()
             paths = {route.path for route in application.routes}
         self.assertIn('/api/status', paths)
@@ -56,14 +54,12 @@ class ApiPrefixTestCase(unittest.TestCase):
         self.assertIn('/docs', paths)
 
     def test_empty_prefix_serves_at_root(self) -> None:
-        with unittest.mock.patch.dict(os.environ, {'IMBI_API_API_PREFIX': ''}):
+        with unittest.mock.patch.dict(os.environ, {'IMBI_API_PREFIX': ''}):
             application = app.create_app()
             paths = {route.path for route in application.routes}
         self.assertIn('/status', paths)
         self.assertIn('/uploads/', paths)
 
     def test_prefix_is_normalized(self) -> None:
-        with unittest.mock.patch.dict(
-            os.environ, {'IMBI_API_API_PREFIX': 'api/'}
-        ):
+        with unittest.mock.patch.dict(os.environ, {'IMBI_API_PREFIX': 'api/'}):
             self.assertEqual(settings.ServerConfig().api_prefix, '/api')
