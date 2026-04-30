@@ -800,12 +800,13 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             ).isoformat(),
         }
         # execute(): SET tokens on the existing identity, user fetch,
-        # then the atomic MATCH/CREATE inside issue_token_pair that
-        # returns principal_count.
+        # the atomic MATCH/CREATE inside issue_token_pair
+        # (principal_count), then the SET last_used update.
         self.mock_db.execute.side_effect = [
             [],
             [{'u': user_data}],
             [{'principal_count': 1}],
+            [],
         ]
 
         with (
@@ -896,13 +897,14 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 datetime.UTC,
             ).isoformat(),
         }
-        # execute(): OAUTH_IDENTITY MERGE, user fetch, then the atomic
-        # MATCH/CREATE inside issue_token_pair that returns
-        # principal_count.
+        # execute(): OAUTH_IDENTITY MERGE, user fetch, the atomic
+        # MATCH/CREATE inside issue_token_pair (principal_count), then
+        # the SET last_used update.
         self.mock_db.execute.side_effect = [
             [],
             [{'u': user_data}],
             [{'principal_count': 1}],
+            [],
         ]
 
         with (
@@ -1086,13 +1088,14 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
                 datetime.UTC,
             ).isoformat(),
         }
-        # execute(): OAUTH_IDENTITY MERGE, user fetch, then the atomic
-        # MATCH/CREATE inside issue_token_pair that returns
-        # principal_count.
+        # execute(): OAUTH_IDENTITY MERGE, user fetch, the atomic
+        # MATCH/CREATE inside issue_token_pair (principal_count), then
+        # the SET last_used update.
         self.mock_db.execute.side_effect = [
             [],
             [{'u': user_data}],
             [{'principal_count': 1}],
+            [],
         ]
 
         with (

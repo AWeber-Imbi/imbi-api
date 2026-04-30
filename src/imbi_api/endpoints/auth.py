@@ -886,11 +886,22 @@ async def oauth_callback(
         user.last_login = now
         await db.merge(user, match_on=['email'])
 
-        # Update OAuth identity last_used
+        # Update OAuth identity last_used. Direct SET (not db.merge) so
+        # we don't walk the User edge target — when oauth_identity was
+        # loaded via db.match the edge isn't populated.
         oauth_identity.last_used = now
-        await db.merge(
-            oauth_identity,
-            match_on=['provider', 'provider_user_id'],
+        update_last_used: typing.LiteralString = (
+            'MATCH (oi:OAuthIdentity {{provider: {provider},'
+            ' provider_user_id: {provider_user_id}}})'
+            ' SET oi.last_used = {last_used}'
+        )
+        await db.execute(
+            update_last_used,
+            {
+                'provider': oauth_identity.provider,
+                'provider_user_id': oauth_identity.provider_user_id,
+                'last_used': now.isoformat(),
+            },
         )
 
         LOGGER.info(
