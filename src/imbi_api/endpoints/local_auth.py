@@ -26,7 +26,7 @@ class LocalAuthRead(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
     enabled: bool
-    updated_at: datetime.datetime
+    updated_at: datetime.datetime | None
 
 
 class LocalAuthWrite(pydantic.BaseModel):

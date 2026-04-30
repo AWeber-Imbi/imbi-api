@@ -170,7 +170,7 @@ class LocalAuthConfig(models.GraphModel):
 
     key: typing.Literal['global'] = 'global'
     enabled: bool = True
-    updated_at: datetime.datetime = pydantic.Field(
+    updated_at: datetime.datetime | None = pydantic.Field(
         default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )
 
