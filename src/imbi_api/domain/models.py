@@ -26,6 +26,7 @@ __all__ = [
     'MembershipProperties',
     'OAuth2TokenResponse',
     'OAuthIdentity',
+    'OAuthProvider',
     'OrgMembership',
     'OrganizationEdge',
     'PasswordChangeRequest',
@@ -157,6 +158,27 @@ class OAuthIdentity(models.GraphModel):
             if refresh_token is None:
                 raise ValueError('Failed to decrypt OAuth refresh token')
         return (access_token, refresh_token)
+
+
+class OAuthProvider(models.GraphModel):
+    """OAuth provider configuration stored in the graph.
+
+    ``slug`` is the merge key (and primary identifier).  Keeping
+    ``slug`` distinct from ``type`` leaves room for multiple OIDC
+    IdPs in the future where ``type='oidc'`` and ``slug='okta'`` /
+    ``'auth0'`` etc.  For v1 we constrain ``slug`` to the same
+    three values as ``type``.
+    """
+
+    slug: typing.Literal['google', 'github', 'oidc']
+    type: typing.Literal['google', 'github', 'oidc']
+    name: str
+    enabled: bool = False
+    client_id: str | None = None
+    client_secret_encrypted: str | None = None
+    issuer_url: str | None = None
+    allowed_domains: list[str] = []  # noqa: RUF012
+    icon: str = 'key'
 
 
 class MembershipProperties(pydantic.BaseModel):

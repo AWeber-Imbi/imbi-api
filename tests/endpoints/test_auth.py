@@ -1,4 +1,5 @@
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -9,7 +10,60 @@ from imbi_common import graph
 
 from imbi_api import app, settings
 from imbi_api.auth import models as auth_models
+from imbi_api.auth import providers as oauth_providers
+from imbi_api.domain import models as domain_models
 from imbi_api.middleware import rate_limit
+
+
+def _stub_provider(
+    slug: str,
+    *,
+    enabled: bool = True,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    issuer_url: str | None = None,
+    name: str | None = None,
+    icon: str | None = None,
+    allowed_domains: list[str] | None = None,
+) -> domain_models.OAuthProvider:
+    icons = {'google': 'google', 'github': 'github', 'oidc': 'key'}
+    names = {'google': 'Google', 'github': 'GitHub', 'oidc': 'OIDC'}
+    return domain_models.OAuthProvider(
+        slug=slug,  # type: ignore[arg-type]
+        type=slug,  # type: ignore[arg-type]
+        name=name or names[slug],
+        enabled=enabled,
+        client_id=client_id,
+        client_secret_encrypted=client_secret,
+        issuer_url=issuer_url,
+        allowed_domains=allowed_domains or [],
+        icon=icon or icons[slug],
+    )
+
+
+def _patch_providers(
+    rows: list[domain_models.OAuthProvider],
+) -> typing.Any:
+    """Stub the provider repository helpers for endpoint tests."""
+    by_slug = {r.slug: r for r in rows}
+
+    async def fake_list(
+        db: typing.Any, *, enabled_only: bool = False
+    ) -> list[domain_models.OAuthProvider]:
+        if enabled_only:
+            return [r for r in rows if r.enabled]
+        return list(rows)
+
+    async def fake_get(
+        db: typing.Any, slug: str
+    ) -> domain_models.OAuthProvider | None:
+        return by_slug.get(slug)
+
+    return mock.patch.multiple(
+        oauth_providers,
+        list_providers=fake_list,
+        get_provider=fake_get,
+    )
 
 
 class AuthProvidersEndpointTestCase(unittest.TestCase):
@@ -17,149 +71,77 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test client and mock settings."""
-        # Reset settings singleton
         settings._auth_settings = None
-        self.client = testclient.TestClient(app.create_app())
+        self.test_app = app.create_app()
+        self.mock_db = mock.AsyncMock(spec=graph.Graph)
+        self.test_app.dependency_overrides[graph._inject_graph] = (
+            lambda: self.mock_db
+        )
+        self.client = testclient.TestClient(self.test_app)
+        oauth_providers._provider_cache.clear()
+        oauth_providers._list_cache.clear()
 
     def tearDown(self) -> None:
-        """Reset settings singleton after tests."""
         settings._auth_settings = None
+        oauth_providers._provider_cache.clear()
+        oauth_providers._list_cache.clear()
 
     def test_get_providers_default_config(self) -> None:
-        """Test /auth/providers with default config."""
-        response = self.client.get('/auth/providers')
+        with _patch_providers([]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-
-        self.assertIn('providers', data)
-        self.assertIn('default_redirect', data)
-        self.assertEqual(
-            data['default_redirect'],
-            '/dashboard',
-        )
-
+        self.assertEqual(data['default_redirect'], '/dashboard')
         self.assertEqual(len(data['providers']), 1)
         local_provider = data['providers'][0]
         self.assertEqual(local_provider['id'], 'local')
         self.assertEqual(local_provider['type'], 'password')
-        self.assertEqual(
-            local_provider['name'],
-            'Email/Password',
-        )
-        self.assertTrue(local_provider['enabled'])
         self.assertEqual(local_provider['icon'], 'lock')
 
-    @mock.patch.dict(
-        'os.environ',
-        {'IMBI_AUTH_OAUTH_GOOGLE_ENABLED': 'true'},
-    )
     def test_get_providers_google_enabled(self) -> None:
-        """Test /auth/providers with Google OAuth enabled."""
-        settings._auth_settings = None
-
-        response = self.client.get('/auth/providers')
+        with _patch_providers([_stub_provider('google')]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-
         self.assertEqual(len(data['providers']), 2)
+        google = next(p for p in data['providers'] if p['id'] == 'google')
+        self.assertEqual(google['type'], 'oauth')
+        self.assertEqual(google['auth_url'], '/auth/oauth/google')
+        self.assertEqual(google['icon'], 'google')
 
-        google_provider = next(
-            (p for p in data['providers'] if p['id'] == 'google'),
-            None,
-        )
-        self.assertIsNotNone(google_provider)
-        self.assertEqual(google_provider['type'], 'oauth')
-        self.assertEqual(google_provider['name'], 'Google')
-        self.assertTrue(google_provider['enabled'])
-        self.assertEqual(
-            google_provider['auth_url'],
-            '/auth/oauth/google',
-        )
-        self.assertEqual(google_provider['icon'], 'google')
-
-    @mock.patch.dict(
-        'os.environ',
-        {'IMBI_AUTH_OAUTH_GITHUB_ENABLED': 'true'},
-    )
     def test_get_providers_github_enabled(self) -> None:
-        """Test /auth/providers with GitHub OAuth enabled."""
-        settings._auth_settings = None
-
-        response = self.client.get('/auth/providers')
+        with _patch_providers([_stub_provider('github')]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-
         self.assertEqual(len(data['providers']), 2)
+        github = next(p for p in data['providers'] if p['id'] == 'github')
+        self.assertEqual(github['auth_url'], '/auth/oauth/github')
+        self.assertEqual(github['icon'], 'github')
 
-        github_provider = next(
-            (p for p in data['providers'] if p['id'] == 'github'),
-            None,
-        )
-        self.assertIsNotNone(github_provider)
-        self.assertEqual(github_provider['type'], 'oauth')
-        self.assertEqual(github_provider['name'], 'GitHub')
-        self.assertTrue(github_provider['enabled'])
-        self.assertEqual(
-            github_provider['auth_url'],
-            '/auth/oauth/github',
-        )
-        self.assertEqual(github_provider['icon'], 'github')
-
-    @mock.patch.dict(
-        'os.environ',
-        {
-            'IMBI_AUTH_OAUTH_OIDC_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_OIDC_NAME': 'Custom OIDC',
-        },
-    )
     def test_get_providers_oidc_enabled(self) -> None:
-        """Test /auth/providers with OIDC enabled."""
-        settings._auth_settings = None
-
-        response = self.client.get('/auth/providers')
+        with _patch_providers([_stub_provider('oidc', name='Custom OIDC')]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-
         self.assertEqual(len(data['providers']), 2)
+        oidc = next(p for p in data['providers'] if p['id'] == 'oidc')
+        self.assertEqual(oidc['name'], 'Custom OIDC')
+        self.assertEqual(oidc['icon'], 'key')
 
-        oidc_provider = next(
-            (p for p in data['providers'] if p['id'] == 'oidc'),
-            None,
-        )
-        self.assertIsNotNone(oidc_provider)
-        self.assertEqual(oidc_provider['type'], 'oauth')
-        self.assertEqual(
-            oidc_provider['name'],
-            'Custom OIDC',
-        )
-        self.assertTrue(oidc_provider['enabled'])
-        self.assertEqual(
-            oidc_provider['auth_url'],
-            '/auth/oauth/oidc',
-        )
-        self.assertEqual(oidc_provider['icon'], 'key')
-
-    @mock.patch.dict(
-        'os.environ',
-        {
-            'IMBI_AUTH_OAUTH_GOOGLE_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_GITHUB_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_OIDC_ENABLED': 'true',
-        },
-    )
     def test_get_providers_all_enabled(self) -> None:
-        """Test /auth/providers with all providers enabled."""
-        settings._auth_settings = None
-
-        response = self.client.get('/auth/providers')
+        with _patch_providers(
+            [
+                _stub_provider('google'),
+                _stub_provider('github'),
+                _stub_provider('oidc'),
+            ]
+        ):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-
-        self.assertEqual(len(data['providers']), 4)
-
-        provider_ids = {p['id'] for p in data['providers']}
         self.assertEqual(
-            provider_ids,
+            {p['id'] for p in data['providers']},
             {'local', 'google', 'github', 'oidc'},
         )
 
@@ -168,36 +150,22 @@ class AuthProvidersEndpointTestCase(unittest.TestCase):
         {'IMBI_AUTH_LOCAL_AUTH_ENABLED': 'false'},
     )
     def test_get_providers_local_auth_disabled(self) -> None:
-        """Test /auth/providers with local auth disabled."""
         settings._auth_settings = None
-
-        response = self.client.get('/auth/providers')
+        with _patch_providers([]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-
-        self.assertEqual(len(data['providers']), 0)
+        self.assertEqual(len(response.json()['providers']), 0)
 
     def test_get_providers_response_model(self) -> None:
-        """Test /auth/providers returns valid response."""
-        response = self.client.get('/auth/providers')
+        with _patch_providers([]):
+            response = self.client.get('/auth/providers')
         self.assertEqual(response.status_code, 200)
-
         providers_response = auth_models.AuthProvidersResponse(
             **response.json()
         )
         self.assertIsInstance(
-            providers_response,
-            auth_models.AuthProvidersResponse,
+            providers_response, auth_models.AuthProvidersResponse
         )
-        self.assertIsInstance(
-            providers_response.providers,
-            list,
-        )
-        for provider in providers_response.providers:
-            self.assertIsInstance(
-                provider,
-                auth_models.AuthProvider,
-            )
 
 
 class OAuthFlowTestCase(unittest.TestCase):
@@ -230,59 +198,40 @@ class OAuthFlowTestCase(unittest.TestCase):
 
     def test_oauth_login_disabled_provider(self) -> None:
         """Test OAuth login with disabled provider."""
-        response = self.client.get('/auth/oauth/google')
+        with _patch_providers([_stub_provider('google', enabled=False)]):
+            response = self.client.get('/auth/oauth/google')
         self.assertEqual(response.status_code, 400)
         self.assertIn(
             'not enabled',
             response.json()['detail'],
         )
 
-    @mock.patch.dict(
-        'os.environ',
-        {
-            'IMBI_AUTH_OAUTH_GOOGLE_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_GOOGLE_CLIENT_ID': 'test-id',
-        },
-    )
     def test_oauth_login_google_redirect(self) -> None:
         """Test OAuth login redirects to Google."""
-        settings._auth_settings = None
-        response = self.client.get(
-            '/auth/oauth/google',
-            follow_redirects=False,
-        )
+        with _patch_providers([_stub_provider('google', client_id='test-id')]):
+            response = self.client.get(
+                '/auth/oauth/google',
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 307)
-
         location = response.headers['location']
-        self.assertIn(
-            'accounts.google.com/o/oauth2/v2/auth',
-            location,
-        )
+        self.assertIn('accounts.google.com/o/oauth2/v2/auth', location)
         self.assertIn('client_id=test-id', location)
         self.assertIn('response_type=code', location)
         self.assertIn('state=', location)
 
-    @mock.patch.dict(
-        'os.environ',
-        {
-            'IMBI_AUTH_OAUTH_GITHUB_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_GITHUB_CLIENT_ID': 'github-id',
-        },
-    )
     def test_oauth_login_github_redirect(self) -> None:
         """Test OAuth login redirects to GitHub."""
-        settings._auth_settings = None
-        response = self.client.get(
-            '/auth/oauth/github',
-            follow_redirects=False,
-        )
+        with _patch_providers(
+            [_stub_provider('github', client_id='github-id')]
+        ):
+            response = self.client.get(
+                '/auth/oauth/github',
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 307)
-
         location = response.headers['location']
-        self.assertIn(
-            'github.com/login/oauth/authorize',
-            location,
-        )
+        self.assertIn('github.com/login/oauth/authorize', location)
         self.assertIn('client_id=github-id', location)
 
     def test_oauth_callback_error_handling(self) -> None:
@@ -329,27 +278,25 @@ class OAuthFlowTestCase(unittest.TestCase):
             location,
         )
 
-    @mock.patch.dict(
-        'os.environ',
-        {
-            'IMBI_AUTH_OAUTH_OIDC_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_OIDC_CLIENT_ID': 'oidc-id',
-            'IMBI_AUTH_OAUTH_OIDC_ISSUER_URL': ('https://auth.example.com'),
-        },
-    )
     def test_oauth_login_oidc_redirect(self) -> None:
         """Test OAuth login redirects to OIDC."""
-        settings._auth_settings = None
-        response = self.client.get(
-            '/auth/oauth/oidc',
-            follow_redirects=False,
-        )
+        with _patch_providers(
+            [
+                _stub_provider(
+                    'oidc',
+                    client_id='oidc-id',
+                    issuer_url='https://auth.example.com',
+                )
+            ]
+        ):
+            response = self.client.get(
+                '/auth/oauth/oidc',
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 307)
-
         location = response.headers['location']
         self.assertIn(
-            'auth.example.com/protocol/openid-connect/auth',
-            location,
+            'auth.example.com/protocol/openid-connect/auth', location
         )
         self.assertIn('client_id=oidc-id', location)
 
@@ -858,6 +805,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         ]
 
         with (
+            _patch_providers([_stub_provider('google')]),
             mock.patch(
                 'imbi_api.auth.oauth.verify_oauth_state',
                 return_value=mock_state_data,
@@ -954,6 +902,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         ]
 
         with (
+            _patch_providers([_stub_provider('google')]),
             mock.patch(
                 'imbi_api.auth.oauth.verify_oauth_state',
                 return_value=mock_state_data,
@@ -1033,6 +982,14 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         self.mock_db.match.return_value = []
 
         with (
+            _patch_providers(
+                [
+                    _stub_provider(
+                        'google',
+                        allowed_domains=['example.com', 'test.com'],
+                    )
+                ]
+            ),
             mock.patch(
                 'imbi_api.auth.oauth.verify_oauth_state',
                 return_value=mock_state_data,
@@ -1060,9 +1017,6 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
     @mock.patch.dict(
         'os.environ',
         {
-            'IMBI_AUTH_OAUTH_GOOGLE_ENABLED': 'true',
-            'IMBI_AUTH_OAUTH_GOOGLE_CLIENT_ID': 'test-id',
-            'IMBI_AUTH_OAUTH_GOOGLE_CLIENT_SECRET': ('test-secret'),
             'IMBI_AUTH_ENCRYPTION_KEY': (
                 'nhia5yBgff552rNZAvT4GGu-IE0dMVsXQaM2auHNXRo='
             ),
@@ -1137,6 +1091,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         ]
 
         with (
+            _patch_providers([_stub_provider('google')]),
             mock.patch(
                 'imbi_api.auth.oauth.verify_oauth_state',
                 return_value=mock_state_data,

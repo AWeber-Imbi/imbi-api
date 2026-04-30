@@ -100,22 +100,6 @@ class Auth(settings.Auth):  # type: ignore[misc]
     rate_limit_oauth_init: str = '3/minute'
     rate_limit_api_key: str = '100/minute'
 
-    # OAuth Provider Configurations
-    oauth_google_enabled: bool = False
-    oauth_google_client_id: str | None = None
-    oauth_google_client_secret: str | None = None
-    oauth_google_allowed_domains: list[str] = []  # noqa: RUF012
-
-    oauth_github_enabled: bool = False
-    oauth_github_client_id: str | None = None
-    oauth_github_client_secret: str | None = None
-
-    oauth_oidc_enabled: bool = False
-    oauth_oidc_client_id: str | None = None
-    oauth_oidc_client_secret: str | None = None
-    oauth_oidc_issuer_url: str | None = None
-    oauth_oidc_name: str = 'OIDC'  # Display name for generic OIDC
-
     # OAuth Behavior
     oauth_auto_link_by_email: bool = (
         False  # Auto-link OAuth to existing user by email

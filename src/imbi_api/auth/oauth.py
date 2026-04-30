@@ -6,9 +6,11 @@ import typing
 
 import httpx
 import jwt
+from imbi_common import graph
+from imbi_common.auth import encryption
 
 from imbi_api import settings
-from imbi_api.auth import models
+from imbi_api.auth import models, providers
 
 # Cache for OIDC discovery documents with TTL
 # Format: {issuer_url: (discovery_data, timestamp)}
@@ -137,7 +139,7 @@ async def exchange_oauth_code(
     provider: str,
     code: str,
     redirect_uri: str,
-    auth_settings: settings.Auth,
+    db: graph.Graph,
 ) -> dict[str, typing.Any]:
     """Exchange OAuth authorization code for tokens.
 
@@ -145,7 +147,7 @@ async def exchange_oauth_code(
         provider: OAuth provider identifier
         code: Authorization code from provider
         redirect_uri: Redirect URI used in authorization request
-        auth_settings: Auth settings instance
+        db: Graph database used to look up provider configuration
 
     Returns:
         Token response with access_token, refresh_token (if available), etc.
@@ -156,7 +158,7 @@ async def exchange_oauth_code(
     """
     # Get provider configuration
     token_url, client_id, client_secret = await _get_provider_config(
-        provider, auth_settings
+        provider, db
     )
 
     # Exchange code for token
@@ -185,14 +187,14 @@ async def exchange_oauth_code(
 async def fetch_oauth_profile(
     provider: str,
     access_token: str,
-    auth_settings: settings.Auth,
+    db: graph.Graph,
 ) -> dict[str, typing.Any]:
     """Fetch user profile from OAuth provider.
 
     Args:
         provider: OAuth provider identifier
         access_token: Access token from provider
-        auth_settings: Auth settings instance
+        db: Graph database used to look up provider configuration
 
     Returns:
         Normalized user profile data with keys: id, email, name, avatar_url
@@ -202,7 +204,7 @@ async def fetch_oauth_profile(
 
     """
     # Get userinfo URL
-    userinfo_url = await _get_userinfo_url(provider, auth_settings)
+    userinfo_url = await _get_userinfo_url(provider, db)
 
     # Fetch userinfo
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -292,14 +294,35 @@ def normalize_oauth_profile(
         raise ValueError(f'Unsupported OAuth provider: {provider}')
 
 
+async def _load_enabled_provider(provider: str, db: graph.Graph) -> typing.Any:
+    """Load an enabled provider row or raise ``ValueError``."""
+    if provider not in ('google', 'github', 'oidc'):
+        raise ValueError(f'Unsupported OAuth provider: {provider}')
+    row = await providers.get_provider(db, provider)
+    if row is None or not row.enabled:
+        raise ValueError(f'{provider} OAuth is not enabled')
+    return row
+
+
+def _decrypt_secret(row: typing.Any) -> str:
+    """Decrypt the row's ``client_secret_encrypted`` value."""
+    if not row.client_secret_encrypted:
+        return ''
+    encryptor = encryption.TokenEncryption.get_instance()
+    secret = encryptor.decrypt(row.client_secret_encrypted)
+    if secret is None:
+        raise ValueError('Failed to decrypt OAuth client secret')
+    return secret
+
+
 async def _get_provider_config(
-    provider: str, auth_settings: settings.Auth
+    provider: str, db: graph.Graph
 ) -> tuple[str, str, str]:
-    """Get OAuth provider configuration.
+    """Get OAuth provider configuration from the graph.
 
     Args:
         provider: OAuth provider identifier
-        auth_settings: Auth settings instance
+        db: Graph database
 
     Returns:
         Tuple of (token_url, client_id, client_secret)
@@ -308,49 +331,34 @@ async def _get_provider_config(
         ValueError: If provider is invalid or not configured
 
     """
+    row = await _load_enabled_provider(provider, db)
+    client_id = row.client_id or ''
+    client_secret = _decrypt_secret(row)
     if provider == 'google':
-        if not auth_settings.oauth_google_enabled:
-            raise ValueError('Google OAuth is not enabled')
         return (
             'https://oauth2.googleapis.com/token',
-            auth_settings.oauth_google_client_id or '',
-            auth_settings.oauth_google_client_secret or '',
+            client_id,
+            client_secret,
         )
-    elif provider == 'github':
-        if not auth_settings.oauth_github_enabled:
-            raise ValueError('GitHub OAuth is not enabled')
+    if provider == 'github':
         return (
             'https://github.com/login/oauth/access_token',
-            auth_settings.oauth_github_client_id or '',
-            auth_settings.oauth_github_client_secret or '',
+            client_id,
+            client_secret,
         )
-    elif provider == 'oidc':
-        if not auth_settings.oauth_oidc_enabled:
-            raise ValueError('OIDC OAuth is not enabled')
-        if not auth_settings.oauth_oidc_issuer_url:
-            raise ValueError('OIDC issuer URL not configured')
-
-        # Use OIDC discovery to get endpoints
-        discovery = await _discover_oidc_endpoints(
-            auth_settings.oauth_oidc_issuer_url
-        )
-        return (
-            discovery['token_endpoint'],
-            auth_settings.oauth_oidc_client_id or '',
-            auth_settings.oauth_oidc_client_secret or '',
-        )
-    else:
-        raise ValueError(f'Unsupported OAuth provider: {provider}')
+    # oidc
+    if not row.issuer_url:
+        raise ValueError('OIDC issuer URL not configured')
+    discovery = await _discover_oidc_endpoints(row.issuer_url)
+    return (discovery['token_endpoint'], client_id, client_secret)
 
 
-async def _get_userinfo_url(
-    provider: str, auth_settings: settings.Auth
-) -> str:
+async def _get_userinfo_url(provider: str, db: graph.Graph) -> str:
     """Get userinfo URL for OAuth provider.
 
     Args:
         provider: OAuth provider identifier
-        auth_settings: Auth settings instance
+        db: Graph database
 
     Returns:
         Userinfo endpoint URL
@@ -360,16 +368,15 @@ async def _get_userinfo_url(
 
     """
     if provider == 'google':
+        await _load_enabled_provider(provider, db)
         return 'https://www.googleapis.com/oauth2/v2/userinfo'
-    elif provider == 'github':
+    if provider == 'github':
+        await _load_enabled_provider(provider, db)
         return 'https://api.github.com/user'
-    elif provider == 'oidc':
-        if not auth_settings.oauth_oidc_issuer_url:
+    if provider == 'oidc':
+        row = await _load_enabled_provider(provider, db)
+        if not row.issuer_url:
             raise ValueError('OIDC issuer URL not configured')
-        # Use OIDC discovery to get userinfo endpoint
-        discovery = await _discover_oidc_endpoints(
-            auth_settings.oauth_oidc_issuer_url
-        )
+        discovery = await _discover_oidc_endpoints(row.issuer_url)
         return str(discovery['userinfo_endpoint'])
-    else:
-        raise ValueError(f'Unsupported OAuth provider: {provider}')
+    raise ValueError(f'Unsupported OAuth provider: {provider}')

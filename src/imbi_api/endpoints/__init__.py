@@ -6,6 +6,7 @@ from .auth import auth_router
 from .blueprints import blueprint_router
 from .client_credentials import client_credentials_router
 from .mfa import mfa_router
+from .oauth_providers import oauth_providers_router
 from .operations_log import operations_log_router
 from .organizations import organizations_router
 from .roles import roles_router
@@ -22,6 +23,7 @@ prefixed_routers: list[fastapi.APIRouter] = [
     blueprint_router,
     client_credentials_router,
     mfa_router,
+    oauth_providers_router,
     operations_log_router,
     organizations_router,
     roles_router,

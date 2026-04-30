@@ -237,6 +237,19 @@ STANDARD_PERMISSIONS: list[tuple[str, str, str, str]] = [
     ('note:read', 'note', 'read', 'View project notes'),
     ('note:write', 'note', 'write', 'Update project notes'),
     ('note:delete', 'note', 'delete', 'Delete project notes'),
+    # OAuth provider management
+    (
+        'oauth_providers:read',
+        'oauth_providers',
+        'read',
+        'View OAuth provider configuration',
+    ),
+    (
+        'oauth_providers:write',
+        'oauth_providers',
+        'write',
+        'Create, update, and delete OAuth provider configuration',
+    ),
     # Note template management
     (
         'note_template:create',
