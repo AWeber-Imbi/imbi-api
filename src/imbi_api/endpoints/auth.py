@@ -991,18 +991,31 @@ async def find_or_create_oauth_identity(
 
     # OAuth identity doesn't exist - need to create it
 
-    # Check if we should auto-link to existing user by email
-    user = None
-    if auth_settings.oauth_auto_link_by_email:
-        user_results = await db.match(models.User, {'email': profile['email']})
-        user = user_results[0] if user_results else None
+    # Look up an existing user by email — always, regardless of the
+    # auto-link flag. The flag only controls whether a match means
+    # "link this OAuth identity" or "reject the login". Without this
+    # lookup, a brand-new OAuth login for an email that already has a
+    # local account would race the unique-email index and trip a
+    # UniqueViolation.
+    user_results = await db.match(models.User, {'email': profile['email']})
+    existing = user_results[0] if user_results else None
 
-    # Create new user if doesn't exist
-    if not user:
+    if existing is not None:
+        if not auth_settings.oauth_auto_link_by_email:
+            raise ValueError(
+                f'A user with email {profile["email"]} already exists. '
+                'OAuth auto-link by email is disabled.'
+            )
+        user = existing
+        LOGGER.info(
+            'Linked OAuth %s identity to existing user %s',
+            provider,
+            user.email,
+        )
+    else:
         if not auth_settings.oauth_auto_create_users:
             raise ValueError('User auto-creation disabled')
 
-        # Create user from OAuth profile
         user = models.User(
             email=profile['email'],
             display_name=profile['name'],
@@ -1014,7 +1027,7 @@ async def find_or_create_oauth_identity(
             avatar_url=profile.get('avatar_url'),
         )
 
-        await db.merge(user)
+        await db.merge(user, ['email'])
         LOGGER.info(
             'Created new user %s via OAuth %s',
             user.email,

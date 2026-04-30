@@ -118,9 +118,11 @@ class Auth(settings.Auth):  # type: ignore[misc]
     rate_limit_api_key: str = '100/minute'
 
     # OAuth Behavior
-    oauth_auto_link_by_email: bool = (
-        False  # Auto-link OAuth to existing user by email
-    )
+    # Auto-link an incoming OAuth identity to an existing user when the
+    # email matches. Safe for verified-email IdPs (Google, GitHub, most
+    # OIDC). Disable for deployments that require an admin to manually
+    # link OAuth identities to local accounts.
+    oauth_auto_link_by_email: bool = True
     oauth_auto_create_users: bool = True
 
 
