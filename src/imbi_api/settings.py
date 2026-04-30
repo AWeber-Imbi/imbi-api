@@ -51,28 +51,16 @@ class ServerConfig(pydantic_settings.BaseSettings):
     # behind a reverse proxy so rate limiting keys on the real client
     # IP rather than the proxy address. Empty disables the middleware.
     forwarded_allow_ips: str = ''
-    # Path prefix prepended to every API route (e.g. '/api'). Empty
-    # serves routes at the root. Applied to routing and to hypermedia
-    # link emission. The /docs and /openapi.json endpoints are always
-    # served at the root regardless of this value.
-    api_prefix: str = pydantic.Field(
-        default='', validation_alias='IMBI_API_PREFIX'
-    )
-    # Public origin where the API is reachable from a browser (e.g.
-    # ``https://imbi.example.com``). Combined with ``api_prefix`` to
-    # build OAuth redirect URIs and any other absolute URL handed to a
-    # third party. Falls back to ``http://{host}:{port}`` when unset
-    # so dev-loopback runs work out of the box.
+    # Public URL where the API is reachable from a browser, including
+    # the path prefix it's mounted under (e.g.
+    # ``https://imbi.example.com/api``). The path component drives
+    # FastAPI route mounting and hypermedia link emission; the full
+    # URL is used to build OAuth redirect URIs and any other absolute
+    # URL handed to a third party. Falls back to
+    # ``http://{host}:{port}`` (no prefix) when unset so dev-loopback
+    # runs work out of the box. The /docs and /openapi.json endpoints
+    # are always served at the root regardless of the prefix.
     url: str = pydantic.Field(default='', validation_alias='IMBI_API_URL')
-
-    @pydantic.field_validator('api_prefix')
-    @classmethod
-    def _normalize_api_prefix(cls, value: str) -> str:
-        if not value:
-            return ''
-        if not value.startswith('/'):
-            value = '/' + value
-        return value.rstrip('/')
 
     @pydantic.field_validator('url')
     @classmethod
@@ -80,10 +68,20 @@ class ServerConfig(pydantic_settings.BaseSettings):
         return value.rstrip('/')
 
     @property
+    def api_prefix(self) -> str:
+        """Path prefix derived from the public URL's path component."""
+        if not self.url:
+            return ''
+        return urllib.parse.urlparse(self.url).path.rstrip('/')
+
+    @property
     def public_base_url(self) -> str:
-        """Public base URL including the API prefix."""
-        base = self.url or f'http://{self.host}:{self.port}'
-        return f'{base}{self.api_prefix}'
+        """Public base URL including the API prefix.
+
+        Returns ``self.url`` directly when configured (already includes
+        the prefix), otherwise the local host:port for dev-loopback.
+        """
+        return self.url or f'http://{self.host}:{self.port}'
 
 
 class Auth(settings.Auth):  # type: ignore[misc]
@@ -233,9 +231,8 @@ def get_server_config() -> ServerConfig:
 def oauth_callback_url(provider_slug: str) -> str:
     """Build the public OAuth callback URL for a provider slug.
 
-    Combines ``IMBI_API_URL`` (or the local host:port fallback) with
-    ``IMBI_API_PREFIX`` and the canonical
-    ``/auth/oauth/{slug}/callback`` route.
+    Appends the canonical ``/auth/oauth/{slug}/callback`` route to
+    ``IMBI_API_URL`` (or the local host:port fallback).
     """
     return (
         f'{get_server_config().public_base_url}'
