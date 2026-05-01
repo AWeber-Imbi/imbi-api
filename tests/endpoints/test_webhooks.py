@@ -235,7 +235,13 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
     def test_create_slug_collision_returns_409(self) -> None:
         self.mock_db.execute.side_effect = psycopg.errors.UniqueViolation()
-        with self._patch_encryption():
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_api.endpoints.webhooks._check_identifier_collision',
+                new=mock.AsyncMock(),
+            ),
+        ):
             response = self.client.post(
                 '/organizations/engineering/webhooks/',
                 json=self.webhook_create_json,
@@ -495,6 +501,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         self.mock_db.execute.side_effect = [
             [existing_record],
+            [{'n': 0}],  # collision check
             [updated_record],
             [updated_record],
         ]
@@ -519,7 +526,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         # Verify the write query used the regenerated slug
-        write_call_args = self.mock_db.execute.call_args_list[1]
+        write_call_args = self.mock_db.execute.call_args_list[2]
         write_params = write_call_args[0][1]
         self.assertEqual(write_params['slug'], 'gitlab-events')
 
@@ -554,6 +561,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         self.mock_db.execute.side_effect = [
             [existing_record],
+            [{'n': 0}],  # collision check
             [updated_record],
             [updated_record],
         ]
@@ -582,7 +590,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        write_call_args = self.mock_db.execute.call_args_list[1]
+        write_call_args = self.mock_db.execute.call_args_list[2]
         write_params = write_call_args[0][1]
         self.assertEqual(write_params['slug'], 'my-custom-slug')
 
@@ -667,6 +675,7 @@ class WebhookEndpointsTestCase(unittest.TestCase):
 
         self.mock_db.execute.side_effect = [
             [existing_record],
+            [{'n': 0}],  # collision check (no cross-id collision)
             psycopg.errors.UniqueViolation(),
         ]
 
@@ -930,6 +939,66 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             response.json()['rules'][0]['handler_config'],
             ['step1', 'step2'],
         )
+
+    # -- Identifier collision --
+
+    def test_create_identifier_collision_returns_409(self) -> None:
+        """Slug matching an existing webhook id returns 409."""
+        self.mock_db.execute.return_value = [{'n': 1}]
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.post(
+                '/organizations/engineering/webhooks/',
+                json=self.webhook_create_json,
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('collide', response.json()['detail'])
+
+    def test_patch_identifier_collision_returns_409(self) -> None:
+        """Changing slug to one matching an existing webhook id returns 409."""
+        existing_record = {
+            'webhook': {
+                'id': 'abc123def4',
+                'name': 'Deploy Hook',
+                'slug': 'deploy',
+                'description': None,
+                'notification_path': '/abc123def4',
+                'secret': None,
+            },
+            'tps': None,
+            'identifier_selector': None,
+            'rules': [],
+        }
+        self.mock_db.execute.side_effect = [
+            [existing_record],
+            [{'n': 1}],  # collision check finds a conflicting id
+        ]
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/webhooks/deploy',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/slug',
+                        'value': 'some-nanoid-value',
+                    }
+                ],
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('collide', response.json()['detail'])
 
     # -- Slug / id generation helpers --
 

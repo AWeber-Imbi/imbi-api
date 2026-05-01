@@ -51,6 +51,52 @@ def _compute_webhook_slug(
     return name_part[:64]
 
 
+async def _check_identifier_collision(
+    db: graph.Graph,
+    org_slug: str,
+    *,
+    slug: str,
+    webhook_id: str | None = None,
+    exclude_id: str | None = None,
+) -> None:
+    """Raise 409 if slug or id would collide with the other identifier type.
+
+    Checks that no webhook in the org has ``id = slug`` (a slug that
+    matches an existing surrogate key) or ``slug = webhook_id`` (an id
+    that matches an existing human-readable slug).  ``exclude_id`` skips
+    the webhook with that id so a PATCH on the current webhook doesn't
+    flag itself.
+    """
+    conditions: list[str] = ['w.id = {chk_slug}']
+    params: dict[str, str] = {'org_slug': org_slug, 'chk_slug': slug}
+    if webhook_id is not None:
+        conditions.append('w.slug = {chk_id}')
+        params['chk_id'] = webhook_id
+    condition_expr = ' OR '.join(conditions)
+
+    exclude_clause = ''
+    if exclude_id is not None:
+        exclude_clause = ' AND w.id <> {exclude_id}'
+        params['exclude_id'] = exclude_id
+
+    query = (
+        'MATCH (w:Webhook)-[:BELONGS_TO]->'
+        '(o:Organization {{slug: {org_slug}}})'
+        f' WHERE ({condition_expr}){exclude_clause}'
+        ' RETURN count(w) AS n'
+    )
+    rows = await db.execute(query, params, ['n'])
+    count = graph.parse_agtype(rows[0].get('n', 0)) if rows else 0
+    if count:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(
+                'The webhook slug and id must not collide with any existing '
+                "webhook's id or slug in this organization."
+            ),
+        )
+
+
 def _rules_create_clauses(
     rules: list[dict[str, str | int]],
 ) -> tuple[str, dict[str, typing.Any]]:
@@ -137,6 +183,16 @@ _UPDATE_RETURN_TAIL_NO_TPS: typing.LiteralString = (
 )
 
 
+def _parse_json_rules(raw: typing.Any) -> list[typing.Any]:
+    """Parse rules from a graph record; handles str (JSON) or list."""
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return list(raw) if raw else []
+
+
 webhooks_router = fastapi.APIRouter(tags=['Webhooks'])
 
 
@@ -163,6 +219,9 @@ async def create_webhook(
 
     webhook_id = _generate_id()
     slug = _compute_webhook_slug(data.third_party_service_slug, data.name)
+    await _check_identifier_collision(
+        db, org_slug, slug=slug, webhook_id=webhook_id
+    )
     notification_path = f'/{webhook_id}'
 
     props: dict[str, typing.Any] = {
@@ -374,12 +433,7 @@ async def patch_webhook(
 
     existing_webhook = graph.parse_agtype(existing[0]['webhook'])
 
-    raw_rules: list[typing.Any] = existing[0].get('rules') or []
-    if isinstance(raw_rules, str):
-        try:
-            raw_rules = json.loads(raw_rules)
-        except (json.JSONDecodeError, TypeError):
-            raw_rules = []
+    raw_rules = _parse_json_rules(existing[0].get('rules'))
 
     existing_tps = existing[0].get('tps')
     if existing_tps:
@@ -422,6 +476,15 @@ async def patch_webhook(
         patched['slug'] = _compute_webhook_slug(
             patched.get('third_party_service_slug'),
             patched['name'],
+        )
+
+    new_slug: str = patched['slug']
+    if new_slug != existing_webhook.get('slug'):
+        await _check_identifier_collision(
+            db,
+            org_slug,
+            slug=new_slug,
+            exclude_id=existing_webhook.get('id', ''),
         )
 
     encryptor = encryption.TokenEncryption.get_instance()
