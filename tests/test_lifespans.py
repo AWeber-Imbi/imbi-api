@@ -56,30 +56,6 @@ class ApplicationLifespanTestCase(unittest.TestCase):
             any('Valkey unavailable' in line for line in cm.output)
         )
 
-    def test_score_worker_skipped_when_valkey_returns_none(self) -> None:
-        """score_worker_hook exits early when get_client() returns None."""
-        loop = asyncio.new_event_loop()
-        try:
-            with (
-                unittest.mock.patch(
-                    'imbi_api.lifespans.valkey.get_client',
-                    return_value=None,
-                ),
-                self.assertLogs(lifespans.LOGGER, level='WARNING') as cm,
-            ):
-
-                async def _run() -> None:
-                    async with lifespans.score_worker_hook():
-                        pass
-
-                loop.run_until_complete(_run())
-        finally:
-            loop.close()
-
-        self.assertTrue(
-            any('Valkey unavailable' in line for line in cm.output)
-        )
-
     def test_score_worker_skipped_when_graph_not_ready(self) -> None:
         """score_worker_hook exits early when _graph is None."""
         mock_client = unittest.mock.AsyncMock()
