@@ -141,15 +141,12 @@ async def _reconcile_user_memberships(
             await db.execute(
                 'MATCH (u:User {{email: {email}}}),'
                 ' (o:Organization {{slug: {org_slug}}})'
-                ' MERGE (u)-[m:MEMBER_OF]->(o)'
-                ' SET m.role = {role}'
-                ' RETURN m',
+                ' CREATE (u)-[:MEMBER_OF {{role: {role}}}]->(o)',
                 {
                     'email': email,
                     'org_slug': slug,
                     'role': desired_by_slug[slug],
                 },
-                columns=['m'],
             )
         elif slug in desired_by_slug and slug in existing_by_slug:
             if desired_by_slug[slug] != existing_by_slug[slug]:
@@ -550,14 +547,17 @@ async def patch_user(
         avatar_url=existing_user.avatar_url,
     )
 
+    # Normalize and validate memberships before persisting user changes
+    new_orgs_raw = patched.get('organizations', [])
+    new_orgs = _normalize_membership_input(new_orgs_raw)
+    memberships_changed = {
+        (o['organization_slug'], o['role']) for o in new_orgs
+    } != {(o['organization_slug'], o['role']) for o in existing_orgs}
+
     await db.merge(updated_user, match_on=['email'])
 
     # Reconcile organization memberships if the patch changed them
-    new_orgs_raw = patched.get('organizations', [])
-    new_orgs = _normalize_membership_input(new_orgs_raw)
-    if {(o['organization_slug'], o['role']) for o in new_orgs} != {
-        (o['organization_slug'], o['role']) for o in existing_orgs
-    }:
+    if memberships_changed:
         await _reconcile_user_memberships(db, email, existing_orgs, new_orgs)
 
     # Return the user with the post-reconciliation memberships
@@ -735,9 +735,8 @@ async def add_to_organization(
     MATCH (u:User {{email: {email}}}),
           (o:Organization {{slug: {org_slug}}}),
           (r:Role {{slug: {role_slug}}})
-    MERGE (u)-[m:MEMBER_OF]->(o)
-    SET m.role = {role_slug}
-    RETURN u, o, r
+    OPTIONAL MATCH (u)-[existing_m:MEMBER_OF]->(o)
+    RETURN u, o, r, existing_m
     """
     records = await db.execute(
         query,
@@ -746,13 +745,29 @@ async def add_to_organization(
             'org_slug': org_slug,
             'role_slug': role_slug,
         },
-        columns=['u', 'o', 'r'],
+        columns=['u', 'o', 'r', 'existing_m'],
     )
     if not records:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'User {email!r}, organization {org_slug!r},'
             f' or role {role_slug!r} not found',
+        )
+    existing_m = records[0].get('existing_m')
+    if existing_m is None:
+        await db.execute(
+            'MATCH (u:User {{email: {email}}}),'
+            ' (o:Organization {{slug: {org_slug}}})'
+            ' CREATE (u)-[:MEMBER_OF {{role: {role_slug}}}]->(o)',
+            {'email': email, 'org_slug': org_slug, 'role_slug': role_slug},
+        )
+    else:
+        await db.execute(
+            'MATCH (:User {{email: {email}}})'
+            '-[m:MEMBER_OF]->'
+            '(:Organization {{slug: {org_slug}}})'
+            ' SET m.role = {role_slug}',
+            {'email': email, 'org_slug': org_slug, 'role_slug': role_slug},
         )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from unittest import mock
 
@@ -204,6 +205,180 @@ class HandleEntriesWithDlqTest(unittest.IsolatedAsyncioTestCase):
                     check_dlq=True,
                 )
         process.assert_not_called()
+
+
+class ProcessMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_skips_missing_project_id(self) -> None:
+        db = mock.AsyncMock()
+        ch = mock.AsyncMock()
+        await score_queue._process_message(db, ch, {})
+        db.match.assert_not_called()
+
+    async def test_skips_when_project_not_found(self) -> None:
+        db = mock.AsyncMock()
+        db.match = mock.AsyncMock(return_value=[])
+        ch = mock.AsyncMock()
+        with self.assertLogs('imbi_api.scoring.queue', level='INFO'):
+            await score_queue._process_message(
+                db, ch, {'project_id': 'p1', 'reason': 'policy_change'}
+            )
+
+    async def test_computes_and_records_score(self) -> None:
+        from imbi_common import models
+
+        db = mock.AsyncMock()
+        project = mock.MagicMock(spec=models.Project)
+        project.score = 0.5
+        db.match = mock.AsyncMock(return_value=[project])
+        ch = mock.AsyncMock()
+        with (
+            mock.patch(
+                'imbi_api.scoring.queue.compute_score',
+                mock.AsyncMock(return_value=(0.8, None)),
+            ),
+            mock.patch(
+                'imbi_api.scoring.queue.record_score_change',
+                mock.AsyncMock(),
+            ) as mock_record,
+        ):
+            await score_queue._process_message(
+                db, ch, {'project_id': 'p1', 'reason': 'attribute_change'}
+            )
+            mock_record.assert_awaited_once()
+
+    async def test_uses_zero_when_project_score_is_none(self) -> None:
+        from imbi_common import models
+
+        db = mock.AsyncMock()
+        project = mock.MagicMock(spec=models.Project)
+        project.score = None
+        db.match = mock.AsyncMock(return_value=[project])
+        ch = mock.AsyncMock()
+        with (
+            mock.patch(
+                'imbi_api.scoring.queue.compute_score',
+                mock.AsyncMock(return_value=(0.5, None)),
+            ),
+            mock.patch(
+                'imbi_api.scoring.queue.record_score_change',
+                mock.AsyncMock(),
+            ) as mock_record,
+        ):
+            await score_queue._process_message(
+                db, ch, {'project_id': 'p1', 'reason': 'attribute_change'}
+            )
+            _args, kwargs = mock_record.call_args
+            # previous should have been 0.0 (default when score is None)
+            self.assertEqual(
+                kwargs.get('previous', _args[4] if len(_args) > 4 else None),
+                0.0,
+            )
+
+
+class ConsumeRecomputeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_processes_messages_then_stops(self) -> None:
+        client = mock.AsyncMock()
+        client.xgroup_create = mock.AsyncMock(
+            side_effect=Exception('BUSYGROUP Consumer Group already exists')
+        )
+        client.xautoclaim = mock.AsyncMock(return_value=['0-0', [], []])
+        stop = asyncio.Event()
+
+        # First xreadgroup call returns a message; second stops the loop
+        call_count = 0
+
+        async def xreadgroup_side_effect(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [[b'stream', [(b'1-0', {b'project_id': b'p1'})]]]
+            stop.set()
+            return []
+
+        client.xreadgroup = mock.AsyncMock(side_effect=xreadgroup_side_effect)
+        client.xack = mock.AsyncMock()
+
+        with mock.patch.object(
+            score_queue, '_process_message', mock.AsyncMock()
+        ):
+            await score_queue.consume_recompute(
+                client,
+                mock.AsyncMock(),
+                mock.AsyncMock(),
+                stop=stop,
+            )
+
+        client.xack.assert_awaited()
+
+    async def test_handles_xreadgroup_exception(self) -> None:
+        import asyncio
+
+        client = mock.AsyncMock()
+        client.xgroup_create = mock.AsyncMock(
+            side_effect=Exception('BUSYGROUP Consumer Group already exists')
+        )
+        client.xautoclaim = mock.AsyncMock(return_value=['0-0', [], []])
+        stop = asyncio.Event()
+        call_count = 0
+
+        async def xreadgroup_fail(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            stop.set()
+            raise RuntimeError('xreadgroup failed')
+
+        client.xreadgroup = mock.AsyncMock(side_effect=xreadgroup_fail)
+
+        with self.assertLogs('imbi_api.scoring.queue', level='ERROR'):
+            await score_queue.consume_recompute(
+                client,
+                mock.AsyncMock(),
+                mock.AsyncMock(),
+                stop=stop,
+            )
+
+    async def test_processes_stale_messages(self) -> None:
+        import asyncio
+
+        client = mock.AsyncMock()
+        client.xgroup_create = mock.AsyncMock(
+            side_effect=Exception('BUSYGROUP Consumer Group already exists')
+        )
+        stop = asyncio.Event()
+        stale_entries = [(b'0-1', {b'project_id': b'stale'})]
+        client.xautoclaim = mock.AsyncMock(
+            return_value=['0-0', stale_entries, []]
+        )
+        client.xack = mock.AsyncMock()
+
+        call_count = 0
+
+        async def xreadgroup_side_effect(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            stop.set()
+            return []
+
+        client.xreadgroup = mock.AsyncMock(side_effect=xreadgroup_side_effect)
+
+        with (
+            mock.patch.object(
+                score_queue,
+                '_maybe_dead_letter',
+                mock.AsyncMock(return_value=False),
+            ),
+            mock.patch.object(
+                score_queue, '_process_message', mock.AsyncMock()
+            ) as mock_proc,
+        ):
+            await score_queue.consume_recompute(
+                client,
+                mock.AsyncMock(),
+                mock.AsyncMock(),
+                stop=stop,
+            )
+
+        mock_proc.assert_awaited_once()
 
 
 class AllProjectIdsTests(unittest.IsolatedAsyncioTestCase):

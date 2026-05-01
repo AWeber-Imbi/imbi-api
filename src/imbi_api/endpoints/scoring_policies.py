@@ -188,6 +188,21 @@ async def create_policy(
             detail=f'Scoring policy {policy.slug!r} already exists',
         ) from e
     if data.targets:
+        found_rows = await db.execute(
+            'MATCH (pt:ProjectType) WHERE pt.slug IN {slugs}'
+            ' RETURN collect(pt.slug) AS found',
+            {'slugs': data.targets},
+            ['found'],
+        )
+        found: list[str] = (
+            graph.parse_agtype(found_rows[0]['found']) if found_rows else []
+        ) or []
+        missing = set(data.targets) - set(found)
+        if missing:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f'Unknown project type(s): {sorted(missing)}',
+            )
         link_q: typing.LiteralString = (
             'MATCH (sp:ScoringPolicy {{slug: {slug}}})'
             ' UNWIND {targets} AS ts'
@@ -244,6 +259,24 @@ async def update_policy(
         )
         await db.execute(update_q, params, ['sp'])  # type: ignore[arg-type]
     if data.targets is not None:
+        if data.targets:
+            found_rows = await db.execute(
+                'MATCH (pt:ProjectType) WHERE pt.slug IN {slugs}'
+                ' RETURN collect(pt.slug) AS found',
+                {'slugs': data.targets},
+                ['found'],
+            )
+            found: list[str] = (
+                graph.parse_agtype(found_rows[0]['found'])
+                if found_rows
+                else []
+            ) or []
+            missing = set(data.targets) - set(found)
+            if missing:
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail=f'Unknown project type(s): {sorted(missing)}',
+                )
         clear_q: typing.LiteralString = (
             'MATCH (sp:ScoringPolicy {{slug: {slug}}})-[r:TARGETS]->()'
             ' DELETE r'

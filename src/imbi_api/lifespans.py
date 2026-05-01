@@ -79,6 +79,10 @@ async def score_worker_hook() -> abc.AsyncIterator[None]:
         LOGGER.warning('Valkey unavailable; score worker not started')
         yield None
         return
+    if client is None:
+        LOGGER.warning('Valkey unavailable; score worker not started')
+        yield None
+        return
     if _graph is None:
         LOGGER.warning('Graph not ready; score worker not started')
         yield None

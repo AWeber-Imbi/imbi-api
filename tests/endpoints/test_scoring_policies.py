@@ -186,15 +186,21 @@ class ScoringPolicyEndpointsTestCase(unittest.TestCase):
         self.mock_db.execute = mock.AsyncMock(
             side_effect=[
                 [{'sp': self._policy_props()}],
+                [{'found': ['service']}],  # target validation
                 [],  # link targets
                 [{'sp': self._policy_props(), 'targets': ['service']}],
                 [],
             ]
         )
-        with mock.patch(
-            'imbi_api.endpoints.scoring_policies.score_queue.'
-            'affected_projects',
-            mock.AsyncMock(return_value=[]),
+        with (
+            mock.patch(
+                'imbi_api.endpoints.scoring_policies.score_queue.'
+                'affected_projects',
+                mock.AsyncMock(return_value=[]),
+            ),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
         ):
             response = self.client.post(
                 '/scoring/policies/',
@@ -209,6 +215,30 @@ class ScoringPolicyEndpointsTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()['slug'], 'python-version')
+
+    def test_create_policy_with_unknown_targets_returns_400(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'sp': self._policy_props()}],
+                [{'found': []}],  # target validation returns nothing found
+            ]
+        )
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.post(
+                '/scoring/policies/',
+                json={
+                    'name': 'Python Version',
+                    'slug': 'python-version',
+                    'attribute_name': 'programming_language',
+                    'weight': 50,
+                    'value_score_map': {'Python 3.12': 100},
+                    'targets': ['nonexistent-type'],
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Unknown project type', response.json()['detail'])
 
     def test_create_policy_conflict(self) -> None:
         import psycopg.errors
@@ -232,11 +262,54 @@ class ScoringPolicyEndpointsTestCase(unittest.TestCase):
         self.mock_db.execute = mock.AsyncMock(
             side_effect=[
                 [{'sp': self._policy_props(), 'targets': []}],  # load existing
+                [{'found': ['service']}],  # target validation (new)
                 [],  # clear targets
                 [],  # link new targets
                 [
                     {'sp': self._policy_props(), 'targets': ['service']}
                 ],  # reload
+            ]
+        )
+        with (
+            mock.patch(
+                'imbi_api.endpoints.scoring_policies.score_queue.'
+                'affected_projects',
+                mock.AsyncMock(return_value=[]),
+            ),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            response = self.client.patch(
+                '/scoring/policies/python-version',
+                json={'targets': ['service']},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_update_policy_with_unknown_targets_returns_400(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'sp': self._policy_props(), 'targets': []}],  # load existing
+                [{'found': []}],  # target validation finds nothing
+            ]
+        )
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/scoring/policies/python-version',
+                json={'targets': ['ghost-type']},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Unknown project type', response.json()['detail'])
+
+    def test_update_policy_clear_targets(self) -> None:
+        """PATCH with targets=[] clears all targets without validation."""
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'sp': self._policy_props(), 'targets': ['service']}],  # load
+                [],  # clear targets
+                [{'sp': self._policy_props(), 'targets': []}],  # reload
             ]
         )
         with mock.patch(
@@ -246,7 +319,7 @@ class ScoringPolicyEndpointsTestCase(unittest.TestCase):
         ):
             response = self.client.patch(
                 '/scoring/policies/python-version',
-                json={'targets': ['service']},
+                json={'targets': []},
             )
         self.assertEqual(response.status_code, 200, response.text)
 
