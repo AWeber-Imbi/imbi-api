@@ -1198,7 +1198,43 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
 
         # Callback redirects to error URL on failure.
         self.assertEqual(response.status_code, 307)
-        self.assertIn('error=', response.headers['location'])
+        location = response.headers['location']
+        self.assertIn('error=authentication_failed', location)
+        # The auto-link must NOT have run: no merge against the user
+        # record, no token issuance.
+        self.mock_db.merge.assert_not_called()
+        # Repeat with email_verified explicitly False to confirm the
+        # truthy check (not just absence) gates the link.
+        self.mock_db.match.side_effect = [[], [existing_user]]
+        mock_profile_explicit = {**mock_profile, 'email_verified': False}
+        with (
+            _patch_providers([_stub_provider('google')]),
+            mock.patch(
+                'imbi_api.auth.oauth.verify_oauth_state',
+                return_value=mock_state_data,
+            ),
+            mock.patch(
+                'imbi_api.auth.oauth.exchange_oauth_code',
+                return_value=mock_token_response,
+            ),
+            mock.patch(
+                'imbi_api.auth.oauth.fetch_oauth_profile',
+                return_value=mock_profile_explicit,
+            ),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.get(
+                '/auth/oauth/google/callback?code=test-code&state=test-state',
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 307)
+        self.assertIn(
+            'error=authentication_failed', response.headers['location']
+        )
+        self.mock_db.merge.assert_not_called()
 
     @mock.patch.dict(
         'os.environ',

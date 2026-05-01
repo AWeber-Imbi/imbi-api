@@ -319,7 +319,10 @@ async def create_auth_provider(
         # Reject collisions whose parent service/org doesn't match the
         # request: silently rewriting another service's provider would
         # both mis-attribute the response and let one tenant clobber
-        # another's OAuth credentials.
+        # another's OAuth credentials. Only enforce when the caller
+        # explicitly pinned a parent — otherwise treat the existing
+        # row as the implicit target and route through the update
+        # branch.
         existing_svc: dict[str, typing.Any] = (
             graph.parse_agtype(existing_records[0].get('service')) or {}
         )
@@ -329,8 +332,10 @@ async def create_auth_provider(
         existing_svc_slug = existing_svc.get('slug')
         existing_org_slug = existing_org.get('slug')
         if (
-            existing_svc_slug != resolved_service_slug
-            or existing_org_slug != resolved_org_slug
+            data.third_party_service_slug is not None
+            and existing_svc_slug != data.third_party_service_slug
+        ) or (
+            data.org_slug is not None and existing_org_slug != data.org_slug
         ):
             raise fastapi.HTTPException(
                 status_code=409,
