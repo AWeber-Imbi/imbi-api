@@ -1201,8 +1201,12 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
         location = response.headers['location']
         self.assertIn('error=authentication_failed', location)
         # The auto-link must NOT have run: no merge against the user
-        # record, no token issuance.
+        # record, no token issuance (issue_token_pair uses
+        # db.execute), no graph writes at all.
         self.mock_db.merge.assert_not_called()
+        self.mock_db.execute.assert_not_called()
+        self.mock_db.merge.reset_mock()
+        self.mock_db.execute.reset_mock()
         # Repeat with email_verified explicitly False to confirm the
         # truthy check (not just absence) gates the link.
         self.mock_db.match.side_effect = [[], [existing_user]]
@@ -1235,6 +1239,7 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             'error=authentication_failed', response.headers['location']
         )
         self.mock_db.merge.assert_not_called()
+        self.mock_db.execute.assert_not_called()
 
     @mock.patch.dict(
         'os.environ',
