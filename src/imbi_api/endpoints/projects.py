@@ -826,7 +826,8 @@ async def get_project(
     response = ProjectResponse.model_validate(project_data)
     if breakdown:
         try:
-            _, bd = await compute_score(db, project_id)
+            score, bd = await compute_score(db, project_id)
+            response.score = score
             response.breakdown = bd
         except ValueError:
             pass

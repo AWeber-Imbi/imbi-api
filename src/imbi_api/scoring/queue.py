@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import typing
+from collections import abc
 
 from imbi_common import blueprints, clickhouse, graph, models
 from imbi_common.scoring import (
@@ -144,7 +145,7 @@ async def _process_message(
 
 
 def _decode_fields(
-    raw: typing.Mapping[bytes | str, bytes | str],
+    raw: abc.Mapping[bytes | str, bytes | str],
 ) -> dict[str, str]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (
@@ -157,7 +158,7 @@ def _decode_fields(
 async def _claim_stale(
     client: valkey.Valkey,
     consumer: str,
-) -> list[tuple[bytes, typing.Mapping[bytes | str, bytes | str]]]:
+) -> list[tuple[bytes, abc.Mapping[bytes | str, bytes | str]]]:
     try:
         result = await client.xautoclaim(
             STREAM,
@@ -170,10 +171,10 @@ async def _claim_stale(
     except Exception as err:  # noqa: BLE001
         LOGGER.debug('xautoclaim failed: %s', err)
         return []
-    if isinstance(result, (list, tuple)) and len(result) >= 2:
-        msgs = result[1]
+    if isinstance(result, (list, tuple)) and len(result) >= 2:  # type: ignore[arg-type]
+        msgs: object = result[1]  # type: ignore[index]
         if isinstance(msgs, list):
-            return msgs
+            return msgs  # type: ignore[return-value]
     return []
 
 
@@ -190,17 +191,17 @@ async def _maybe_dead_letter(
         return False
     if not info:
         return False
-    entry = info[0]
-    delivered = (
-        entry.get('times_delivered') if isinstance(entry, dict) else None
-    )
-    if (
-        delivered is None
-        and isinstance(entry, (list, tuple))
-        and len(entry) >= 4
-    ):
-        delivered = entry[3]
-    if delivered is not None and int(delivered) >= MAX_DELIVERIES:
+    entry: object = info[0]  # type: ignore[index]
+    delivered: int | None = None
+    if isinstance(entry, dict):
+        raw_delivered = entry.get('times_delivered')  # type: ignore[union-attr]
+        if raw_delivered is not None:
+            delivered = int(raw_delivered)  # type: ignore[arg-type]
+    elif isinstance(entry, (list, tuple)) and len(entry) >= 4:  # type: ignore[arg-type]
+        raw_delivered = entry[3]  # type: ignore[index]
+        if raw_delivered is not None:
+            delivered = int(raw_delivered)  # type: ignore[arg-type]
+    if delivered is not None and delivered >= MAX_DELIVERIES:
         await client.xadd(DLQ, fields)
         await client.xack(STREAM, GROUP, msg_id)
         LOGGER.warning(
@@ -214,7 +215,7 @@ async def _maybe_dead_letter(
 
 async def _handle_entries(
     client: valkey.Valkey,
-    entries: list[tuple[bytes, typing.Mapping[bytes | str, bytes | str]]],
+    entries: list[tuple[bytes, abc.Mapping[bytes | str, bytes | str]]],
     db: graph.Graph,
     ch: clickhouse.client.Clickhouse,
     check_dlq: bool = False,

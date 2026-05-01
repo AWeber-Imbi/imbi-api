@@ -122,3 +122,96 @@ class ScoringEndpointsTestCase(unittest.TestCase):
         response = self.client.post('/scoring/rescore', json={})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['enqueued'], 1)
+
+    def test_history_with_date_filters(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[{'id': 'p1'}])
+        with mock.patch(
+            'imbi_api.endpoints.scoring.clickhouse.query',
+            mock.AsyncMock(return_value=[]),
+        ):
+            response = self.client.get(
+                '/organizations/eng/projects/p1/score/history',
+                params={
+                    'from': '2026-01-01T00:00:00',
+                    'to': '2026-04-01T00:00:00',
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_history_hourly_granularity(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[{'id': 'p1'}])
+        with mock.patch(
+            'imbi_api.endpoints.scoring.clickhouse.query',
+            mock.AsyncMock(
+                return_value=[{'ts': '2026-04-01T00:00:00', 'score': 85.0}]
+            ),
+        ):
+            response = self.client.get(
+                '/organizations/eng/projects/p1/score/history',
+                params={'granularity': 'hour'},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body['granularity'], 'hour')
+        self.assertEqual(len(body['points']), 1)
+
+    def test_rescore_by_blueprint_slug(self) -> None:
+        blueprint_raw = {
+            'id': 'bp1',
+            'slug': 'my-blueprint',
+            'name': 'My Blueprint',
+            'type': 'Project',
+            'filter': None,
+        }
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'b': blueprint_raw}],  # blueprint lookup
+                [{'id': 'p1'}, {'id': 'p2'}],  # all_project_ids
+            ]
+        )
+        response = self.client.post(
+            '/scoring/rescore', json={'blueprint_slug': 'my-blueprint'}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['enqueued'], 2)
+
+    def test_rescore_by_blueprint_slug_not_found(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[])
+        response = self.client.post(
+            '/scoring/rescore', json={'blueprint_slug': 'missing-blueprint'}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_rescore_by_policy_slug_not_found(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[])
+        response = self.client.post(
+            '/scoring/rescore', json={'policy_slug': 'missing-policy'}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_rescore_by_policy_slug(self) -> None:
+        policy_props = {
+            'id': 'p1id',
+            'name': 'Python Version',
+            'slug': 'python-version',
+            'category': 'attribute',
+            'attribute_name': 'programming_language',
+            'weight': 50,
+            'enabled': True,
+            'priority': 0,
+            'description': None,
+            'value_score_map': '{"Python 3.12": 100}',
+            'range_score_map': None,
+        }
+        self.mock_db.execute = mock.AsyncMock(
+            return_value=[{'sp': policy_props, 'targets': []}]
+        )
+        with mock.patch(
+            'imbi_api.endpoints.scoring.score_queue.affected_projects',
+            mock.AsyncMock(return_value=['p1']),
+        ):
+            response = self.client.post(
+                '/scoring/rescore', json={'policy_slug': 'python-version'}
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['enqueued'], 1)

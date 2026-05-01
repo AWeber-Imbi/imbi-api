@@ -41,7 +41,7 @@ def _parse_node(raw: dict[str, typing.Any]) -> dict[str, typing.Any]:
     return out
 
 
-async def _load_policy(
+async def load_policy(
     db: graph.Graph, slug: str
 ) -> scoring_models.ScoringPolicy | None:
     query: typing.LiteralString = (
@@ -55,8 +55,10 @@ async def _load_policy(
     raw = graph.parse_agtype(rows[0]['sp'])
     if not isinstance(raw, dict):
         return None
-    targets = graph.parse_agtype(rows[0]['targets']) or []
-    cleaned = _parse_node(raw)
+    raw_dict: dict[str, typing.Any] = raw  # type: ignore[assignment]
+    _raw_targets: list[str] = graph.parse_agtype(rows[0]['targets']) or []
+    targets: list[str] = _raw_targets
+    cleaned = _parse_node(raw_dict)
     cleaned['targets'] = targets
     return scoring_models.ScoringPolicy.model_validate(cleaned)
 
@@ -128,8 +130,10 @@ async def list_policies(
         raw = graph.parse_agtype(row['sp'])
         if not isinstance(raw, dict):
             continue
-        targets = graph.parse_agtype(row['targets']) or []
-        cleaned = _parse_node(raw)
+        raw_dict: dict[str, typing.Any] = raw  # type: ignore[assignment]
+        _raw_targets: list[str] = graph.parse_agtype(row['targets']) or []
+        targets: list[str] = _raw_targets
+        cleaned = _parse_node(raw_dict)
         cleaned['targets'] = targets
         out.append(scoring_models.ScoringPolicy.model_validate(cleaned))
     return out
@@ -144,7 +148,7 @@ async def get_policy(
         fastapi.Depends(permissions.require_permission('scoring_policy:read')),
     ],
 ) -> scoring_models.ScoringPolicy:
-    policy = await _load_policy(db, slug)
+    policy = await load_policy(db, slug)
     if policy is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -193,7 +197,7 @@ async def create_policy(
         await db.execute(
             link_q, {'slug': policy.slug, 'targets': data.targets}
         )
-    refreshed = await _load_policy(db, policy.slug)
+    refreshed = await load_policy(db, policy.slug)
     if refreshed is None:
         raise fastapi.HTTPException(
             status_code=500,
@@ -216,7 +220,7 @@ async def update_policy(
         ),
     ],
 ) -> scoring_models.ScoringPolicy:
-    existing = await _load_policy(db, slug)
+    existing = await load_policy(db, slug)
     if existing is None:
         raise fastapi.HTTPException(
             status_code=404,
@@ -253,7 +257,7 @@ async def update_policy(
                 ' MERGE (sp)-[:TARGETS]->(pt)'
             )
             await db.execute(link_q, {'slug': slug, 'targets': data.targets})
-    refreshed = await _load_policy(db, slug)
+    refreshed = await load_policy(db, slug)
     if refreshed is None:
         raise fastapi.HTTPException(
             status_code=500,
@@ -276,7 +280,7 @@ async def delete_policy(
         ),
     ],
 ) -> None:
-    existing = await _load_policy(db, slug)
+    existing = await load_policy(db, slug)
     if existing is None:
         raise fastapi.HTTPException(
             status_code=404,

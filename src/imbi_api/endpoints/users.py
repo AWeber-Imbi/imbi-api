@@ -55,14 +55,16 @@ def _normalize_membership_input(
         )
     normalized: list[dict[str, str]] = []
     seen: set[str] = set()
-    for entry in value:
+    items: list[typing.Any] = value  # type: ignore[assignment]
+    for entry in items:
         if not isinstance(entry, dict):
             raise fastapi.HTTPException(
                 status_code=400,
                 detail='Membership entries must be objects',
             )
-        slug = entry.get('organization_slug')
-        role = entry.get('role')
+        entry_dict: dict[str, typing.Any] = entry  # type: ignore[assignment]
+        slug = entry_dict.get('organization_slug')
+        role = entry_dict.get('role')
         if not isinstance(slug, str) or not slug:
             raise fastapi.HTTPException(
                 status_code=400,

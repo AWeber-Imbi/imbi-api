@@ -38,24 +38,30 @@ async def _enqueue_for_blueprint(
     client: OptionalValkeyClient,
     blueprint: models.Blueprint,
 ) -> None:
-    if blueprint.type != 'Project':
-        return
-    type_slugs: list[str] = []
-    if blueprint.filter and blueprint.filter.project_type:
-        type_slugs = list(blueprint.filter.project_type)
-    if type_slugs:
-        id_lists = await asyncio.gather(
-            *[score_queue.all_project_ids(db, ts) for ts in type_slugs]
+    try:
+        if blueprint.type != 'Project':
+            return
+        type_slugs: list[str] = []
+        if blueprint.filter and blueprint.filter.project_type:
+            type_slugs = list(blueprint.filter.project_type)
+        if type_slugs:
+            id_lists = await asyncio.gather(
+                *[score_queue.all_project_ids(db, ts) for ts in type_slugs]
+            )
+            ids = [pid for sublist in id_lists for pid in sublist]
+        else:
+            ids = await score_queue.all_project_ids(db)
+        await asyncio.gather(
+            *[
+                score_queue.enqueue_recompute(client, pid, 'blueprint_change')
+                for pid in ids
+            ]
         )
-        ids = [pid for sublist in id_lists for pid in sublist]
-    else:
-        ids = await score_queue.all_project_ids(db)
-    await asyncio.gather(
-        *[
-            score_queue.enqueue_recompute(client, pid, 'blueprint_change')
-            for pid in ids
-        ]
-    )
+    except Exception:
+        LOGGER.exception(
+            'Failed to enqueue blueprint recomputes for %s',
+            blueprint.slug,
+        )
 
 
 def _match_params(

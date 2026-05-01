@@ -73,7 +73,12 @@ async def storage_hook() -> abc.AsyncIterator[StorageClient]:
 @contextlib.asynccontextmanager
 async def score_worker_hook() -> abc.AsyncIterator[None]:
     """Run the score-recompute consumer for the API process."""
-    client = valkey.get_client()
+    try:
+        client = valkey.get_client()
+    except RuntimeError:
+        LOGGER.warning('Valkey unavailable; score worker not started')
+        yield None
+        return
     if _graph is None:
         LOGGER.warning('Graph not ready; score worker not started')
         yield None

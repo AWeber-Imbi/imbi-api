@@ -170,3 +170,107 @@ class ScoringPolicyEndpointsTestCase(unittest.TestCase):
             response = self.client.delete('/scoring/policies/python-version')
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.mock_valkey.xadd.await_count, 1)
+
+    def test_list_policies_with_category_filter(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(
+            return_value=[{'sp': self._policy_props(), 'targets': []}]
+        )
+        response = self.client.get(
+            '/scoring/policies/', params={'category': 'attribute'}
+        )
+        self.assertEqual(response.status_code, 200)
+        call = self.mock_db.execute.await_args
+        self.assertIn('category', call.args[1])
+
+    def test_create_policy_with_targets(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'sp': self._policy_props()}],
+                [],  # link targets
+                [{'sp': self._policy_props(), 'targets': ['service']}],
+                [],
+            ]
+        )
+        with mock.patch(
+            'imbi_api.endpoints.scoring_policies.score_queue.'
+            'affected_projects',
+            mock.AsyncMock(return_value=[]),
+        ):
+            response = self.client.post(
+                '/scoring/policies/',
+                json={
+                    'name': 'Python Version',
+                    'slug': 'python-version',
+                    'attribute_name': 'programming_language',
+                    'weight': 50,
+                    'value_score_map': {'Python 3.12': 100},
+                    'targets': ['service'],
+                },
+            )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()['slug'], 'python-version')
+
+    def test_create_policy_conflict(self) -> None:
+        import psycopg.errors
+
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=psycopg.errors.UniqueViolation()
+        )
+        response = self.client.post(
+            '/scoring/policies/',
+            json={
+                'name': 'Python Version',
+                'slug': 'python-version',
+                'attribute_name': 'programming_language',
+                'weight': 50,
+                'value_score_map': {'Python 3.12': 100},
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_update_policy_with_targets(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(
+            side_effect=[
+                [{'sp': self._policy_props(), 'targets': []}],  # load existing
+                [],  # clear targets
+                [],  # link new targets
+                [
+                    {'sp': self._policy_props(), 'targets': ['service']}
+                ],  # reload
+            ]
+        )
+        with mock.patch(
+            'imbi_api.endpoints.scoring_policies.score_queue.'
+            'affected_projects',
+            mock.AsyncMock(return_value=[]),
+        ):
+            response = self.client.patch(
+                '/scoring/policies/python-version',
+                json={'targets': ['service']},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_update_policy_not_found(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[])
+        response = self.client.patch(
+            '/scoring/policies/missing', json={'weight': 10}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_delete_policy_not_found(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[])
+        response = self.client.delete('/scoring/policies/missing')
+        self.assertEqual(response.status_code, 404)
+
+    def test_parse_node_handles_invalid_json(self) -> None:
+        """Coverage for _parse_node exception path."""
+        from imbi_api.endpoints.scoring_policies import _parse_node
+
+        raw = {
+            'id': 'x',
+            'name': 'test',
+            'value_score_map': '{invalid json',
+            'range_score_map': None,
+        }
+        result = _parse_node(raw)
+        self.assertIsNone(result['value_score_map'])

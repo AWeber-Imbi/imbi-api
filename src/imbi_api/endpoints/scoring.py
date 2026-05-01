@@ -8,11 +8,11 @@ import logging
 import typing
 
 import fastapi
-from imbi_common import clickhouse, graph
+from imbi_common import clickhouse, graph, models
 
 from imbi_api.auth import permissions
 from imbi_api.domain import scoring as scoring_models
-from imbi_api.endpoints.scoring_policies import _load_policy
+from imbi_api.endpoints.scoring_policies import load_policy
 from imbi_api.scoring import OptionalValkeyClient
 from imbi_api.scoring import queue as score_queue
 
@@ -59,7 +59,7 @@ async def get_score_history(
             detail=f'Project {project_id!r} not found',
         )
     bucket = _GRANULARITY_EXPR[granularity]
-    where: list[str] = ['project = {project_id:String}']
+    where: list[str] = ['project_id = {project_id:String}']
     params: dict[str, typing.Any] = {'project_id': project_id}
     if from_ is not None:
         where.append('timestamp >= {from_ts:DateTime64(3)}')
@@ -88,7 +88,11 @@ async def get_score_history(
                 scoring_models.ScoreHistoryPoint(
                     timestamp=str(row['timestamp']),
                     score=float(row['score']),
-                    previous_score=float(row['previous_score']),
+                    previous_score=(
+                        float(row['previous_score'])
+                        if row.get('previous_score') is not None
+                        else None
+                    ),
                     change_reason=str(row.get('change_reason') or ''),
                 )
             )
@@ -121,10 +125,10 @@ async def score_rollup(
     }[dimension]
     sql = (
         f'SELECT {column} AS key,'  # noqa: S608
-        ' argMaxMerge(latest_score) AS latest_score,'
-        ' avgMerge(avg_score) AS avg_score,'
-        ' maxMerge(last_updated) AS last_updated'
-        ' FROM score_latest'
+        ' argMax(score, timestamp) AS latest_score,'
+        ' avg(score) AS avg_score,'
+        ' max(timestamp) AS last_updated'
+        ' FROM score_history'
         f' GROUP BY {column}'
         f' ORDER BY {column}'
     )
@@ -162,7 +166,7 @@ async def rescore(
     body = body or scoring_models.RescoreRequest()
     project_ids: list[str] = []
     if body.policy_slug:
-        policy = await _load_policy(db, body.policy_slug)
+        policy = await load_policy(db, body.policy_slug)
         if policy is None:
             raise fastapi.HTTPException(
                 status_code=404,
@@ -170,15 +174,37 @@ async def rescore(
             )
         project_ids = await score_queue.affected_projects(db, policy)
     elif body.blueprint_slug:
-        rows = await db.execute(
-            'MATCH (b:Blueprint {{slug: {slug}}})'
-            ' WITH b.filter AS filt'
-            ' MATCH (p:Project)'
-            ' RETURN p.id AS id',
+        # Load the blueprint to access its filter, then resolve project ids
+        # the same way _enqueue_for_blueprint does.
+        bp_rows = await db.execute(
+            'MATCH (b:Blueprint {{slug: {slug}}}) RETURN b',
             {'slug': body.blueprint_slug},
-            ['id'],
+            ['b'],
         )
-        project_ids = [v for r in rows if (v := graph.parse_agtype(r['id']))]
+        if not bp_rows:
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail=f'Blueprint {body.blueprint_slug!r} not found',
+            )
+        bp_raw = graph.parse_agtype(bp_rows[0]['b'])
+        type_slugs: list[str] = []
+        if isinstance(bp_raw, dict):
+            bp_raw_dict: dict[str, typing.Any] = bp_raw  # type: ignore[assignment]
+            raw_filter: object = bp_raw_dict.get('filter')
+            if isinstance(raw_filter, dict):
+                raw_pt = raw_filter.get('project_type') or []  # type: ignore[union-attr]
+                type_slugs = [str(s) for s in raw_pt]  # type: ignore[union-attr]
+            elif isinstance(raw_filter, models.BlueprintFilter) and (
+                raw_filter.project_type
+            ):
+                type_slugs = list(raw_filter.project_type)
+        if type_slugs:
+            id_lists = await asyncio.gather(
+                *[score_queue.all_project_ids(db, ts) for ts in type_slugs]
+            )
+            project_ids = [pid for sub in id_lists for pid in sub]
+        else:
+            project_ids = await score_queue.all_project_ids(db)
     else:
         project_ids = await score_queue.all_project_ids(
             db, body.project_type_slug
