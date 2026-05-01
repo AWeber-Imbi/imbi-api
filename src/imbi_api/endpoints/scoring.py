@@ -110,42 +110,90 @@ async def get_score_history(
     )
 
 
+_DIMENSION_QUERY: dict[str, typing.LiteralString] = {
+    'team': (
+        'MATCH (p:Project)-[:OWNED_BY]->(t:Team)'
+        ' RETURN p.id AS project_id, t.slug AS dim_key'
+    ),
+    'project_type': (
+        'MATCH (p:Project)-[:TYPE]->(pt:ProjectType)'
+        ' RETURN p.id AS project_id, pt.slug AS dim_key'
+    ),
+    'organization': (
+        'MATCH (p:Project)-[:OWNED_BY]->(:Team)'
+        '-[:BELONGS_TO]->(o:Organization)'
+        ' RETURN p.id AS project_id, o.slug AS dim_key'
+    ),
+}
+
+
 @scoring_router.get('/scores/rollup')
 async def score_rollup(
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('project:read')),
     ],
     dimension: typing.Literal['team', 'project_type', 'organization'] = 'team',
 ) -> list[scoring_models.ScoreRollupRow]:
-    column = {
-        'team': 'team',
-        'project_type': 'project_type',
-        'organization': 'organization',
-    }[dimension]
-    sql = (
-        f'SELECT {column} AS key,'  # noqa: S608
-        ' argMax(score, timestamp) AS latest_score,'
-        ' avg(score) AS avg_score,'
-        ' max(timestamp) AS last_updated'
-        ' FROM score_history'
-        f' GROUP BY {column}'
-        f' ORDER BY {column}'
+    """Return current-score rollup grouped by the requested dimension.
+
+    Uses ``score_latest`` (one row per project, current score only)
+    so projects with many history entries do not skew aggregates.
+    """
+    # Fetch project → dimension key mapping from the graph
+    dim_records = await db.execute(
+        _DIMENSION_QUERY[dimension], {}, ['project_id', 'dim_key']
     )
-    rows = await clickhouse.query(sql)
+    project_dim: dict[str, str] = {}
+    for rec in dim_records:
+        pid = graph.parse_agtype(rec['project_id'])
+        key = graph.parse_agtype(rec['dim_key'])
+        if pid and key:
+            project_dim[str(pid)] = str(key)
+
+    if not project_dim:
+        return []
+
+    # Fetch current scores from ClickHouse (one row per project)
+    sql = (
+        'SELECT project_id,'
+        ' latest_score,'
+        ' last_updated'
+        ' FROM score_latest'
+        ' WHERE project_id IN {project_ids:Array(String)}'
+    )
+    ch_rows = await clickhouse.query(sql, {'project_ids': list(project_dim)})
+
+    # Aggregate by dimension key in Python
+    scores_by_key: dict[str, list[float]] = {}
+    last_updated_by_key: dict[str, str | None] = {}
+    for row in ch_rows:
+        pid = str(row.get('project_id') or '')
+        dim_key = project_dim.get(pid)
+        if not dim_key:
+            continue
+        latest = float(row.get('latest_score') or 0.0)
+        last_upd = (
+            str(row['last_updated']) if row.get('last_updated') else None
+        )
+        scores_by_key.setdefault(dim_key, []).append(latest)
+        existing_upd = last_updated_by_key.get(dim_key)
+        if last_upd and (existing_upd is None or last_upd > existing_upd):
+            last_updated_by_key[dim_key] = last_upd
+        elif dim_key not in last_updated_by_key:
+            last_updated_by_key[dim_key] = None
+
     out: list[scoring_models.ScoreRollupRow] = []
-    for row in rows:
+    for key in sorted(scores_by_key):
+        project_scores = scores_by_key[key]
         out.append(
             scoring_models.ScoreRollupRow(
                 dimension=dimension,
-                key=str(row.get('key') or ''),
-                latest_score=float(row.get('latest_score') or 0.0),
-                avg_score=float(row.get('avg_score') or 0.0),
-                last_updated=(
-                    str(row['last_updated'])
-                    if row.get('last_updated')
-                    else None
-                ),
+                key=key,
+                latest_score=max(project_scores),
+                avg_score=sum(project_scores) / len(project_scores),
+                last_updated=last_updated_by_key.get(key),
             )
         )
     return out

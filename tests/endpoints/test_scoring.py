@@ -85,17 +85,33 @@ class ScoringEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_rollup(self) -> None:
-        with mock.patch(
-            'imbi_api.endpoints.scoring.clickhouse.query',
-            mock.AsyncMock(
-                return_value=[
-                    {
-                        'key': 'platform',
-                        'latest_score': 90.0,
-                        'avg_score': 85.0,
-                        'last_updated': '2026-04-01',
-                    }
-                ]
+        # db.execute returns project→team mappings from AGE
+        self.mock_db.execute = mock.AsyncMock(
+            return_value=[
+                {'project_id': 'p1', 'dim_key': 'platform'},
+                {'project_id': 'p2', 'dim_key': 'platform'},
+            ]
+        )
+        with (
+            mock.patch(
+                'imbi_api.endpoints.scoring.clickhouse.query',
+                mock.AsyncMock(
+                    return_value=[
+                        {
+                            'project_id': 'p1',
+                            'latest_score': 90.0,
+                            'last_updated': '2026-04-01',
+                        },
+                        {
+                            'project_id': 'p2',
+                            'latest_score': 80.0,
+                            'last_updated': '2026-03-01',
+                        },
+                    ]
+                ),
+            ),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
             ),
         ):
             response = self.client.get(
@@ -103,7 +119,18 @@ class ScoringEndpointsTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
+        self.assertEqual(len(body), 1)
         self.assertEqual(body[0]['key'], 'platform')
+        self.assertAlmostEqual(body[0]['avg_score'], 85.0)
+        self.assertEqual(body[0]['latest_score'], 90.0)
+
+    def test_rollup_empty_when_no_projects(self) -> None:
+        self.mock_db.execute = mock.AsyncMock(return_value=[])
+        response = self.client.get(
+            '/scores/rollup', params={'dimension': 'team'}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), [])
 
     def test_rescore_all(self) -> None:
         self.mock_db.execute = mock.AsyncMock(
