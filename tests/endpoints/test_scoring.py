@@ -242,3 +242,12 @@ class ScoringEndpointsTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['enqueued'], 1)
+
+    def test_rescore_by_project_id(self) -> None:
+        response = self.client.post(
+            '/scoring/rescore', json={'project_id': 'proj-abc'}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['enqueued'], 1)
+        args = self.mock_valkey.xadd.call_args.args
+        self.assertEqual(args[1]['project_id'], 'proj-abc')
