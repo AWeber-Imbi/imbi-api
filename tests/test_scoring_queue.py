@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import typing
 import unittest
 from unittest import mock
 
 from imbi_api.scoring import queue as score_queue
+
+if typing.TYPE_CHECKING:
+    from imbi_common.scoring import models as sm
 
 
 class EnqueueTests(unittest.IsolatedAsyncioTestCase):
@@ -405,8 +409,10 @@ class ProjectsOfTypeTest(unittest.IsolatedAsyncioTestCase):
 
 class AffectedProjectsTests(unittest.IsolatedAsyncioTestCase):
     def _policy(
-        self, attribute_name: str, targets: list[str] | None = None
-    ) -> object:
+        self,
+        attribute_name: str,
+        targets: list[str] | None = None,
+    ) -> sm.AttributePolicy:
         from imbi_common.scoring import models as sm
 
         return sm.AttributePolicy(
