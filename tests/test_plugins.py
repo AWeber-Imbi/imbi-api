@@ -23,8 +23,8 @@ class CatalogTestCase(unittest.TestCase):
             entries = list_catalog_entries()
         self.assertIsInstance(entries, list)
         self.assertTrue(len(entries) > 0)
-        self.assertEqual(entries[0]['package'], 'imbi-plugin-ssm')
-        self.assertEqual(entries[0]['status'], 'not_installed')
+        ssm = next(e for e in entries if e['package'] == 'imbi-plugin-ssm')
+        self.assertEqual(ssm['status'], 'not_installed')
 
     def test_catalog_installed_status(self) -> None:
         from imbi_common.plugins.base import (
