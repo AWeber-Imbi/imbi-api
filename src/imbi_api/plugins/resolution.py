@@ -5,11 +5,11 @@ import typing
 
 import fastapi
 from imbi_common import graph
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     PluginNotFoundError,
     PluginUnavailableError,
 )
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     RegistryEntry,
     get_plugin,
 )

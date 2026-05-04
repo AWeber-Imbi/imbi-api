@@ -3,7 +3,7 @@
 import logging
 
 from imbi_common import graph
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     list_plugins,
     load_plugins,
 )

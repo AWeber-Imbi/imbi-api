@@ -8,11 +8,12 @@ import typing
 import fastapi
 from imbi_common import graph, valkey
 from imbi_common.clickhouse import client as ch_client
-from imbi_common.plugins.base import (  # type: ignore[import-not-found]
+from imbi_common.plugins.base import (
+    ConfigurationPlugin,
     ConfigValue,
     PluginContext,
 )
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     PluginCredentialsMissing,
 )
 
@@ -93,7 +94,7 @@ async def get_configuration(
         except Exception:  # noqa: BLE001
             LOGGER.debug('Cache read failed', exc_info=True)
 
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
     keys = await call_with_timeout(handler.list_keys(ctx, credentials))
 
     result = [
@@ -152,7 +153,7 @@ async def fetch_values(
         ) from exc
 
     keys: list[str] | None = body.get('keys')
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
     values = await call_with_timeout(
         handler.get_values(ctx, credentials, keys)
     )
@@ -204,7 +205,7 @@ async def set_configuration_value(
             detail=str(exc),
         ) from exc
 
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
     result_key = await call_with_timeout(
         handler.set_value(ctx, credentials, key, body)
     )
@@ -261,7 +262,7 @@ async def delete_configuration_key(
             detail=str(exc),
         ) from exc
 
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
     await call_with_timeout(handler.delete_key(ctx, credentials, key))
 
     await _invalidate_cache(resolved.plugin_id, project_id)

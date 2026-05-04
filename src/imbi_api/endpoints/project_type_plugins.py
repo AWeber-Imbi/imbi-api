@@ -25,8 +25,8 @@ def _from_record(
     source: typing.Literal['project', 'project_type', 'merged'],
 ) -> models.PluginAssignmentResponse:
     plugin = graph.parse_agtype(record['plugin'])
-    edge = graph.parse_agtype(record.get('edge', '{}')) or {}
-    return build_assignment_response(plugin, edge, source)
+    edge = graph.parse_agtype(record.get('edge', '{}')) or {}  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
+    return build_assignment_response(plugin, edge, source)  # pyright: ignore[reportUnknownArgumentType]
 
 
 @project_type_plugins_router.get('/')

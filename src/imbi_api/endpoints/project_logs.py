@@ -6,12 +6,13 @@ import typing
 
 import fastapi
 from imbi_common import graph
-from imbi_common.plugins.base import (  # type: ignore[import-not-found]
+from imbi_common.plugins.base import (
     LogFilter,
     LogQuery,
+    LogsPlugin,
     PluginContext,
 )
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     CursorExpiredError,
     PluginCredentialsMissing,
 )
@@ -116,7 +117,7 @@ async def search_logs(
             detail=str(exc),
         ) from exc
 
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(LogsPlugin, resolved.entry.handler_cls())
     try:
         result = await call_with_timeout(
             handler.search(ctx, credentials, query)
@@ -178,5 +179,5 @@ async def get_log_schema(
             detail=str(exc),
         ) from exc
 
-    handler = resolved.entry.handler_cls()
+    handler = typing.cast(LogsPlugin, resolved.entry.handler_cls())
     return await call_with_timeout(handler.schema(ctx, credentials))

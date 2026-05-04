@@ -6,12 +6,14 @@ import logging
 from collections.abc import AsyncIterator
 
 from imbi_common import graph, valkey
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     reload_plugins,
 )
 from valkey import asyncio as _valkey_asyncio
 
-from imbi_api.plugins.lifecycle import _audit_unavailable
+from imbi_api.plugins.lifecycle import (
+    _audit_unavailable,  # pyright: ignore[reportPrivateUsage]
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,13 +26,13 @@ async def _subscribe_reload(
     stop: asyncio.Event,
 ) -> None:
     pubsub = client.pubsub()
-    await pubsub.subscribe(_CHANNEL)
+    await pubsub.subscribe(_CHANNEL)  # pyright: ignore[reportUnknownMemberType]
     LOGGER.info('Plugin reload subscriber started on channel %r', _CHANNEL)
     try:
         while not stop.is_set():
             try:
-                msg = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True),
+                msg = await asyncio.wait_for(  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
+                    pubsub.get_message(ignore_subscribe_messages=True),  # pyright: ignore[reportUnknownArgumentType,reportUnknownMemberType]
                     timeout=1.0,
                 )
             except TimeoutError:
@@ -42,7 +44,7 @@ async def _subscribe_reload(
     except asyncio.CancelledError:
         pass
     finally:
-        await pubsub.unsubscribe(_CHANNEL)
+        await pubsub.unsubscribe(_CHANNEL)  # pyright: ignore[reportUnknownMemberType]
 
 
 @contextlib.asynccontextmanager
@@ -75,4 +77,4 @@ async def publish_reload(
     client: _valkey_asyncio.Valkey,
 ) -> None:
     """Publish a reload notification to all pods."""
-    await client.publish(_CHANNEL, 'reload')
+    await client.publish(_CHANNEL, 'reload')  # pyright: ignore[reportUnknownMemberType]

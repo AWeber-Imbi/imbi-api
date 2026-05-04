@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     LoadResult,
     reload_plugins,
 )

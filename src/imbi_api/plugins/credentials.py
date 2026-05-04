@@ -6,10 +6,10 @@ import typing
 
 from imbi_common import graph
 from imbi_common.auth.encryption import TokenEncryption
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     PluginCredentialsMissing,
 )
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     RegistryEntry,
 )
 

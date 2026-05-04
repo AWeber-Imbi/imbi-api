@@ -6,10 +6,10 @@ import typing
 import fastapi
 import nanoid
 from imbi_common import graph
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     PluginNotFoundError,
 )
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     get_plugin,
     list_plugins,
 )
@@ -31,7 +31,7 @@ def _build_plugin_response(
     registry_slugs: set[str],
 ) -> models.PluginResponse:
     plugin = graph.parse_agtype(record['plugin'])
-    svc = graph.parse_agtype(record.get('svc')) if record.get('svc') else {}
+    svc = graph.parse_agtype(record.get('svc')) if record.get('svc') else {}  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
     slug = plugin['plugin_slug']
     return models.PluginResponse(
         id=plugin['id'],
@@ -40,7 +40,7 @@ def _build_plugin_response(
         options=_parse_options(plugin.get('options')),
         api_version=plugin.get('api_version', 1),
         status='active' if slug in registry_slugs else 'unavailable',
-        service_slug=svc.get('slug') if svc else None,
+        service_slug=svc.get('slug') if svc else None,  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
     )
 
 

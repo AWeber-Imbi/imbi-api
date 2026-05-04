@@ -3,10 +3,10 @@
 import typing
 
 import fastapi
-from imbi_common.plugins.errors import (  # type: ignore[import-not-found]
+from imbi_common.plugins.errors import (
     PluginNotFoundError,
 )
-from imbi_common.plugins.registry import (  # type: ignore[import-not-found]
+from imbi_common.plugins.registry import (
     get_plugin,
     list_plugins,
 )
