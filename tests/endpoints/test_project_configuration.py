@@ -1,13 +1,27 @@
-"""Tests for project configuration plugin endpoints."""
+"""Tests for project configuration plugin endpoints.
+
+These tests run against the real Valkey and ClickHouse instances
+provisioned by ``docker compose up`` (started via ``just test``). The
+plugin handler and the AGE graph are still mocked — neither has a
+test-friendly fixture today (plugin packages are not installed in the
+test env, and Cypher mutations require seeded graph data) — but cache
+hits/invalidations and audit-log writes are exercised end-to-end.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import datetime
 import json
+import typing
 import unittest
+import uuid
 from unittest import mock
 
 from fastapi import testclient
+from imbi_common import clickhouse as imbi_clickhouse
 from imbi_common import graph
+from imbi_common import settings as imbi_settings
 from imbi_common.plugins.base import (
     ConfigKey,
     ConfigKeyWithValue,
@@ -18,6 +32,7 @@ from imbi_common.plugins.errors import (
     PluginCredentialsMissing,
 )
 from imbi_common.plugins.registry import RegistryEntry
+from valkey import asyncio as valkey_asyncio
 
 from imbi_api import app, models
 from imbi_api.auth import password, permissions
@@ -75,27 +90,29 @@ def _entry() -> RegistryEntry:
     )
 
 
-def _resolved() -> ResolvedPlugin:
+def _resolved(plugin_id: str) -> ResolvedPlugin:
     return ResolvedPlugin(
-        plugin_id='p1',
+        plugin_id=plugin_id,
         plugin_slug='ssm',
         entry=_entry(),
         options={},
     )
 
 
+def _short_id() -> str:
+    """Random short id so cache keys / audit rows don't collide."""
+    return uuid.uuid4().hex[:12]
+
+
 class ProjectConfigurationEndpointTestCase(unittest.TestCase):
-    """Mock patches MUST be applied INSIDE the TestClient context.
+    """End-to-end tests with real Valkey + ClickHouse.
 
-    Patching ``valkey.get_client`` outside the TestClient context applies
-    the mock during lifespan startup, where the score-worker hook also
-    calls ``valkey.get_client()`` and would receive the test's AsyncMock.
-    The score-worker task then loops against the fake client and never
-    exits, causing pytest to hang indefinitely. Always:
-
-        with TestClient(app) as client:
-            with mock.patch(...):
-                response = client.get(...)
+    Mock patches MUST be applied INSIDE the TestClient context. Patching
+    ``valkey.get_client`` outside the TestClient context applies the mock
+    during lifespan startup, where the score-worker hook also calls
+    ``valkey.get_client()`` and would receive the test's AsyncMock. The
+    score-worker task then loops against the fake client and never exits,
+    causing pytest to hang indefinitely.
     """
 
     def setUp(self) -> None:
@@ -126,16 +143,98 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
             mock_get_current_user
         )
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
+        # Default: project-slug lookup returns no rows → audit writes
+        # use empty project_slug. Tests that care can override.
+        self.mock_db.execute.return_value = []
         self.test_app.dependency_overrides[graph._inject_graph] = (
             lambda: self.mock_db
         )
+
+        self.plugin_id = f'p-{_short_id()}'
+        self.project_id = f'proj-{_short_id()}'
+        self._cache_keys_to_clean: list[str] = []
+
+    # NOTE: cache cleanup is performed inside each test (while the
+    # ``TestClient`` lifespan is active) — ``valkey.get_client()`` is
+    # only valid between lifespan startup and shutdown. Unique
+    # ``plugin_id`` / ``project_id`` per test keep us hermetic anyway.
+
+    def _track_cache_key(self, key: str) -> None:
+        self._cache_keys_to_clean.append(key)
+
+    def _list_cache_key(
+        self,
+        source: str | None = None,
+        environment: str | None = None,
+    ) -> str:
+        src = source or '_'
+        env = environment or '_'
+        key = (
+            f'imbi:plugin-cache:{self.plugin_id}:{self.project_id}'
+            f':{src}:{env}:list'
+        )
+        self._track_cache_key(key)
+        return key
+
+    # ``imbi_common.valkey.get_client()`` returns a singleton bound to
+    # the lifespan's event loop, which is unusable from our own
+    # ``asyncio.run`` (the connection pool's futures live on a different
+    # loop). Open a fresh short-lived client for each cache touch
+    # instead — pointed at the same Valkey instance by reading the URL
+    # from the same settings the app uses.
+    async def _read_cache(self, key: str) -> str | None:
+        client = valkey_asyncio.Valkey.from_url(
+            str(imbi_settings.Valkey().url)
+        )
+        try:
+            value = await client.get(key)
+        finally:
+            await client.aclose()
+        if isinstance(value, bytes):
+            return value.decode('utf-8')
+        return value
+
+    async def _seed_cache(self, key: str, payload: object) -> None:
+        client = valkey_asyncio.Valkey.from_url(
+            str(imbi_settings.Valkey().url)
+        )
+        try:
+            await client.setex(key, 60, json.dumps(payload))
+        finally:
+            await client.aclose()
+
+    async def _query_audit(
+        self,
+        project_id: str,
+        recorded_after: datetime.datetime,
+    ) -> list[dict[str, typing.Any]]:
+        # Same loop-binding caveat as the cache helpers: spin up a
+        # dedicated ClickHouse client for the test's loop instead of
+        # reusing the singleton from the lifespan.
+        ch = imbi_clickhouse.client.Clickhouse()
+        await ch.initialize()
+        try:
+            rows: list[dict[str, typing.Any]] = await ch.query(
+                'SELECT id, project_id, project_slug, environment_slug,'
+                ' entry_type, description, recorded_by'
+                ' FROM operations_log FINAL'
+                ' WHERE project_id = {pid:String}'
+                '   AND recorded_at >= {after:DateTime64(3)}'
+                ' ORDER BY recorded_at',
+                {'pid': project_id, 'after': recorded_after},
+            )
+        finally:
+            await ch.aclose()
+        return rows
+
+    # ----- list / cache behaviour ------------------------------------
 
     def test_get_configuration_credentials_missing(self) -> None:
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -144,107 +243,126 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 ),
             ):
                 response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/'
                 )
         self.assertEqual(response.status_code, 503)
 
     def test_get_configuration_cache_miss_writes(self) -> None:
-        valkey_client = mock.AsyncMock()
-        valkey_client.get.return_value = None
+        cache_key = self._list_cache_key()
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
                     '.get_plugin_credentials',
                     return_value={},
                 ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
             ):
                 response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/'
                 )
+            # Read the cache while the lifespan is still active —
+            # ``valkey.get_client()`` raises after the context exits.
+            cached = asyncio.run(self._read_cache(cache_key))
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['key'], '/foo')
-        valkey_client.setex.assert_awaited_once()
+        self.assertIsNotNone(cached)
+        cached_payload = json.loads(typing.cast(str, cached))
+        self.assertEqual(cached_payload[0]['key'], '/foo')
 
     def test_get_configuration_cache_hit(self) -> None:
-        cached = json.dumps(
-            [
-                {
-                    'key': '/cached',
-                    'data_type': 'string',
-                    'last_modified': None,
-                    'secret': False,
-                }
-            ]
-        )
-        valkey_client = mock.AsyncMock()
-        valkey_client.get.return_value = cached
+        cache_key = self._list_cache_key()
         with testclient.TestClient(self.test_app) as client:
+            asyncio.run(
+                self._seed_cache(
+                    cache_key,
+                    [
+                        {
+                            'key': '/cached',
+                            'data_type': 'string',
+                            'last_modified': None,
+                            'secret': False,
+                        }
+                    ],
+                )
+            )
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
                     '.get_plugin_credentials',
                     return_value={},
                 ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
             ):
                 response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/'
                 )
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data[0]['key'], '/cached')
-        valkey_client.setex.assert_not_called()
 
-    def test_get_configuration_no_valkey(self) -> None:
+    def test_cache_key_scoped_by_source_and_environment(self) -> None:
+        # The default-context cache must NOT serve a request that
+        # specifies a different ``source``/``environment``.
+        default_key = self._list_cache_key()
+        scoped_key = self._list_cache_key(
+            source='other-plugin', environment='prod'
+        )
         with testclient.TestClient(self.test_app) as client:
+            asyncio.run(
+                self._seed_cache(
+                    default_key,
+                    [
+                        {
+                            'key': '/from-default',
+                            'data_type': 'string',
+                            'last_modified': None,
+                            'secret': False,
+                        }
+                    ],
+                )
+            )
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
                     '.get_plugin_credentials',
                     return_value={},
                 ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    side_effect=RuntimeError('no valkey'),
-                ),
             ):
                 response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/?source=other-plugin&environment=prod'
                 )
+            scoped_cached = asyncio.run(self._read_cache(scoped_key))
+        # Should hit the plugin (not the cached /from-default entry).
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]['key'], '/foo')
+        # And it must have populated the scoped key.
+        self.assertIsNotNone(scoped_cached)
+
+    # ----- value fetch ------------------------------------------------
 
     def test_fetch_values(self) -> None:
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -253,8 +371,8 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 ),
             ):
                 response = client.post(
-                    '/organizations/myorg/projects/proj1/'
-                    'configuration/values:fetch',
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/values:fetch',
                     json={'keys': ['/foo']},
                 )
         self.assertEqual(response.status_code, 200)
@@ -266,7 +384,7 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -275,28 +393,37 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 ),
             ):
                 response = client.post(
-                    '/organizations/myorg/projects/proj1/'
-                    'configuration/values:fetch',
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/values:fetch',
                     json={'keys': ['/foo']},
                 )
         self.assertEqual(response.status_code, 503)
 
+    # ----- set / delete + audit + cache invalidation -----------------
+
     def test_set_configuration_value(self) -> None:
-        # NOTE: ``_write_audit`` writes to ClickHouse with an ad-hoc column
-        # set ([project_id, action, actor, metadata]) that does NOT match
-        # the canonical operations_log schema. The function swallows any
-        # exception, so a failed audit insert won't break the response.
-        # The simplify pass already flagged this; this test does not assert
-        # on the column shape — only that the audit attempt is made and the
-        # response succeeds.
-        ch = mock.MagicMock()
-        ch.insert = mock.AsyncMock()
-        valkey_client = mock.AsyncMock()
+        # Seed both default and scoped cache entries — the write must
+        # invalidate every (source, environment) variant.
+        default_key = self._list_cache_key()
+        scoped_key = self._list_cache_key(source='alt', environment='staging')
+
+        # Stub project-slug lookup so the audit row carries a real slug.
+        self.mock_db.execute.return_value = [{'slug': 'fake-slug'}]
+        before = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
+            seconds=5
+        )
+
         with testclient.TestClient(self.test_app) as client:
+            asyncio.run(
+                self._seed_cache(default_key, [{'key': '/old', 'sentinel': 1}])
+            )
+            asyncio.run(
+                self._seed_cache(scoped_key, [{'key': '/old', 'sentinel': 2}])
+            )
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -304,35 +431,49 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                     return_value={},
                 ),
                 mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.ch_client.Clickhouse.get_instance',
-                    return_value=ch,
+                    'imbi_api.endpoints.project_configuration.graph'
+                    '.parse_agtype',
+                    return_value='fake-slug',
                 ),
             ):
                 response = client.put(
-                    '/organizations/myorg/projects/proj1/configuration/foo',
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/foo?environment=production',
                     json={
                         'data_type': 'string',
                         'value': 'bar',
                         'secret': False,
                     },
                 )
+            cache_after_default = asyncio.run(self._read_cache(default_key))
+            cache_after_scoped = asyncio.run(self._read_cache(scoped_key))
+            rows = asyncio.run(self._query_audit(self.project_id, before))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['key'], 'foo')
-        valkey_client.delete.assert_awaited_once()
-        ch.insert.assert_awaited_once()
+        # Both cache variants must have been wiped.
+        self.assertIsNone(cache_after_default)
+        self.assertIsNone(cache_after_scoped)
+        # Real audit row must exist with the canonical schema.
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['project_id'], self.project_id)
+        self.assertEqual(row['project_slug'], 'fake-slug')
+        self.assertEqual(row['environment_slug'], 'production')
+        self.assertEqual(row['entry_type'], 'Configured')
+        self.assertEqual(row['recorded_by'], 'admin@example.com')
+        description = json.loads(row['description'])
+        self.assertEqual(description['action'], 'set_value')
+        self.assertEqual(description['plugin_slug'], 'ssm')
+        self.assertEqual(description['key'], 'foo')
+        self.assertEqual(description['data_type'], 'string')
+        self.assertFalse(description['secret'])
 
     def test_set_configuration_value_credentials_missing(self) -> None:
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -341,7 +482,8 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 ),
             ):
                 response = client.put(
-                    '/organizations/myorg/projects/proj1/configuration/foo',
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/foo',
                     json={
                         'data_type': 'string',
                         'value': 'bar',
@@ -350,15 +492,18 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 )
         self.assertEqual(response.status_code, 503)
 
-    def test_set_configuration_value_audit_failure_swallowed(self) -> None:
-        ch = mock.MagicMock()
-        ch.insert = mock.AsyncMock(side_effect=RuntimeError('CH down'))
-        valkey_client = mock.AsyncMock()
-        with testclient.TestClient(self.test_app) as client:
+    def test_set_configuration_value_audit_failure_propagates(self) -> None:
+        # Audit failures must NOT be swallowed: a successful plugin
+        # write that fails to be recorded leaves operations_log silently
+        # inconsistent. ``raise_server_exceptions=False`` lets the
+        # TestClient surface the resulting 500 instead of re-raising.
+        with testclient.TestClient(
+            self.test_app, raise_server_exceptions=False
+        ) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -366,35 +511,34 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                     return_value={},
                 ),
                 mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.ch_client.Clickhouse.get_instance',
-                    return_value=ch,
+                    'imbi_api.endpoints.project_configuration.clickhouse'
+                    '.client.Clickhouse.get_instance',
+                    side_effect=RuntimeError('CH down'),
                 ),
             ):
                 response = client.put(
-                    '/organizations/myorg/projects/proj1/configuration/foo',
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/foo',
                     json={
                         'data_type': 'string',
                         'value': 'bar',
                         'secret': True,
                     },
                 )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 500)
 
     def test_delete_configuration_key(self) -> None:
-        ch = mock.MagicMock()
-        ch.insert = mock.AsyncMock()
-        valkey_client = mock.AsyncMock()
+        cache_key = self._list_cache_key()
+        before = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
+            seconds=5
+        )
+
         with testclient.TestClient(self.test_app) as client:
+            asyncio.run(self._seed_cache(cache_key, [{'sentinel': True}]))
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -402,28 +546,32 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                     return_value={},
                 ),
                 mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.ch_client.Clickhouse.get_instance',
-                    return_value=ch,
+                    'imbi_api.endpoints.project_configuration.graph'
+                    '.parse_agtype',
+                    return_value='',
                 ),
             ):
                 response = client.delete(
-                    '/organizations/myorg/projects/proj1/configuration/foo'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/foo'
                 )
+            cache_after = asyncio.run(self._read_cache(cache_key))
+            rows = asyncio.run(self._query_audit(self.project_id, before))
         self.assertEqual(response.status_code, 204)
-        valkey_client.delete.assert_awaited_once()
+        # Cache invalidated.
+        self.assertIsNone(cache_after)
+        # Audit row landed with action=delete_key.
+        self.assertEqual(len(rows), 1)
+        description = json.loads(rows[0]['description'])
+        self.assertEqual(description['action'], 'delete_key')
+        self.assertEqual(rows[0]['entry_type'], 'Configured')
 
     def test_delete_configuration_key_credentials_missing(self) -> None:
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -432,7 +580,8 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 ),
             ):
                 response = client.delete(
-                    '/organizations/myorg/projects/proj1/configuration/foo'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/foo'
                 )
         self.assertEqual(response.status_code, 503)
 
@@ -446,18 +595,22 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 'imbi_api.endpoints.project_configuration.valkey.get_client',
                 side_effect=RuntimeError('no valkey'),
             ):
-                await _invalidate_cache('p1', 'proj1')
+                # Should not raise.
+                await _invalidate_cache(self.plugin_id, self.project_id)
 
         asyncio.run(_run())
 
     def test_get_configuration_cache_read_error_swallowed(self) -> None:
-        valkey_client = mock.AsyncMock()
-        valkey_client.get.side_effect = RuntimeError('bad cache')
+        # Replace ``valkey.get_client`` returns a broken client whose
+        # ``get`` blows up. The endpoint must ignore the failure and
+        # proceed to the plugin.
+        broken = mock.AsyncMock()
+        broken.get.side_effect = RuntimeError('bad cache')
         with testclient.TestClient(self.test_app) as client:
             with (
                 mock.patch(
                     'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
+                    return_value=_resolved(self.plugin_id),
                 ),
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
@@ -467,36 +620,11 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
                 mock.patch(
                     'imbi_api.endpoints.project_configuration'
                     '.valkey.get_client',
-                    return_value=valkey_client,
+                    return_value=broken,
                 ),
             ):
                 response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
-                )
-        self.assertEqual(response.status_code, 200)
-
-    def test_get_configuration_cache_write_error_swallowed(self) -> None:
-        valkey_client = mock.AsyncMock()
-        valkey_client.get.return_value = None
-        valkey_client.setex.side_effect = RuntimeError('full disk')
-        with testclient.TestClient(self.test_app) as client:
-            with (
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration.resolve_plugin',
-                    return_value=_resolved(),
-                ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.get_plugin_credentials',
-                    return_value={},
-                ),
-                mock.patch(
-                    'imbi_api.endpoints.project_configuration'
-                    '.valkey.get_client',
-                    return_value=valkey_client,
-                ),
-            ):
-                response = client.get(
-                    '/organizations/myorg/projects/proj1/configuration/'
+                    f'/organizations/myorg/projects/{self.project_id}'
+                    '/configuration/'
                 )
         self.assertEqual(response.status_code, 200)

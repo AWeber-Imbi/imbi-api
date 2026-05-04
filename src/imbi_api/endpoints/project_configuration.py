@@ -1,13 +1,15 @@
 """Project configuration plugin endpoints."""
 
+import datetime
 import json
 import logging
 import os
 import typing
 
 import fastapi
-from imbi_common import graph, valkey
-from imbi_common.clickhouse import client as ch_client
+import nanoid
+from imbi_common import clickhouse, graph, valkey
+from imbi_common import models as common_models
 from imbi_common.plugins.base import (
     ConfigurationPlugin,
     ConfigValue,
@@ -32,16 +34,69 @@ project_configuration_router = fastapi.APIRouter(
 )
 
 
-def _cache_key(plugin_id: str, project_id: str) -> str:
-    return f'imbi:plugin-cache:{plugin_id}:{project_id}:list'
+def _cache_key(
+    plugin_id: str,
+    project_id: str,
+    source: str | None,
+    environment: str | None,
+) -> str:
+    """Compose a per-(plugin, project, source, environment) cache key.
+
+    ``list_keys`` results are context-dependent: switching ``source`` or
+    ``environment`` can change which keys the plugin returns. Including
+    both in the cache key prevents stale cross-context responses.
+    """
+    src = source or '_'
+    env = environment or '_'
+    return f'imbi:plugin-cache:{plugin_id}:{project_id}:{src}:{env}:list'
 
 
-async def _invalidate_cache(plugin_id: str, project_id: str) -> None:
+async def _invalidate_cache(
+    plugin_id: str,
+    project_id: str,
+) -> None:
+    """Drop every cached list response for a plugin/project pair.
+
+    Writes invalidate across all (source, environment) combinations
+    because we don't always know which contexts have cached entries.
+    Falls back to a key scan via ``KEYS`` since the namespace is small
+    and writes are infrequent.
+    """
     try:
         client = valkey.get_client()
-        await client.delete(_cache_key(plugin_id, project_id))
+        pattern = f'imbi:plugin-cache:{plugin_id}:{project_id}:*:list'
+        keys: list[bytes | str] = await client.keys(pattern)  # pyright: ignore[reportUnknownMemberType]
+        if keys:
+            await client.delete(*keys)
     except Exception:  # noqa: BLE001
         LOGGER.debug('Cache invalidate failed', exc_info=True)
+
+
+async def _lookup_project_slug(
+    db: graph.Graph,
+    project_id: str,
+) -> str:
+    """Look up the project's slug for audit-log writes.
+
+    Returns an empty string if the project can't be matched — the audit
+    record still wins more value than failing the user's write.
+    """
+    query: typing.LiteralString = (
+        'MATCH (p:Project {{id: {project_id}}}) RETURN p.slug AS slug'
+    )
+    try:
+        records = await db.execute(
+            query,
+            {'project_id': project_id},
+            ['slug'],
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.debug('Project slug lookup failed', exc_info=True)
+        return ''
+    if not records:
+        return ''
+    parsed = graph.parse_agtype(records[0]['slug'])
+    return str(parsed) if parsed else ''
 
 
 @project_configuration_router.get('/')
@@ -77,7 +132,7 @@ async def get_configuration(
             detail=str(exc),
         ) from exc
 
-    cache_key = _cache_key(resolved.plugin_id, project_id)
+    cache_key = _cache_key(resolved.plugin_id, project_id, source, environment)
     try:
         client = valkey.get_client()
     except Exception:  # noqa: BLE001
@@ -211,9 +266,12 @@ async def set_configuration_value(
     )
 
     await _invalidate_cache(resolved.plugin_id, project_id)
+    project_slug = await _lookup_project_slug(db, project_id)
     await _write_audit(
         project_id=project_id,
-        actor=auth.principal_name,
+        project_slug=project_slug,
+        environment_slug=environment or '',
+        recorded_by=auth.principal_name,
         action='set_value',
         plugin_slug=resolved.plugin_slug,
         key=key,
@@ -266,9 +324,12 @@ async def delete_configuration_key(
     await call_with_timeout(handler.delete_key(ctx, credentials, key))
 
     await _invalidate_cache(resolved.plugin_id, project_id)
+    project_slug = await _lookup_project_slug(db, project_id)
     await _write_audit(
         project_id=project_id,
-        actor=auth.principal_name,
+        project_slug=project_slug,
+        environment_slug=environment or '',
+        recorded_by=auth.principal_name,
         action='delete_key',
         plugin_slug=resolved.plugin_slug,
         key=key,
@@ -280,33 +341,54 @@ async def delete_configuration_key(
 async def _write_audit(
     *,
     project_id: str,
-    actor: str,
+    project_slug: str,
+    environment_slug: str,
+    recorded_by: str,
     action: str,
     plugin_slug: str,
     key: str,
     data_type: str,
     secret: bool,
 ) -> None:
-    try:
-        ch = ch_client.Clickhouse.get_instance()
-        await ch.insert(
-            'operations_log',
-            [
-                [
-                    project_id,
-                    action,
-                    actor,
-                    json.dumps(
-                        {
-                            'plugin_slug': plugin_slug,
-                            'key': key,
-                            'data_type': data_type,
-                            'secret': secret,
-                        }
-                    ),
-                ]
-            ],
-            ['project_id', 'action', 'actor', 'metadata'],
-        )
-    except Exception:  # noqa: BLE001
-        LOGGER.warning('Failed to write plugin audit log', exc_info=True)
+    """Write a configuration-change audit row to ``operations_log``.
+
+    Uses the canonical ``OperationLog`` model so the row matches the
+    schema used by ``operations_log.py``. ``entry_type`` is fixed to
+    ``'Configured'`` per the Literal in ``imbi_common.models``; the
+    plugin/key/data_type/secret payload is encoded in ``description`` as
+    JSON so consumers can decode the exact change without us having to
+    extend the schema.
+
+    Audit failures are intentionally **not** swallowed: a write that
+    succeeded against the plugin but failed to be recorded would leave
+    the operations log silently inconsistent. Letting the exception
+    propagate surfaces the bad state to the caller (and to monitoring).
+    """
+    description = json.dumps(
+        {
+            'action': action,
+            'plugin_slug': plugin_slug,
+            'key': key,
+            'data_type': data_type,
+            'secret': secret,
+        },
+        sort_keys=True,
+    )
+    entry = common_models.OperationLog(
+        id=nanoid.generate(),
+        recorded_at=datetime.datetime.now(datetime.UTC),
+        recorded_by=recorded_by,
+        performed_by=recorded_by,
+        project_id=project_id,
+        project_slug=project_slug,
+        environment_slug=environment_slug,
+        entry_type='Configured',
+        description=description,
+    )
+    row = entry.model_dump(by_alias=True, mode='python')
+    row['is_deleted'] = 1 if entry.is_deleted else 0
+    await clickhouse.client.Clickhouse.get_instance().insert(
+        'operations_log',
+        [list(row.values())],
+        list(row.keys()),
+    )
