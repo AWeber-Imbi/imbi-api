@@ -326,7 +326,7 @@ async def score_monthly_improvement(
         if pid in prev_scores:
             prev_by_key.setdefault(dim_key, []).append(prev_scores[pid])
 
-    all_keys = sorted(set(cur_by_key) | set(prev_by_key))
+    all_keys = sorted(cur_by_key)
     out: list[scoring_models.MonthlyImprovementRow] = []
     for key in all_keys:
         cur_list = cur_by_key.get(key, [])
