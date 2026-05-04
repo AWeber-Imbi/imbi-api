@@ -115,6 +115,22 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
     causing pytest to hang indefinitely.
     """
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Ensure ClickHouse has the ``operations_log`` table for the
+        # audit-write assertions. Locally the table is left over from
+        # ``imbi-api setup``; in CI the fresh container needs an
+        # explicit schema bootstrap.
+        async def _ensure_schema() -> None:
+            ch = imbi_clickhouse.client.Clickhouse()
+            await ch.initialize()
+            try:
+                await ch.setup_schema()
+            finally:
+                await ch.aclose()
+
+        asyncio.run(_ensure_schema())
+
     def setUp(self) -> None:
         self.test_app = app.create_app()
         self.test_user = models.User(
