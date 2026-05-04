@@ -153,8 +153,9 @@ class ProjectPluginsEndpointTestCase(unittest.TestCase):
             'options': '{}',
             'api_version': 1,
         }
-        # delete + create + final read
+        # validate plugin_ids + delete + create + final read
         self.mock_db.execute.side_effect = [
+            [{'found': '1'}],  # validate
             [{'deleted': '0'}],  # delete
             [],  # create
             [

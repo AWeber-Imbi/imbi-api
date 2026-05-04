@@ -43,21 +43,25 @@ async def resolve_plugin(
         fastapi.HTTPException 400: Multiple plugins but no source given.
         PluginUnavailableError: Plugin node exists but slug not in registry.
     """
+    # Cypher map literals must double-escape their braces so the
+    # ``SQL.format()``-based template renderer doesn't treat them as
+    # replacement fields. ``options`` is read from the edge (``pe`` /
+    # ``pte``) so per-assignment overrides reach the plugin handler.
     query: typing.LiteralString = """
-    MATCH (proj:Project {id: {project_id}})
+    MATCH (proj:Project {{id: {project_id}}})
     OPTIONAL MATCH (proj)-[pe:USES_PLUGIN]->(p:Plugin)
     WHERE pe.tab = {tab}
     OPTIONAL MATCH (proj)-[:TYPE]->(pt:ProjectType)
       -[pte:USES_PLUGIN]->(p2:Plugin)
     WHERE pte.tab = {tab}
     WITH
-      collect(DISTINCT {id: p.id, slug: p.plugin_slug,
-                         options: p.options, default: pe.default,
-                         src: 'project'})
+      collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
+                         options: pe.options, default: pe.default,
+                         src: 'project'}})
        AS proj_plugins,
-      collect(DISTINCT {id: p2.id, slug: p2.plugin_slug,
-                         options: p2.options, default: pte.default,
-                         src: 'project_type'})
+      collect(DISTINCT {{id: p2.id, slug: p2.plugin_slug,
+                         options: pte.options, default: pte.default,
+                         src: 'project_type'}})
        AS pt_plugins
     RETURN proj_plugins, pt_plugins
     """
@@ -105,7 +109,22 @@ async def resolve_plugin(
     elif len(candidates) == 1:
         chosen = candidates[0]
     else:
-        defaults = [p for p in candidates if p.get('default')]
+        # Project-level defaults must win over project-type defaults
+        # (project assignments override project-type assignments). The
+        # merge dict preserves the project-type entry's insertion order
+        # when a project entry overwrites it, so we can't rely on
+        # iteration order — explicitly partition by ``src`` instead.
+        project_defaults = [
+            p
+            for p in candidates
+            if p.get('src') == 'project' and p.get('default')
+        ]
+        type_defaults = [
+            p
+            for p in candidates
+            if p.get('src') == 'project_type' and p.get('default')
+        ]
+        defaults = project_defaults or type_defaults
         if not defaults:
             raise fastapi.HTTPException(
                 status_code=400,

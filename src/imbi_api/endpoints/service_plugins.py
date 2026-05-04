@@ -160,6 +160,34 @@ async def update_service_plugin(
     ],
 ) -> models.PluginResponse:
     """Update a Plugin node's label and options."""
+    # Mirror the duplicate-label check from ``create_service_plugin`` so
+    # rename via PUT can't bypass uniqueness within the service.
+    dup_check_query: typing.LiteralString = """
+    MATCH (p:Plugin)<-[:HAS_PLUGIN]-
+          (s:ThirdPartyService {{slug: {svc_slug}}})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
+    WHERE p.label = {label} AND p.id <> {plugin_id}
+    RETURN count(p) AS cnt
+    """
+    dup_check = await db.execute(
+        dup_check_query,
+        {
+            'svc_slug': slug,
+            'org_slug': org_slug,
+            'label': data.label,
+            'plugin_id': plugin_id,
+        },
+        ['cnt'],
+    )
+    if dup_check and graph.parse_agtype(dup_check[0]['cnt']) > 0:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(
+                f'Plugin with label {data.label!r} already exists'
+                f' in service {slug!r}'
+            ),
+        )
+
     options_str = json.dumps(data.options)
     props: dict[str, typing.Any] = {
         'label': data.label,
@@ -211,6 +239,14 @@ async def delete_service_plugin(
     Rejects if any USES_PLUGIN edges still reference it unless
     ``?force=true`` is passed by an admin.
     """
+    # ``force=true`` bypasses the in-use-by-projects safeguard, so it
+    # must require admin privileges to match the docstring contract.
+    if force and not auth.is_admin:
+        raise fastapi.HTTPException(
+            status_code=403,
+            detail='force delete requires admin privileges',
+        )
+
     if not force:
         ref_query: typing.LiteralString = """
         MATCH ()-[r:USES_PLUGIN]->(p:Plugin {{id: {plugin_id}}})

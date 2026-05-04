@@ -19,7 +19,9 @@ class CatalogEntry(typing.TypedDict):
     author: str
     description: str
     docs_url: str
-    status: typing.Literal['installed', 'not_installed', 'update_available']
+    # ``update_available`` was previously declared but never produced;
+    # added back if/when version-comparison detection lands.
+    status: typing.Literal['installed', 'not_installed']
 
 
 def _load_catalog_toml() -> list[dict[str, typing.Any]]:
@@ -44,17 +46,16 @@ def list_catalog_entries() -> list[CatalogEntry]:
     result: list[CatalogEntry] = []
     for entry in _CATALOG_RAW:
         pkg = entry['package']
-        if pkg in installed:
-            status: typing.Literal[
-                'installed', 'not_installed', 'update_available'
-            ] = 'installed'
-        else:
-            status = 'not_installed'
+        status: typing.Literal['installed', 'not_installed'] = (
+            'installed' if pkg in installed else 'not_installed'
+        )
         result.append(
             CatalogEntry(
                 package=pkg,
                 version=entry.get('version', ''),
-                slugs=entry.get('slugs', []),
+                # Copy so callers mutating the response can't reach
+                # back into the cached _CATALOG_RAW data.
+                slugs=list(entry.get('slugs', [])),
                 author=entry.get('author', ''),
                 description=entry.get('description', ''),
                 docs_url=entry.get('docs_url', ''),

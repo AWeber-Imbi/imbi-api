@@ -88,6 +88,34 @@ async def replace_project_type_plugins(
             detail=str(exc),
         ) from exc
 
+    # Validate every submitted plugin_id before destructive deletes.
+    # Otherwise an unknown id is silently dropped on re-create and the
+    # endpoint can return success with a partially cleared assignment
+    # set (the existing edges have been deleted, but the new edges to
+    # invalid plugin ids are never created).
+    if rows:
+        plugin_ids = sorted({row['plugin_id'] for row in rows})
+        validate_query: typing.LiteralString = """
+        UNWIND {plugin_ids} AS pid
+        OPTIONAL MATCH (p:Plugin {{id: pid}})
+        RETURN count(DISTINCT p) AS found
+        """
+        found_records = await db.execute(
+            validate_query,
+            {'plugin_ids': plugin_ids},
+            ['found'],
+        )
+        found = (
+            graph.parse_agtype(found_records[0]['found'])
+            if found_records
+            else 0
+        )
+        if found != len(plugin_ids):
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail='One or more plugin IDs are invalid',
+            )
+
     delete_query: typing.LiteralString = """
     MATCH (pt:ProjectType {{slug: {pt_slug}}})
           -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})

@@ -372,8 +372,11 @@ class ServicePluginsEndpointTestCase(unittest.TestCase):
             }
         )
         svc_raw = json.dumps({'slug': 'github'})
-        self.mock_db.execute.return_value = [
-            {'plugin': plugin_raw, 'svc': svc_raw}
+        # PUT now runs a duplicate-label check before the update; supply
+        # a zero count for the check, then the updated row.
+        self.mock_db.execute.side_effect = [
+            [{'cnt': '0'}],  # dup-label check
+            [{'plugin': plugin_raw, 'svc': svc_raw}],  # update
         ]
         with mock.patch(
             'imbi_api.endpoints.service_plugins.list_plugins',
@@ -389,7 +392,8 @@ class ServicePluginsEndpointTestCase(unittest.TestCase):
         self.assertEqual(response.json()['label'], 'New Label')
 
     def test_update_plugin_not_found(self) -> None:
-        self.mock_db.execute.return_value = []
+        # dup-label check returns 0, then update returns empty.
+        self.mock_db.execute.side_effect = [[{'cnt': '0'}], []]
         with testclient.TestClient(self.test_app) as client:
             response = client.put(
                 '/organizations/myorg/'

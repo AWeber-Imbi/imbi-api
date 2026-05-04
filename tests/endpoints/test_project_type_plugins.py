@@ -108,6 +108,7 @@ class ProjectTypePluginsEndpointTestCase(unittest.TestCase):
             },
         }
         self.mock_db.execute.side_effect = [
+            [{'found': '1'}],  # validate plugin_ids
             [{'deleted': '0'}],  # delete
             [],  # create edge
             [plugin_record],  # final list call

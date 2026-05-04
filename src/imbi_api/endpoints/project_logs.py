@@ -72,7 +72,10 @@ async def search_logs(
     end_time: str | None = fastapi.Query(default=None),
     cursor: str | None = fastapi.Query(default=None),
     limit: int = fastapi.Query(default=100, ge=1, le=1000),
-    filter: list[str] = fastapi.Query(default_factory=list),  # noqa: B008
+    raw_filters: list[str] = fastapi.Query(  # noqa: B008
+        default_factory=list,
+        alias='filter',
+    ),
 ) -> models.LogResultResponse:
     """Search project logs via the assigned logs plugin."""
     resolved = await resolve_plugin(db, project_id, 'logs', source)
@@ -91,7 +94,15 @@ async def search_logs(
             detail=f'Invalid datetime format: {exc}',
         ) from exc
 
-    filters = _parse_filters(filter)
+    # ``fromisoformat`` accepts naive timestamps; coerce them to UTC so
+    # plugin handlers always receive aware datetimes (matches the pattern
+    # in events.py / operations_log.py).
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=datetime.UTC)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=datetime.UTC)
+
+    filters = _parse_filters(raw_filters)
     query = LogQuery(
         start_time=start_dt,
         end_time=end_dt,

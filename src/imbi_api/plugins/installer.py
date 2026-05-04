@@ -54,6 +54,9 @@ async def install_package(name: str, version: str | None = None) -> LoadResult:
         )
     except TimeoutError as exc:
         proc.kill()
+        # Drain pipes / reap the child so the asyncio transport closes
+        # cleanly — otherwise repeated timeouts leak fds + ResourceWarnings.
+        await proc.wait()
         raise InstallError(
             f'Install of {spec!r} timed out after {_INSTALL_TIMEOUT}s'
         ) from exc
@@ -71,6 +74,10 @@ async def uninstall_package(name: str) -> LoadResult:
     """Uninstall a plugin package at runtime."""
     if not _INSTALL_ENABLED:
         raise InstallError('Runtime plugin installation is disabled')
+    # Mirror the install allowlist: never let an admin uninstall a package
+    # that isn't a curated plugin (e.g., runtime-critical deps).
+    if name not in _ALLOWED_PACKAGES:
+        raise InstallError(f'Package {name!r} is not in the plugin catalog')
     proc = await asyncio.create_subprocess_exec(
         'uv',
         'pip',
@@ -86,6 +93,7 @@ async def uninstall_package(name: str) -> LoadResult:
         )
     except TimeoutError as exc:
         proc.kill()
+        await proc.wait()
         raise InstallError(f'Uninstall of {name!r} timed out') from exc
 
     if proc.returncode != 0:

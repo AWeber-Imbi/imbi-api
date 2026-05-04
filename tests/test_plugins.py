@@ -287,6 +287,9 @@ class InstallerTestCase(unittest.TestCase):
         mock_proc = mock.MagicMock()
         mock_proc.communicate = mock.AsyncMock(side_effect=TimeoutError())
         mock_proc.kill = mock.MagicMock()
+        # ``installer`` drains the child via ``await proc.wait()`` after
+        # killing it on timeout to avoid leaking fds.
+        mock_proc.wait = mock.AsyncMock(return_value=-9)
 
         async def _exec(*_a: object, **_k: object) -> mock.MagicMock:
             return mock_proc
@@ -298,6 +301,7 @@ class InstallerTestCase(unittest.TestCase):
                 asyncio.run(installer.install_package('imbi-plugin-ssm'))
         self.assertIn('timed out', str(ctx.exception))
         mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_awaited_once()
 
     def test_uninstall_success(self) -> None:
         from imbi_common.plugins.registry import LoadResult
@@ -358,6 +362,7 @@ class InstallerTestCase(unittest.TestCase):
         mock_proc = mock.MagicMock()
         mock_proc.communicate = mock.AsyncMock(side_effect=TimeoutError())
         mock_proc.kill = mock.MagicMock()
+        mock_proc.wait = mock.AsyncMock(return_value=-9)
 
         async def _exec(*_a: object, **_k: object) -> mock.MagicMock:
             return mock_proc
@@ -368,6 +373,8 @@ class InstallerTestCase(unittest.TestCase):
             with self.assertRaises(InstallError) as ctx:
                 asyncio.run(installer.uninstall_package('imbi-plugin-ssm'))
         self.assertIn('timed out', str(ctx.exception))
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_awaited_once()
 
 
 def _make_registry_entry(

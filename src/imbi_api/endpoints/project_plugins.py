@@ -120,15 +120,45 @@ async def replace_project_plugins(
                 detail=str(exc),
             ) from exc
 
+    # Pre-validate every submitted plugin_id before any destructive
+    # delete runs. Otherwise an unknown id silently no-ops and the
+    # endpoint reports success with a partially dropped assignment set.
+    if rows:
+        plugin_ids = sorted({row['plugin_id'] for row in rows})
+        validate_query: typing.LiteralString = """
+        UNWIND {plugin_ids} AS pid
+        OPTIONAL MATCH (p:Plugin {{id: pid}})
+        RETURN count(DISTINCT p) AS found
+        """
+        found_records = await db.execute(
+            validate_query,
+            {'plugin_ids': plugin_ids},
+            ['found'],
+        )
+        found = (
+            graph.parse_agtype(found_records[0]['found'])
+            if found_records
+            else 0
+        )
+        if found != len(plugin_ids):
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail='One or more plugin IDs are invalid',
+            )
+
+    # Scope mutations to the org via the project's team→org chain so a
+    # caller from another org can't modify edges by guessing project_id.
     delete_query: typing.LiteralString = """
     MATCH (proj:Project {{id: {project_id}}})
+          -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->
+          (:Organization {{slug: {org_slug}}})
     OPTIONAL MATCH (proj)-[e:USES_PLUGIN]->()
     DELETE e
     RETURN count(e) AS deleted
     """
     await db.execute(
         delete_query,
-        {'project_id': project_id},
+        {'project_id': project_id, 'org_slug': org_slug},
         ['deleted'],
     )
 
@@ -140,6 +170,8 @@ async def replace_project_plugins(
         }
         create_query: str = (
             'MATCH (proj:Project {{id: {project_id}}})'
+            ' -[:OWNED_BY]->(:Team)-[:BELONGS_TO]->'
+            ' (:Organization {{slug: {org_slug}}})'
             ' MATCH (p:Plugin {{id: {plugin_id}}})'
             f' CREATE (proj)-[:USES_PLUGIN {props_template(edge_props)}]->(p)'
         )
@@ -147,6 +179,7 @@ async def replace_project_plugins(
             create_query,
             {
                 'project_id': project_id,
+                'org_slug': org_slug,
                 'plugin_id': row['plugin_id'],
                 **edge_props,
             },
