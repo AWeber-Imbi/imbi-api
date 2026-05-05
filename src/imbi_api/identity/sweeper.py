@@ -60,8 +60,22 @@ async def _refresh_one(
         # ``flows.refresh_connection`` flips status to ``expired`` only
         # for plugin-level refresh failures; the missing-refresh-token
         # branch raises before reaching that code path.  Mark the
-        # connection here so we do not retry it every poll.
-        connection = await repository.load_connection(db, plugin_id, user_id)
+        # connection here so we do not retry it every poll.  Guard the
+        # lookup so a transient graph error does not abort the sweeper
+        # iteration over remaining rows.
+        try:
+            connection = await repository.load_connection(
+                db, plugin_id, user_id
+            )
+        except Exception:  # noqa: BLE001
+            LOGGER.warning(
+                'Failed to load identity connection after refresh '
+                'failure plugin_id=%s user_id=%s',
+                plugin_id,
+                user_id,
+                exc_info=True,
+            )
+            return
         if connection is not None and connection.status != 'expired':
             try:
                 await repository.mark_status(
