@@ -1,6 +1,8 @@
 """Tests for identity-flow operations."""
 
+import contextlib
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -10,7 +12,10 @@ from imbi_common.plugins.errors import PluginNotFoundError
 from imbi_api.identity import errors, flows
 
 
-def _patch_load_handler(handler: object, creds: dict | None = None) -> object:
+def _patch_load_handler(
+    handler: object,
+    creds: dict[str, str] | None = None,
+) -> contextlib.AbstractContextManager[typing.Any]:
     """Common patch helper for ``flows._load_plugin_handler``."""
     entry = mock.MagicMock()
     entry.manifest = mock.MagicMock(slug='oidc', default_scopes=['openid'])

@@ -226,6 +226,49 @@ class LoadConnectionTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, 'active')
 
 
+class ListForUserTestCase(unittest.IsolatedAsyncioTestCase):
+    """Verify list_for_user returns parsed rows for the actor."""
+
+    async def test_returns_parsed_rows(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = [
+            {
+                'id': '"conn-1"',
+                'plugin_id': '"plugin-1"',
+                'plugin_slug': '"oidc"',
+                'plugin_label': '"OIDC"',
+                'connects_users_to': None,
+                'subject': '"sub"',
+                'status': '"active"',
+                'expires_at': None,
+                'scopes': None,
+                'last_used_at': None,
+                'metadata': None,
+            }
+        ]
+
+        def parse(value: object) -> object:
+            if isinstance(value, str) and value.startswith('"'):
+                return value.strip('"')
+            return value
+
+        with mock.patch.object(
+            repository.graph,
+            'parse_agtype',
+            side_effect=parse,
+        ):
+            rows = await repository.list_for_user(db, 'user-1')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['id'], 'conn-1')
+        self.assertEqual(rows[0]['plugin_slug'], 'oidc')
+
+    async def test_returns_empty_list_when_no_rows(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = []
+        result = await repository.list_for_user(db, 'user-1')
+        self.assertEqual(result, [])
+
+
 class StaleConnectionsTestCase(unittest.IsolatedAsyncioTestCase):
     """Verify stale_connections returns parsed rows."""
 

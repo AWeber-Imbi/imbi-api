@@ -139,6 +139,147 @@ class DisconnectEndpointTestCase(unittest.IsolatedAsyncioTestCase):
         revoke.assert_awaited_once()
 
 
+class StartConnectEndpointTestCase(unittest.IsolatedAsyncioTestCase):
+    """Cover the start_connect endpoint."""
+
+    async def test_returns_authorization_url(self) -> None:
+        from imbi_api.identity import models
+
+        db = mock.AsyncMock()
+        auth = mock.MagicMock()
+        auth.require_user = mock.MagicMock(id='user-1')
+        request = mock.MagicMock()
+        with (
+            mock.patch.object(
+                endpoints,
+                '_build_redirect_uri',
+                return_value='https://imbi/cb',
+            ),
+            mock.patch.object(
+                endpoints.flows,
+                'start_flow',
+                new=mock.AsyncMock(
+                    return_value=('https://idp/auth', 'state-token', None)
+                ),
+            ),
+        ):
+            response = await endpoints.start_connect(
+                'plugin-1',
+                models.IdentityConnectionStartRequest(),
+                request,
+                db,
+                auth,
+            )
+        self.assertEqual(response.authorization_url, 'https://idp/auth')
+        self.assertEqual(response.state, 'state-token')
+
+    async def test_maps_plugin_not_found_to_404(self) -> None:
+        from imbi_common.plugins.errors import PluginNotFoundError
+
+        from imbi_api.identity import models
+
+        db = mock.AsyncMock()
+        auth = mock.MagicMock()
+        auth.require_user = mock.MagicMock(id='user-1')
+        with (
+            mock.patch.object(
+                endpoints,
+                '_build_redirect_uri',
+                return_value='https://imbi/cb',
+            ),
+            mock.patch.object(
+                endpoints.flows,
+                'start_flow',
+                new=mock.AsyncMock(
+                    side_effect=PluginNotFoundError('plugin-1')
+                ),
+            ),
+        ):
+            with self.assertRaises(fastapi.HTTPException) as ctx:
+                await endpoints.start_connect(
+                    'plugin-1',
+                    models.IdentityConnectionStartRequest(),
+                    mock.MagicMock(),
+                    db,
+                    auth,
+                )
+        self.assertEqual(ctx.exception.status_code, 404)
+
+
+class CallbackEndpointTestCase(unittest.IsolatedAsyncioTestCase):
+    """Cover the OAuth callback endpoint."""
+
+    async def test_redirects_to_safe_return_to(self) -> None:
+        from imbi_common.plugins.base import (
+            IdentityCredentials,
+            IdentityProfile,
+        )
+
+        db = mock.AsyncMock()
+        with mock.patch.object(
+            endpoints.flows,
+            'complete_flow',
+            new=mock.AsyncMock(
+                return_value=(
+                    IdentityProfile(subject='s'),
+                    IdentityCredentials(access_token='at'),
+                    'plugin-1',
+                    '/projects/x',
+                )
+            ),
+        ):
+            response = await endpoints.callback('plugin-1', 'code', 'st', db)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['location'], '/projects/x')
+
+    async def test_redirects_to_default_when_return_to_unsafe(self) -> None:
+        from imbi_common.plugins.base import (
+            IdentityCredentials,
+            IdentityProfile,
+        )
+
+        db = mock.AsyncMock()
+        with mock.patch.object(
+            endpoints.flows,
+            'complete_flow',
+            new=mock.AsyncMock(
+                return_value=(
+                    IdentityProfile(subject='s'),
+                    IdentityCredentials(access_token='at'),
+                    'plugin-1',
+                    'https://attacker.example/x',
+                )
+            ),
+        ):
+            response = await endpoints.callback('plugin-1', 'code', 'st', db)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['location'], '/settings/connections')
+
+    async def test_maps_invalid_state_to_400(self) -> None:
+        db = mock.AsyncMock()
+        with mock.patch.object(
+            endpoints.flows,
+            'complete_flow',
+            new=mock.AsyncMock(side_effect=ValueError('expired')),
+        ):
+            with self.assertRaises(fastapi.HTTPException) as ctx:
+                await endpoints.callback('plugin-1', 'code', 'st', db)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_maps_plugin_not_found_to_404(self) -> None:
+        from imbi_common.plugins.errors import PluginNotFoundError
+
+        db = mock.AsyncMock()
+        with mock.patch.object(
+            endpoints.flows,
+            'complete_flow',
+            new=mock.AsyncMock(side_effect=PluginNotFoundError('plugin-1')),
+        ):
+            with self.assertRaises(fastapi.HTTPException) as ctx:
+                await endpoints.callback('plugin-1', 'code', 'st', db)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+
 class ListMyIdentitiesTestCase(unittest.IsolatedAsyncioTestCase):
     """Cover the list endpoint's row-mapping branch."""
 
