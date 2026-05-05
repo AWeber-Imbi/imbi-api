@@ -4,6 +4,11 @@ Polls :func:`stale_connections` every 60s, acquires a per-(user,plugin)
 Valkey lock to prevent thundering-herd on shared dashboards, and calls
 :meth:`IdentityPlugin.refresh` for each row whose ``expires_at`` is
 within the next 5 minutes.  Failed refreshes flip ``status='expired'``.
+
+The actual lifespan integration lives in
+:func:`imbi_api.lifespans.identity_refresh_hook`; this module only
+exposes the loop body so it can be unit-tested without bringing the
+full FastAPI app stack up.
 """
 
 import asyncio
@@ -12,7 +17,6 @@ import logging
 
 import valkey.asyncio
 from imbi_common import graph
-from imbi_common import valkey as valkey_module
 
 from imbi_api.identity import errors, flows, repository
 
@@ -53,6 +57,24 @@ async def _refresh_one(
             db, plugin_id=plugin_id, actor_user_id=user_id
         )
     except errors.IdentityRefreshFailed:
+        # ``flows.refresh_connection`` flips status to ``expired`` only
+        # for plugin-level refresh failures; the missing-refresh-token
+        # branch raises before reaching that code path.  Mark the
+        # connection here so we do not retry it every poll.
+        connection = await repository.load_connection(db, plugin_id, user_id)
+        if connection is not None and connection.status != 'expired':
+            try:
+                await repository.mark_status(
+                    db, connection.connection_id, 'expired'
+                )
+            except Exception:  # noqa: BLE001
+                LOGGER.warning(
+                    'Failed to mark identity connection expired '
+                    'plugin_id=%s user_id=%s',
+                    plugin_id,
+                    user_id,
+                    exc_info=True,
+                )
         LOGGER.warning(
             'Identity refresh failed plugin_id=%s user_id=%s; '
             'connection marked expired',
@@ -95,17 +117,3 @@ async def run_sweeper(
         except TimeoutError:
             continue
     LOGGER.info('Identity refresh sweeper stopped')
-
-
-async def lifespan_task(
-    db: graph.Graph,
-) -> tuple[asyncio.Task[None], asyncio.Event]:
-    """Start the sweeper as a background task.
-
-    Returns ``(task, stop_event)``.  Caller is responsible for setting
-    ``stop_event`` and awaiting ``task`` on shutdown.
-    """
-    client = valkey_module.get_client()
-    stop = asyncio.Event()
-    task = asyncio.create_task(run_sweeper(db, client, stop=stop))
-    return task, stop
