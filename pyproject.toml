@@ -211,10 +211,14 @@ docs = [
   "mkdocstrings-python-xref>=1.6,<2",
   "mkdocstrings[python]"
 ]
+plugins = [
+  "imbi-plugin-logzio",
+]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 default = true
 
 [tool.uv.sources]
-imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", rev = "main" }
+imbi-common = { path = "../imbi-common", editable = true }
+imbi-plugin-logzio = { path = "../imbi-plugin-logzio", editable = true }

@@ -56,11 +56,15 @@ async def resolve_plugin(
     WHERE pte.tab = {tab}
     WITH
       collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
-                         options: pe.options, default: pe.default,
+                         edge_options: pe.options,
+                         plugin_options: p.options,
+                         default: pe.default,
                          src: 'project'}})
        AS proj_plugins,
       collect(DISTINCT {{id: p2.id, slug: p2.plugin_slug,
-                         options: pte.options, default: pte.default,
+                         edge_options: pte.options,
+                         plugin_options: p2.options,
+                         default: pte.default,
                          src: 'project_type'}})
        AS pt_plugins
     RETURN proj_plugins, pt_plugins
@@ -136,7 +140,17 @@ async def resolve_plugin(
 
     plugin_id: str = chosen['id']
     plugin_slug: str = chosen['slug']
-    options = parse_options(chosen.get('options'))
+    # Plugin-instance defaults are overlaid by per-assignment overrides.
+    # The override map is shallow-merged on top of the defaults so that
+    # admins only need to set fields that diverge from the instance
+    # default for a given project type.
+    plugin_defaults: dict[str, typing.Any] = parse_options(
+        chosen.get('plugin_options')
+    )
+    overrides: dict[str, typing.Any] = parse_options(
+        chosen.get('edge_options')
+    )
+    options = {**plugin_defaults, **overrides}
 
     try:
         entry = get_plugin(plugin_slug)
