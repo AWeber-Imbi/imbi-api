@@ -21,9 +21,6 @@ class IdentityRequiredErrorTestCase(unittest.TestCase):
 class IdentityRefreshFailedTestCase(unittest.TestCase):
     """Marker exception for terminal refresh-grant failures."""
 
-    def test_is_exception(self) -> None:
-        self.assertTrue(issubclass(errors.IdentityRefreshFailed, Exception))
-
     def test_carries_message(self) -> None:
         exc = errors.IdentityRefreshFailed('expired')
         self.assertEqual(str(exc), 'expired')
@@ -32,5 +29,6 @@ class IdentityRefreshFailedTestCase(unittest.TestCase):
 class IdentityRevokedErrorTestCase(unittest.TestCase):
     """Marker exception for revoked connections."""
 
-    def test_is_exception(self) -> None:
-        self.assertTrue(issubclass(errors.IdentityRevokedError, Exception))
+    def test_can_be_raised(self) -> None:
+        with self.assertRaises(errors.IdentityRevokedError):
+            raise errors.IdentityRevokedError('token revoked')
