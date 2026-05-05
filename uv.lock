@@ -948,7 +948,7 @@ plugins = [{ name = "imbi-plugin-logzio", editable = "../imbi-plugin-logzio" }]
 [[package]]
 name = "imbi-common"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#73586077724dc7bd817659597808719792868db1" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#309c347807761143f013d19398be67c4e305ca37" }
 dependencies = [
     { name = "cryptography" },
     { name = "jsonschema-models" },
