@@ -146,6 +146,7 @@ async def list_service_accounts(
                 is_active=sa.is_active,
                 created_at=sa.created_at,
                 last_authenticated=sa.last_authenticated,
+                avatar_url=sa.avatar_url,
             )
         )
     return accounts
