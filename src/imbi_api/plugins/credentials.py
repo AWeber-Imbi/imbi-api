@@ -103,8 +103,9 @@ async def _read_plugin_configuration(
 ) -> dict[str, typing.Any]:
     """Internal: decrypt and return the plugin_configuration blob.
 
-    Returns ``{}`` if absent or undecryptable. Callers should not
-    surface this dict to API responses.
+    Returns ``{}`` when the blob is absent or empty. Raises
+    ``ValueError`` when the blob is present but cannot be decrypted or
+    parsed — callers must not silently overwrite a corrupted blob.
     """
     query: typing.LiteralString = """
     MATCH (p:Plugin {{id: {plugin_id}}})
@@ -119,14 +120,23 @@ async def _read_plugin_configuration(
         return {}
     try:
         plaintext = TokenEncryption.get_instance().decrypt(raw)
-    except Exception:  # noqa: BLE001
-        return {}
+    except Exception as exc:
+        raise ValueError(
+            f'plugin_configuration for plugin_id={plugin_id!r} could not'
+            ' be decrypted; refusing to overwrite'
+        ) from exc
     if plaintext is None:
-        return {}
+        raise ValueError(
+            f'plugin_configuration for plugin_id={plugin_id!r} decrypted'
+            ' to None; refusing to overwrite'
+        )
     try:
         data = json.loads(plaintext)
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f'plugin_configuration for plugin_id={plugin_id!r} is not'
+            ' valid JSON; refusing to overwrite'
+        ) from exc
     return data if isinstance(data, dict) else {}
 
 
@@ -170,5 +180,13 @@ async def get_plugin_configuration_keys(
 
     The plaintext values themselves are never surfaced to the caller.
     """
-    data = await _read_plugin_configuration(db, plugin_id)
+    try:
+        data = await _read_plugin_configuration(db, plugin_id)
+    except ValueError:
+        LOGGER.warning(
+            'plugin_configuration unreadable for plugin_id=%s; '
+            'reporting no keys',
+            plugin_id,
+        )
+        return []
     return [k for k, v in data.items() if v]

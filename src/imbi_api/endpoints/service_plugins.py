@@ -585,12 +585,30 @@ async def replace_plugin_assignments(
         [],
     )
 
+    clear_default_query: typing.LiteralString = """
+    MATCH (pt:ProjectType {{slug: {pt_slug}}})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
+    MATCH (pt)-[e:USES_PLUGIN]->(:Plugin)
+    WHERE e.tab = {tab} AND e.default = true
+    SET e.default = false
+    """
+
     for a in body:
         edge_props = {
             'tab': a.tab,
             'default': a.default,
             'options': json.dumps(a.options),
         }
+        if a.default:
+            await db.execute(
+                clear_default_query,
+                {
+                    'pt_slug': a.project_type_slug,
+                    'org_slug': org_slug,
+                    'tab': a.tab,
+                },
+                [],
+            )
         create_query: str = (
             'MATCH (pt:ProjectType {{slug: {pt_slug}}})'
             ' -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})'

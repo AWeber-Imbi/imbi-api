@@ -87,14 +87,29 @@ async def resolve_plugin(
         graph.parse_agtype(records[0]['pt_plugins']) or []
     )
 
-    # Project overrides project-type; merge by plugin id
+    # Project overrides project-type; merge by plugin id.
+    # Preserve the project-type entry so its edge options can be used as
+    # the baseline when a project-level entry exists for the same plugin.
+    pt_by_id: dict[str, dict[str, typing.Any]] = {
+        p['id']: p for p in pt_plugins if p.get('id')
+    }
     merged: dict[str, dict[str, typing.Any]] = {}
     for p in pt_plugins:
         if p.get('id'):
             merged[p['id']] = p
     for p in proj_plugins:
-        if p.get('id'):
-            merged[p['id']] = p
+        pid = p.get('id')
+        if not pid:
+            continue
+        if pid in pt_by_id:
+            # Carry the project-type edge options as a middle tier so that
+            # a partial project override does not drop project-type settings.
+            merged[pid] = {
+                **p,
+                'pt_edge_options': pt_by_id[pid].get('edge_options'),
+            }
+        else:
+            merged[pid] = p
 
     candidates = [p for p in merged.values() if p.get('id')]
     if not candidates:
@@ -140,17 +155,21 @@ async def resolve_plugin(
 
     plugin_id: str = chosen['id']
     plugin_slug: str = chosen['slug']
-    # Plugin-instance defaults are overlaid by per-assignment overrides.
-    # The override map is shallow-merged on top of the defaults so that
-    # admins only need to set fields that diverge from the instance
-    # default for a given project type.
+    # Three-tier option merge (lowest → highest precedence):
+    #   1. Plugin node defaults (plugin_options on the Plugin node)
+    #   2. Project-type edge options (pt_edge_options, preserved above)
+    #   3. Project-level edge options (edge_options on the project edge)
+    # Admins only need to specify fields that diverge from the tier below.
     plugin_defaults: dict[str, typing.Any] = parse_options(
         chosen.get('plugin_options')
+    )
+    pt_edge: dict[str, typing.Any] = parse_options(
+        chosen.get('pt_edge_options')
     )
     overrides: dict[str, typing.Any] = parse_options(
         chosen.get('edge_options')
     )
-    options = {**plugin_defaults, **overrides}
+    options = {**plugin_defaults, **pt_edge, **overrides}
 
     try:
         entry = get_plugin(plugin_slug)
