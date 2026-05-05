@@ -67,6 +67,8 @@ def decode_identity_state(
         state_data = models.OAuthStateData(**payload)
     except jwt.InvalidTokenError as exc:
         raise ValueError(f'Invalid identity state token: {exc}') from exc
+    if state_data.intent != 'identity' or not state_data.plugin_id:
+        raise ValueError('State token is not for an identity flow')
     age = int(time.time()) - state_data.timestamp
     if age > max_age_seconds:
         raise ValueError(f'Identity state expired (age: {age}s)')

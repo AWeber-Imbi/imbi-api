@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import typing
 
 from imbi_common import graph
 from imbi_common.plugins.base import (
@@ -92,7 +93,7 @@ async def hydrate_identity(
 
 
 async def _plugin_slug(db: graph.Graph, plugin_id: str) -> str | None:
-    query = (
+    query: typing.LiteralString = (
         'MATCH (p:Plugin {{id: {plugin_id}}}) '
         'RETURN p.plugin_slug AS slug LIMIT 1'
     )

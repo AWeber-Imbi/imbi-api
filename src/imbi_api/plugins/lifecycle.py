@@ -28,12 +28,13 @@ async def startup_load_plugins(db: graph.Graph) -> None:
         LOGGER.error('Plugin load error for %r: %s', slug, err)
 
     # Apply plugin-declared vlabels + indexes to AGE before any audit.
+    # Fail fast: missing labels/indexes corrupt every later request that
+    # touches the plugin, so abort startup rather than mask the breakage.
     try:
         await apply_plugin_schemas([e.manifest for e in list_plugins()])
-    except Exception:  # noqa: BLE001
-        LOGGER.warning(
-            'Failed to apply plugin-declared schemas', exc_info=True
-        )
+    except Exception:
+        LOGGER.exception('Failed to apply plugin-declared schemas')
+        raise
 
     await _seed_registrations(db)
     await _audit_unavailable(db)

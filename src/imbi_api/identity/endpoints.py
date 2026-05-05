@@ -2,6 +2,7 @@
 
 import logging
 import typing
+import urllib.parse
 
 import fastapi
 import fastapi.responses
@@ -23,6 +24,25 @@ LOGGER = logging.getLogger(__name__)
 me_identities_router = fastapi.APIRouter(
     prefix='/me/identities', tags=['Identities']
 )
+
+
+def _is_safe_return_to(url: str | None) -> bool:
+    """Return True if ``url`` is a safe in-app redirect target.
+
+    ``return_to`` is user-supplied via :class:`IdentityConnectionStartRequest`
+    and signed inside the state JWT, but the signature only proves the
+    requester chose the value — not that it points back at the UI.  Reject
+    anything with a scheme or netloc to avoid an open redirect that could
+    chain a successful identity callback into a phishing page.  The value
+    must also start with ``/`` (and not ``//`` which browsers treat as
+    protocol-relative).
+    """
+    if not url:
+        return False
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme or parsed.netloc:
+        return False
+    return url.startswith('/') and not url.startswith('//')
 
 
 def _build_redirect_uri(request: fastapi.Request, plugin_id: str) -> str:
@@ -137,7 +157,11 @@ async def callback(
             status_code=404, detail=f'Plugin {plugin_id!r} not available'
         ) from exc
 
-    target = return_to or '/settings/connections'
+    target: str = (
+        return_to
+        if return_to is not None and _is_safe_return_to(return_to)
+        else '/settings/connections'
+    )
     return fastapi.responses.RedirectResponse(target, status_code=302)
 
 
