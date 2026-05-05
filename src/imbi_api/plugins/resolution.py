@@ -24,6 +24,7 @@ class ResolvedPlugin(typing.NamedTuple):
     plugin_slug: str
     entry: RegistryEntry
     options: dict[str, typing.Any]
+    identity_plugin_id: str | None = None
 
 
 async def resolve_plugin(
@@ -58,12 +59,14 @@ async def resolve_plugin(
       collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
                          edge_options: pe.options,
                          plugin_options: p.options,
+                         identity_plugin_id: pe.identity_plugin_id,
                          default: pe.default,
                          src: 'project'}})
        AS proj_plugins,
       collect(DISTINCT {{id: p2.id, slug: p2.plugin_slug,
                          edge_options: pte.options,
                          plugin_options: p2.options,
+                         identity_plugin_id: pte.identity_plugin_id,
                          default: pte.default,
                          src: 'project_type'}})
        AS pt_plugins
@@ -176,9 +179,14 @@ async def resolve_plugin(
     except PluginNotFoundError as exc:
         raise PluginUnavailableError(plugin_slug) from exc
 
+    identity_plugin_id = chosen.get('identity_plugin_id')
+    if isinstance(identity_plugin_id, str) and not identity_plugin_id:
+        identity_plugin_id = None
+
     return ResolvedPlugin(
         plugin_id=plugin_id,
         plugin_slug=plugin_slug,
         entry=entry,
         options=options,
+        identity_plugin_id=identity_plugin_id,
     )
