@@ -492,7 +492,8 @@ class ResolutionTestCase(unittest.TestCase):
                         {
                             'id': 'p1',
                             'slug': 'ssm',
-                            'options': '{}',
+                            'edge_options': '{}',
+                            'plugin_options': '{}',
                             'default': True,
                             'src': 'project_type',
                         }
@@ -503,7 +504,8 @@ class ResolutionTestCase(unittest.TestCase):
                         {
                             'id': 'p1',
                             'slug': 'ssm',
-                            'options': '{"region": "us-east-1"}',
+                            'edge_options': '{"region": "us-east-1"}',
+                            'plugin_options': '{}',
                             'default': True,
                             'src': 'project',
                         }

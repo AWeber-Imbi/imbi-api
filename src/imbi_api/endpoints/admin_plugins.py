@@ -18,12 +18,11 @@ from imbi_api.auth import permissions
 from imbi_api.plugins import catalog, installer
 from imbi_api.plugins.lifecycle import (
     get_enabled_map,
+    get_unavailable_slugs,
     set_plugin_enabled,
 )
 
-admin_plugins_router = fastapi.APIRouter(
-    prefix='/admin', tags=['Admin: Plugins']
-)
+admin_plugins_router = fastapi.APIRouter(tags=['Admin: Plugins'])
 
 
 def _serialize(entry: RegistryEntry, enabled: bool) -> dict[str, typing.Any]:
@@ -66,6 +65,7 @@ async def list_installed_plugins(
             _serialize(e, enabled_map.get(e.manifest.slug, False))
             for e in list_plugins()
         ],
+        'unavailable': get_unavailable_slugs(),
     }
 
 
