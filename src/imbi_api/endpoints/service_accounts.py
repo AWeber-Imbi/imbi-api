@@ -269,7 +269,11 @@ async def patch_service_account(
             display_name=patched.get('display_name', existing.display_name),
             description=patched.get('description', existing.description),
             is_active=patched.get('is_active', existing.is_active),
-            avatar_url=patched.get('avatar_url', existing.avatar_url),
+            avatar_url=(
+                patched['avatar_url']
+                if 'avatar_url' in patched
+                else existing.avatar_url
+            ),
             created_at=existing.created_at,
             last_authenticated=existing.last_authenticated,
         )
