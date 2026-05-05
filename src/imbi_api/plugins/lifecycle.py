@@ -130,12 +130,11 @@ async def set_plugin_enabled(
 
 def get_unavailable_slugs() -> list[str]:
     """Return catalog slugs not present in the installed plugin registry."""
-    from imbi_api.plugins.catalog import _CATALOG_RAW
+    from imbi_api.plugins.catalog import list_catalog_entries
 
-    installed_packages = {e.package_name for e in list_plugins()}
     return [
         slug
-        for entry in _CATALOG_RAW
-        for slug in entry.get('slugs', [])
-        if entry['package'] not in installed_packages
+        for entry in list_catalog_entries()
+        if entry['status'] == 'not_installed'
+        for slug in entry['slugs']
     ]
