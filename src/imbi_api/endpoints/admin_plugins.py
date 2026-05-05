@@ -132,7 +132,9 @@ async def update_installed_plugin(
             detail=f'Plugin {slug!r} is not installed',
         ) from exc
     await set_plugin_enabled(db, slug, body.enabled)
-    return _serialize(entry, body.enabled)
+    payload = _serialize(entry, body.enabled)
+    payload['data_types'] = [d.model_dump() for d in entry.manifest.data_types]
+    return payload
 
 
 @admin_plugins_router.post('/plugins/install')
