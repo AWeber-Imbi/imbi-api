@@ -151,7 +151,10 @@ class AdminPluginsEndpointTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
 
     def _make_entry(self) -> object:
-        from imbi_common.plugins.base import ConfigurationPlugin, PluginManifest
+        from imbi_common.plugins.base import (
+            ConfigurationPlugin,
+            PluginManifest,
+        )
         from imbi_common.plugins.registry import RegistryEntry
 
         class _Fake(ConfigurationPlugin):
@@ -211,9 +214,7 @@ class AdminPluginsEndpointTestCase(unittest.TestCase):
             ),
         ):
             with testclient.TestClient(self.test_app) as client:
-                response = client.patch(
-                    '/plugins/ssm', json={'enabled': True}
-                )
+                response = client.patch('/plugins/ssm', json={'enabled': True})
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data['enabled'])
