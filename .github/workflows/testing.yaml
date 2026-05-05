@@ -16,11 +16,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-      - name: Checkout imbi-common
-        uses: actions/checkout@v5
-        with:
-          repository: AWeber-Imbi/imbi-common
-          path: ../imbi-common
       - name: Install just
         uses: taiki-e/install-action@v2
         with:
@@ -44,11 +39,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-      - name: Checkout imbi-common
-        uses: actions/checkout@v5
-        with:
-          repository: AWeber-Imbi/imbi-common
-          path: ../imbi-common
       - name: Install just
         uses: taiki-e/install-action@v2
         with:
