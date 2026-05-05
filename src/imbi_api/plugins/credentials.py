@@ -137,7 +137,7 @@ async def _read_plugin_configuration(
             f'plugin_configuration for plugin_id={plugin_id!r} is not'
             ' valid JSON; refusing to overwrite'
         ) from exc
-    return data if isinstance(data, dict) else {}
+    return data if isinstance(data, dict) else {}  # pyright: ignore[reportUnknownVariableType]
 
 
 async def patch_plugin_configuration(

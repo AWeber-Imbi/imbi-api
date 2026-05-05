@@ -462,8 +462,8 @@ async def _list_assignments(
     )
     rows: list[_AssignmentRow] = []
     for r in records:
-        pt = graph.parse_agtype(r['pt']) or {}
-        edge = graph.parse_agtype(r.get('edge', '{}')) or {}
+        pt: dict[str, typing.Any] = graph.parse_agtype(r['pt']) or {}  # pyright: ignore[reportUnknownVariableType]
+        edge: dict[str, typing.Any] = graph.parse_agtype(r.get('edge', '{}')) or {}  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
         rows.append(
             _AssignmentRow(
                 project_type_slug=pt.get('slug', ''),
