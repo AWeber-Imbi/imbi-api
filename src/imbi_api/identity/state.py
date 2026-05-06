@@ -73,3 +73,32 @@ def decode_identity_state(
     if age > max_age_seconds:
         raise ValueError(f'Identity state expired (age: {age}s)')
     return state_data
+
+
+def decode_login_state(
+    state_token: str,
+    *,
+    auth_settings: settings.Auth | None = None,
+    max_age_seconds: int = 600,
+) -> models.OAuthStateData:
+    """Verify and decode an identity-plugin **login** state token.
+
+    Mirrors :func:`decode_identity_state` but requires
+    ``intent='login'``.
+    """
+    auth = auth_settings or settings.Auth()  # type: ignore[call-arg]
+    try:
+        payload = jwt.decode(
+            state_token,
+            auth.jwt_secret,
+            algorithms=[auth.jwt_algorithm],
+        )
+        state_data = models.OAuthStateData(**payload)
+    except jwt.InvalidTokenError as exc:
+        raise ValueError(f'Invalid login state token: {exc}') from exc
+    if state_data.intent != 'login' or not state_data.plugin_id:
+        raise ValueError('State token is not for an identity-plugin login')
+    age = int(time.time()) - state_data.timestamp
+    if age > max_age_seconds:
+        raise ValueError(f'Login state expired (age: {age}s)')
+    return state_data
