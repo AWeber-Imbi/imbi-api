@@ -888,7 +888,10 @@ docs = [
     { name = "mkdocstrings-python-xref" },
 ]
 plugins = [
+    { name = "imbi-plugin-aws" },
+    { name = "imbi-plugin-github" },
     { name = "imbi-plugin-logzio" },
+    { name = "imbi-plugin-oidc" },
 ]
 
 [package.metadata]
@@ -943,7 +946,12 @@ docs = [
     { name = "mkdocstrings", extras = ["python"] },
     { name = "mkdocstrings-python-xref", specifier = ">=1.6,<2" },
 ]
-plugins = [{ name = "imbi-plugin-logzio", editable = "../imbi-plugin-logzio" }]
+plugins = [
+    { name = "imbi-plugin-aws", editable = "../imbi-plugin-aws" },
+    { name = "imbi-plugin-github", editable = "../imbi-plugin-github" },
+    { name = "imbi-plugin-logzio", editable = "../imbi-plugin-logzio" },
+    { name = "imbi-plugin-oidc", editable = "../imbi-plugin-oidc" },
+]
 
 [[package]]
 name = "imbi-common"
@@ -976,9 +984,111 @@ server = [
 ]
 
 [[package]]
+name = "imbi-plugin-aws"
+version = "0.1.0"
+source = { editable = "../imbi-plugin-aws" }
+dependencies = [
+    { name = "httpx" },
+    { name = "imbi-common" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pydantic", specifier = ">=2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright" },
+    { name = "coverage", extras = ["toml"] },
+    { name = "imbi-common", extras = ["server", "databases"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff", specifier = "~=0.14.6" },
+]
+dist = [
+    { name = "build" },
+    { name = "twine" },
+    { name = "wheel" },
+]
+
+[[package]]
+name = "imbi-plugin-github"
+version = "0.1.0"
+source = { editable = "../imbi-plugin-github" }
+dependencies = [
+    { name = "httpx" },
+    { name = "imbi-common" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pydantic", specifier = ">=2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright" },
+    { name = "coverage", extras = ["toml"] },
+    { name = "imbi-common", extras = ["server", "databases"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff", specifier = "~=0.14.6" },
+]
+dist = [
+    { name = "build" },
+    { name = "twine" },
+    { name = "wheel" },
+]
+
+[[package]]
 name = "imbi-plugin-logzio"
 version = "0.1.0"
 source = { editable = "../imbi-plugin-logzio" }
+dependencies = [
+    { name = "httpx" },
+    { name = "imbi-common" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "imbi-common", git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pydantic", specifier = ">=2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright" },
+    { name = "coverage", extras = ["toml"] },
+    { name = "imbi-common", extras = ["server", "databases"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff", specifier = "~=0.14.6" },
+]
+dist = [
+    { name = "build" },
+    { name = "twine" },
+    { name = "wheel" },
+]
+
+[[package]]
+name = "imbi-plugin-oidc"
+version = "0.1.0"
+source = { editable = "../imbi-plugin-oidc" }
 dependencies = [
     { name = "httpx" },
     { name = "imbi-common" },
