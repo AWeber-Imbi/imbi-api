@@ -36,7 +36,7 @@ def _parse_metadata(raw: typing.Any) -> dict[str, typing.Any]:
         return {}
     parsed = graph.parse_agtype(raw)
     if isinstance(parsed, dict):
-        return parsed
+        return typing.cast('dict[str, typing.Any]', parsed)
     if isinstance(parsed, str):
         if not parsed:
             return {}
@@ -44,7 +44,9 @@ def _parse_metadata(raw: typing.Any) -> dict[str, typing.Any]:
             decoded = json.loads(parsed)
         except (json.JSONDecodeError, TypeError):
             return {}
-        return decoded if isinstance(decoded, dict) else {}
+        if isinstance(decoded, dict):
+            return typing.cast('dict[str, typing.Any]', decoded)
+        return {}
     return {}
 
 

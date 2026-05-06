@@ -92,13 +92,15 @@ def _parse_options(raw: typing.Any) -> dict[str, typing.Any]:
         return {}
     parsed = graph.parse_agtype(raw)
     if isinstance(parsed, dict):
-        return parsed
+        return typing.cast('dict[str, typing.Any]', parsed)
     if isinstance(parsed, str):
         try:
             decoded = json.loads(parsed)
         except json.JSONDecodeError:
             return {}
-        return decoded if isinstance(decoded, dict) else {}
+        if isinstance(decoded, dict):
+            return typing.cast('dict[str, typing.Any]', decoded)
+        return {}
     return {}
 
 
@@ -142,7 +144,7 @@ async def start_flow(
     # them -- the matching ``exchange_code`` is invoked from
     # ``poll_flow``, which only sees credentials read from storage,
     # not the in-memory ones the plugin just created.
-    if request.registered_credentials:
+    if request.registered_credentials is not None:
         updates: dict[str, str | None] = dict(request.registered_credentials)
         await plugin_credentials.patch_plugin_configuration(
             db, resolved_id, updates
