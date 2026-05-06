@@ -211,3 +211,43 @@ class IdentityPluginLoginSourceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             slugs, {'google': 'service_app', 'oidc': 'identity_plugin'}
         )
+
+    async def test_list_skips_plugin_rows_missing_id(self) -> None:
+        """Plugin rows without plugin_slug or id are silently skipped."""
+        db = _FakeDB(
+            rows=[],
+            plugin_rows=[
+                {
+                    'plugin': {
+                        'id': '',
+                        'plugin_slug': '',
+                        'login_capable': True,
+                        'used_as_login': True,
+                    }
+                },
+                _plugin_row('okta', plugin_id='p-99'),
+            ],
+        )
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            apps = await login_providers.list_login_apps(db)  # type: ignore[arg-type]
+        # Bad row dropped, good row kept.
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0].slug, 'okta')
+
+    async def test_list_skips_app_rows_without_oauth_type(self) -> None:
+        """Service-app rows missing oauth_app_type are silently skipped."""
+        bad_row = {
+            'app': {'slug': 'incomplete'},
+            'service': None,
+        }
+        db = _FakeDB(
+            rows=[bad_row, _row('google', oauth_app_type='google')],
+        )
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            apps = await login_providers.list_login_apps(db)  # type: ignore[arg-type]
+        slugs = [a.slug for a in apps]
+        self.assertEqual(slugs, ['google'])
