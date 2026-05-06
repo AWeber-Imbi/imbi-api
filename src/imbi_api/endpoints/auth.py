@@ -1084,11 +1084,16 @@ async def _identity_plugin_login_callback(
     user.last_login = meta['issued_at']
     await db.merge(user, match_on=['email'])
 
+    # Redirect to frontend with tokens in URL fragment so they are not
+    # forwarded to the server in subsequent requests, matching the
+    # legacy OAuth callback's behaviour.
     target = return_to or '/dashboard'
     redirect_url = (
-        f'/auth/callback?access_token={at}&refresh_token={rt}'
-        f'&redirect_uri={urlparse.quote(target, safe="")}'
-        f'&token_type=Bearer&expires_in='
+        f'{target}#'
+        f'access_token={at}&'
+        f'refresh_token={rt}&'
+        f'token_type=bearer&'
+        f'expires_in='
         f'{auth_settings.access_token_expire_seconds}'
     )
     return fastapi.responses.RedirectResponse(url=redirect_url)

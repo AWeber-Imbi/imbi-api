@@ -226,7 +226,15 @@ async def update_service_plugin(
                     entry = get_plugin(plugin_slug)
                 except PluginNotFoundError:
                     entry = None
-            if entry is None or not entry.manifest.login_capable:
+            if entry is None:
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail=(
+                        f'Plugin {plugin_slug!r} cannot be used as a login '
+                        'provider (not loaded in the registry)'
+                    ),
+                )
+            if not entry.manifest.login_capable:
                 raise fastapi.HTTPException(
                     status_code=400,
                     detail=(

@@ -2257,7 +2257,8 @@ class IdentityPluginLoginFlowTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 307)
         location = response.headers['location']
-        self.assertIn('/auth/callback?', location)
+        # Tokens land in the URL fragment, not the query string.
+        self.assertIn('/projects#', location)
         self.assertIn('access_token=', location)
         self.assertIn('refresh_token=', location)
         upsert_mock.assert_awaited_once()
@@ -2336,12 +2337,12 @@ class IdentityPluginLoginFlowTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 307)
-        # Default redirect when return_to is None is /dashboard
-        self.assertIn('/auth/callback?', response.headers['location'])
-        self.assertIn(
-            'redirect_uri=%2Fdashboard',
-            response.headers['location'],
-        )
+        # Default redirect when return_to is None is /dashboard, and
+        # tokens are appended in the URL fragment.
+        location = response.headers['location']
+        self.assertTrue(location.startswith('/dashboard#'))
+        self.assertIn('access_token=', location)
+        self.assertIn('token_type=bearer', location)
 
     @mock.patch.dict(
         'os.environ',

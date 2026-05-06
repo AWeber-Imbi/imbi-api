@@ -577,7 +577,7 @@ class ServicePluginsEndpointTestCase(unittest.TestCase):
                 )
         self.assertEqual(response.status_code, 400)
         self.assertIn(
-            'cannot be used as a login provider',
+            'not loaded in the registry',
             response.json()['detail'],
         )
 
