@@ -1,5 +1,6 @@
 """Tests for the host-side identity hydration helper."""
 
+import typing
 import unittest
 from unittest import mock
 
@@ -101,8 +102,7 @@ class AttachIdentityTestCase(unittest.IsolatedAsyncioTestCase):
             {'WWW-Authenticate': 'Imbi-Identity plugin_id=plug-1'},
         )
         self.assertIsInstance(exc.detail, dict)
-        self.assertEqual(exc.detail['error'], 'identity_required')
-        self.assertEqual(exc.detail['plugin_id'], 'plug-1')
-        self.assertEqual(
-            exc.detail['start_url'], '/me/identities/plug-1/start'
-        )
+        detail = typing.cast('dict[str, typing.Any]', exc.detail)
+        self.assertEqual(detail['error'], 'identity_required')
+        self.assertEqual(detail['plugin_id'], 'plug-1')
+        self.assertEqual(detail['start_url'], '/me/identities/plug-1/start')
