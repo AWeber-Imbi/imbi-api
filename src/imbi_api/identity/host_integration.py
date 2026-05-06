@@ -18,6 +18,7 @@ duplicating the try/except + actor stamping + 401 mapping seven times.
 
 from __future__ import annotations
 
+import logging
 import typing
 
 import fastapi
@@ -28,6 +29,8 @@ from imbi_api.auth import permissions
 from imbi_api.identity import errors as identity_errors
 from imbi_api.identity import resolution as identity_resolution
 from imbi_api.plugins.resolution import ResolvedPlugin
+
+LOGGER = logging.getLogger(__name__)
 
 
 async def attach_identity(
