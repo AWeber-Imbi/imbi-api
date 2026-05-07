@@ -52,7 +52,7 @@ def create_app() -> fastapi.FastAPI:
     # lookup or from inside a plugin handler at runtime) into 503 so
     # callers don't see opaque 500s when an integration isn't configured.
     @app.exception_handler(PluginCredentialsMissing)
-    async def _plugin_credentials_missing(
+    async def _plugin_credentials_missing(  # pyright: ignore[reportUnusedFunction]
         _request: fastapi.Request,
         exc: PluginCredentialsMissing,
     ) -> responses.JSONResponse:

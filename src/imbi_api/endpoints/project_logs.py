@@ -90,10 +90,8 @@ async def _search_one_env(
     # Existing values are preserved (handler-supplied env wins).
     if environment:
         for entry in result.entries:
-            raw = entry.raw if isinstance(entry.raw, dict) else {}
-            if 'environment' not in raw:
-                raw['environment'] = environment
-            entry.raw = raw
+            if 'environment' not in entry.raw:
+                entry.raw['environment'] = environment
     return result
 
 
