@@ -406,12 +406,24 @@ async def list_plugin_edges(
     """
     _ = auth
     try:
-        get_plugin(slug)
+        entry = get_plugin(slug)
     except PluginNotFoundError as exc:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Plugin {slug!r} is not installed',
         ) from exc
+    declares = any(
+        edge.name == rel_type and 'Environment' in edge.from_labels
+        for edge in entry.manifest.edge_labels
+    )
+    if not declares:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(
+                f'Plugin {slug!r} does not declare Environment edge '
+                f'{rel_type!r}'
+            ),
+        )
     return await _plugin_edges.list_org_environment_edges(
         db=db, rel_type=rel_type, org_slug=org_slug
     )
