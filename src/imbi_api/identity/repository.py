@@ -381,8 +381,15 @@ async def find_user_by_subject(
     )
     if not records:
         return None
-    raw: typing.Any = graph.parse_agtype(records[0]['user_ids']) or []
-    matches: list[str] = [str(uid) for uid in raw if uid]
+    parsed = graph.parse_agtype(records[0]['user_ids'])
+    if not isinstance(parsed, list):
+        return None
+    # mypy already sees parsed as list[Any] after the isinstance narrow
+    # (so any extra cast is "redundant"); basedpyright's strict mode
+    # narrows to list[Unknown] and demands an annotation. Suppress the
+    # latter on this single statement rather than carry a runtime cast.
+    user_ids: list[typing.Any] = parsed  # pyright: ignore[reportUnknownVariableType]
+    matches: list[str] = [str(uid) for uid in user_ids if uid]
     if len(matches) != 1:
         if len(matches) > 1:
             LOGGER.error(

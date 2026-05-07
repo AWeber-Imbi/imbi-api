@@ -340,6 +340,23 @@ class FindUserBySubjectTestCase(unittest.IsolatedAsyncioTestCase):
         query, _params, _cols = db.execute.await_args.args
         self.assertIn("status = 'active'", query)
 
+    async def test_returns_none_when_parse_agtype_yields_non_list(
+        self,
+    ) -> None:
+        # Defensive guard: if AGE somehow returns a non-list payload,
+        # don't crash the comprehension. Suggested-by: coderabbitai
+        db = mock.AsyncMock()
+        db.execute.return_value = [{'user_ids': '"oops"'}]
+        with mock.patch.object(
+            repository.graph,
+            'parse_agtype',
+            return_value='oops',
+        ):
+            result = await repository.find_user_by_subject(
+                db, 'github', '12345'
+            )
+        self.assertIsNone(result)
+
 
 class StaleConnectionsTestCase(unittest.IsolatedAsyncioTestCase):
     """Verify stale_connections returns parsed rows."""
