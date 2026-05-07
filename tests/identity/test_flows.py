@@ -158,7 +158,7 @@ class StartFlowTestCase(unittest.IsolatedAsyncioTestCase):
                 return_value='state-token',
             ),
         ):
-            url, _state_token, polling = await flows.start_flow(
+            url, state_token, polling = await flows.start_flow(
                 db,
                 plugin_id='plugin-1',
                 redirect_uri='https://imbi/cb',
@@ -167,6 +167,7 @@ class StartFlowTestCase(unittest.IsolatedAsyncioTestCase):
         # Device-code flows never round-trip ``state`` through the IdP,
         # so the authorization URL is preserved verbatim.
         self.assertEqual(url, 'https://idp/device?user_code=ABCD-1234')
+        self.assertEqual(state_token, 'state-token')
         self.assertIs(polling, request.polling)
 
 
