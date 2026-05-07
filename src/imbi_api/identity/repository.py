@@ -42,7 +42,7 @@ def _parse_metadata(raw: typing.Any) -> dict[str, typing.Any]:
             return {}
         try:
             decoded = json.loads(parsed)
-        except json.JSONDecodeError, TypeError:
+        except (json.JSONDecodeError, TypeError):
             return {}
         if isinstance(decoded, dict):
             return typing.cast('dict[str, typing.Any]', decoded)

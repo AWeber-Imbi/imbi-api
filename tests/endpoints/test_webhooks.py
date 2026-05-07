@@ -819,6 +819,52 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('third_party_service_slug', response.json()['detail'])
 
+    def test_patch_identity_plugin_slug_rejected_without_tps(self) -> None:
+        """Cover the second validator branch on PATCH.
+
+        ``test_patch_identity_fields_rejected_without_tps`` exercises the
+        ``user_subject_selector`` branch of ``WebhookUpdate``'s validator;
+        this sibling case locks down the same behavior for
+        ``identity_plugin_slug`` so a regression on either field would
+        fail. Suggested-by: coderabbitai
+        """
+        existing_record = {
+            'webhook': {
+                'id': 'abc123def4',
+                'name': 'Solo Hook',
+                'slug': 'solo-hook',
+                'description': None,
+                'notification_path': '/abc123def4',
+                'secret': None,
+            },
+            'tps': None,
+            'identifier_selector': None,
+            'user_subject_selector': None,
+            'identity_plugin_slug': None,
+            'rules': [],
+        }
+        self.mock_db.execute.side_effect = [[existing_record]]
+
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/webhooks/solo-hook',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/identity_plugin_slug',
+                        'value': 'github',
+                    }
+                ],
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('third_party_service_slug', response.json()['detail'])
+
     def test_patch_webhook_slug_collision_returns_409(self) -> None:
         existing_record = {
             'webhook': {
