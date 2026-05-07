@@ -17,6 +17,7 @@ import datetime
 import logging
 import typing
 import urllib.parse
+import zoneinfo
 
 import fastapi
 import fastapi.encoders
@@ -114,6 +115,21 @@ def _parse_iso(value: str, field_name: str) -> datetime.datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=datetime.UTC)
     return parsed.astimezone(datetime.UTC)
+
+
+def _resolve_tz(tz: str) -> zoneinfo.ZoneInfo:
+    """Validate ``tz`` as an IANA timezone, returning a ZoneInfo.
+
+    Raises a 400 ``HTTPException`` for unknown identifiers so we never
+    forward invalid values into ClickHouse date functions.
+    """
+    try:
+        return zoneinfo.ZoneInfo(tz)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError) as err:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f'Invalid timezone identifier: {tz!r}',
+        ) from err
 
 
 def _resolve_window(
@@ -292,7 +308,7 @@ async def _graph_buckets(
     email: str,
     since: datetime.datetime,
     until: datetime.datetime,
-    tz: str,
+    zone: zoneinfo.ZoneInfo,
 ) -> dict[datetime.date, int]:
     template = _GRAPH_BUCKET_QUERIES[label]
     rows = await db.execute(
@@ -304,20 +320,6 @@ async def _graph_buckets(
         },
         ['ts'],
     )
-    try:
-        zone = datetime.datetime.now().astimezone().tzinfo
-        if tz != 'UTC':
-            try:
-                import zoneinfo
-
-                zone = zoneinfo.ZoneInfo(tz)
-            except Exception:  # noqa: BLE001
-                LOGGER.debug('Unknown tz %r — falling back to UTC', tz)
-                zone = datetime.UTC
-        else:
-            zone = datetime.UTC
-    except Exception:  # noqa: BLE001
-        zone = datetime.UTC
 
     counts: dict[datetime.date, int] = {}
     for row in rows:
@@ -353,6 +355,7 @@ async def get_user_contributions(
     del auth
     email = urllib.parse.unquote(email)
     await _ensure_user_exists(db, email)
+    zone = _resolve_tz(tz)
     start, end = _resolve_window(since, until)
 
     subjects = await _resolve_user_subjects(db, email)
@@ -360,7 +363,7 @@ async def get_user_contributions(
         _opslog_buckets(email=email, since=start, until=end, tz=tz),
         _events_buckets(subjects=subjects, since=start, until=end, tz=tz),
         _graph_buckets(
-            db, label='note', email=email, since=start, until=end, tz=tz
+            db, label='note', email=email, since=start, until=end, zone=zone
         ),
         _graph_buckets(
             db,
@@ -368,7 +371,7 @@ async def get_user_contributions(
             email=email,
             since=start,
             until=end,
-            tz=tz,
+            zone=zone,
         ),
         _graph_buckets(
             db,
@@ -376,7 +379,7 @@ async def get_user_contributions(
             email=email,
             since=start,
             until=end,
-            tz=tz,
+            zone=zone,
         ),
         _graph_buckets(
             db,
@@ -384,7 +387,7 @@ async def get_user_contributions(
             email=email,
             since=start,
             until=end,
-            tz=tz,
+            zone=zone,
         ),
     )
     leg_names = (
@@ -505,7 +508,8 @@ async def get_user_stats(
     tz: str = 'UTC',
 ) -> StatsResponse:
     """Return summary deployment / project tiles for the profile page."""
-    del auth, tz
+    del auth
+    _resolve_tz(tz)  # validate even though stats does not bucket by tz
     email = urllib.parse.unquote(email)
     await _ensure_user_exists(db, email)
     start, end = _resolve_window(since, until)
@@ -713,7 +717,7 @@ async def _opslog_activity(
         'FROM operations_log FINAL '
         'WHERE is_deleted = 0 '
         '  AND performed_by = {email:String} '
-        '  AND occurred_at < {before:DateTime64(3)} '
+        '  AND occurred_at <= {before:DateTime64(3)} '
         'ORDER BY occurred_at DESC, id DESC '
         'LIMIT {row_limit:UInt32}'
     )
@@ -766,7 +770,7 @@ async def _events_activity(
         'project_id, metadata '
         'FROM events '
         'WHERE attributed_to IN {subjects:Array(String)} '
-        '  AND recorded_at < {before:DateTime64(3)} '
+        '  AND recorded_at <= {before:DateTime64(3)} '
         'ORDER BY recorded_at DESC, id DESC '
         'LIMIT {row_limit:UInt32}'
     )
@@ -812,7 +816,7 @@ _GRAPH_ACTIVITY_QUERIES: dict[str, str] = {
     'note': """
         MATCH (n:Note)-[:ATTACHED_TO]->(p:Project)
         WHERE (n.created_by = {email} OR n.updated_by = {email})
-          AND n.created_at < {before}
+          AND n.created_at <= {before}
         RETURN n.id AS id,
                n.created_at AS ts,
                n.title AS title,
@@ -827,7 +831,7 @@ _GRAPH_ACTIVITY_QUERIES: dict[str, str] = {
     'release': """
         MATCH (r:Release)<-[:HAS_RELEASE]-(p:Project)
         WHERE r.created_by = {email}
-          AND r.created_at < {before}
+          AND r.created_at <= {before}
         RETURN r.id AS id,
                r.created_at AS ts,
                r.version AS version,
@@ -840,7 +844,7 @@ _GRAPH_ACTIVITY_QUERIES: dict[str, str] = {
     """,
     'upload': """
         MATCH (u:Upload {{uploaded_by: {email}}})
-        WHERE u.created_at < {before}
+        WHERE u.created_at <= {before}
         RETURN u.id AS id,
                u.created_at AS ts,
                u.filename AS filename
@@ -849,7 +853,7 @@ _GRAPH_ACTIVITY_QUERIES: dict[str, str] = {
     """,
     'conversation': """
         MATCH (c:Conversation {{user_email: {email}}})
-        WHERE c.created_at < {before}
+        WHERE c.created_at <= {before}
         RETURN c.id AS id,
                c.created_at AS ts,
                c.title AS title
@@ -1023,9 +1027,10 @@ async def get_user_activity(
         ]
 
     next_cursor: str | None = None
-    if len(merged) > limit:
+    has_more = len(merged) > limit
+    if has_more:
         merged = merged[:limit]
-    if len(merged) == limit:
+    if has_more and merged:
         last = merged[-1]
         next_cursor = _encode_cursor(last.occurred_at, last.id)
 

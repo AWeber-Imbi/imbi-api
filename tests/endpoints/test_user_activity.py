@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections.abc
 import datetime
 import typing
 import unittest
@@ -18,7 +19,7 @@ from imbi_api.endpoints import user_activity
 
 def _make_auth(
     *,
-    perms: typing.Iterable[str] = ('user:read',),
+    perms: collections.abc.Iterable[str] = ('user:read',),
     is_admin: bool = True,
 ) -> api_permissions.AuthContext:
     user = api_models.User(
@@ -123,6 +124,19 @@ class WindowAndCursorTests(unittest.TestCase):
         self.assertIsNone(user_activity._decode_cursor(''))
         self.assertIsNone(user_activity._decode_cursor('not-base64-!@#$'))
 
+    def test_resolve_tz_valid(self) -> None:
+        zone = user_activity._resolve_tz('UTC')
+        self.assertEqual(str(zone), 'UTC')
+        zone = user_activity._resolve_tz('America/New_York')
+        self.assertEqual(str(zone), 'America/New_York')
+
+    def test_resolve_tz_invalid(self) -> None:
+        import fastapi
+
+        with self.assertRaises(fastapi.HTTPException) as ctx:
+            user_activity._resolve_tz('Not/A_Zone')
+        self.assertEqual(ctx.exception.status_code, 400)
+
 
 class ContributionsTests(_Base):
     def test_unknown_user_returns_404(self) -> None:
@@ -173,6 +187,13 @@ class ContributionsTests(_Base):
         self.assertEqual(sources[opslog_day.isoformat()]['operations_log'], 5)
         self.assertEqual(sources[events_day.isoformat()]['events'], 2)
         self.assertEqual(sources['2026-04-17']['note'], 2)
+
+    def test_invalid_tz_returns_400(self) -> None:
+        self._execute_returns([[{'id': 'u1'}]])
+        resp = self.client.get(
+            '/users/alice@example.com/contributions?tz=Not/A_Zone'
+        )
+        self.assertEqual(resp.status_code, 400)
 
 
 class StatsTests(_Base):
@@ -338,6 +359,53 @@ class ActivityFeedTests(_Base):
             '/users/alice@example.com/activity?cursor=garbage!@#'
         )
         self.assertEqual(resp.status_code, 400)
+
+    def test_no_next_link_when_results_match_limit_exactly(self) -> None:
+        """No next cursor when fewer than limit+1 rows are available."""
+        ts1 = datetime.datetime(2026, 4, 1, 10, tzinfo=datetime.UTC)
+        ts2 = datetime.datetime(2026, 4, 2, 10, tzinfo=datetime.UTC)
+        self._execute_returns(
+            [
+                [{'id': 'u1'}],  # _ensure_user_exists
+                [{'conn_subjects': [], 'oauth_subjects': []}],  # subjects
+                [],  # notes
+                [],  # releases
+                [],  # uploads
+                [],  # conversations
+            ]
+        )
+        self.mock_query.side_effect = [
+            [
+                {
+                    'id': 'op-1',
+                    'occurred_at': ts1,
+                    'entry_type': 'Deployed',
+                    'environment_slug': 'production',
+                    'project_id': 'p1',
+                    'project_slug': 'imbi-api',
+                    'description': '',
+                    'version': 'v1',
+                },
+                {
+                    'id': 'op-2',
+                    'occurred_at': ts2,
+                    'entry_type': 'Deployed',
+                    'environment_slug': 'production',
+                    'project_id': 'p1',
+                    'project_slug': 'imbi-api',
+                    'description': '',
+                    'version': 'v2',
+                },
+            ],
+            [],  # events
+        ]
+        resp = self.client.get('/users/alice@example.com/activity?limit=2')
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(len(body['data']), 2)
+        # Only first/self link, no rel="next" because available rows == limit
+        link = resp.headers.get('Link', '')
+        self.assertNotIn('rel="next"', link)
 
 
 class PermissionTests(unittest.TestCase):
