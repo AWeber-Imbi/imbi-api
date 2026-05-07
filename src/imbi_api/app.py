@@ -1,6 +1,8 @@
 import fastapi
+from fastapi import responses
 from fastapi.middleware import cors
 from imbi_common import graph, lifespan, valkey
+from imbi_common.plugins.errors import PluginCredentialsMissing
 from uvicorn.middleware import proxy_headers
 
 from imbi_api import endpoints, lifespans, openapi, settings, version
@@ -44,6 +46,19 @@ def create_app() -> fastapi.FastAPI:
         app.add_middleware(
             proxy_headers.ProxyHeadersMiddleware,
             trusted_hosts=server_config.forwarded_allow_ips,
+        )
+
+    # Translate plugin credential failures (raised either at credential
+    # lookup or from inside a plugin handler at runtime) into 503 so
+    # callers don't see opaque 500s when an integration isn't configured.
+    @app.exception_handler(PluginCredentialsMissing)
+    async def _plugin_credentials_missing(
+        _request: fastapi.Request,
+        exc: PluginCredentialsMissing,
+    ) -> responses.JSONResponse:
+        return responses.JSONResponse(
+            status_code=503,
+            content={'detail': str(exc)},
         )
 
     # Phase 5: Setup rate limiting middleware
