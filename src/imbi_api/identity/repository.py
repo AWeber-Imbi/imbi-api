@@ -381,8 +381,8 @@ async def find_user_by_subject(
     )
     if not records:
         return None
-    user_ids = graph.parse_agtype(records[0]['user_ids']) or []
-    matches = [uid for uid in user_ids if uid]
+    raw: typing.Any = graph.parse_agtype(records[0]['user_ids']) or []
+    matches: list[str] = [str(uid) for uid in raw if uid]
     if len(matches) != 1:
         if len(matches) > 1:
             LOGGER.error(
@@ -393,7 +393,7 @@ async def find_user_by_subject(
                 sorted(matches),
             )
         return None
-    return str(matches[0])
+    return matches[0]
 
 
 async def stale_connections(
