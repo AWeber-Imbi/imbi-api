@@ -272,13 +272,13 @@ class ListForUserTestCase(unittest.IsolatedAsyncioTestCase):
 class FindUserBySubjectTestCase(unittest.IsolatedAsyncioTestCase):
     """Verify find_user_by_subject returns a user_id or None."""
 
-    async def test_returns_user_id_when_found(self) -> None:
+    async def test_returns_user_id_when_exactly_one_match(self) -> None:
         db = mock.AsyncMock()
-        db.execute.return_value = [{'user_id': '"user-42"'}]
+        db.execute.return_value = [{'user_ids': '["user-42"]'}]
         with mock.patch.object(
             repository.graph,
             'parse_agtype',
-            return_value='user-42',
+            return_value=['user-42'],
         ):
             result = await repository.find_user_by_subject(
                 db, 'github', '12345'
@@ -293,6 +293,45 @@ class FindUserBySubjectTestCase(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value = []
         result = await repository.find_user_by_subject(db, 'github', '99999')
         self.assertIsNone(result)
+
+    async def test_returns_none_when_no_users_in_collection(self) -> None:
+        # collect() over an empty match yields a row with an empty list.
+        db = mock.AsyncMock()
+        db.execute.return_value = [{'user_ids': '[]'}]
+        with mock.patch.object(
+            repository.graph,
+            'parse_agtype',
+            return_value=[],
+        ):
+            result = await repository.find_user_by_subject(
+                db, 'github', '12345'
+            )
+        self.assertIsNone(result)
+
+    async def test_returns_none_when_multiple_distinct_users_match(
+        self,
+    ) -> None:
+        # Two Imbi users link the same GitHub subject — fail closed
+        # rather than silently picking one. Suggested-by: coderabbitai
+        db = mock.AsyncMock()
+        db.execute.return_value = [{'user_ids': '["user-1","user-2"]'}]
+        with (
+            mock.patch.object(
+                repository.graph,
+                'parse_agtype',
+                return_value=['user-1', 'user-2'],
+            ),
+            self.assertLogs(
+                'imbi_api.identity.repository', level='ERROR'
+            ) as cm,
+        ):
+            result = await repository.find_user_by_subject(
+                db, 'github', '12345'
+            )
+        self.assertIsNone(result)
+        self.assertTrue(
+            any('multiple Imbi users' in line for line in cm.output)
+        )
 
     async def test_query_filters_by_active_status(self) -> None:
         db = mock.AsyncMock()

@@ -42,7 +42,7 @@ def _parse_metadata(raw: typing.Any) -> dict[str, typing.Any]:
             return {}
         try:
             decoded = json.loads(parsed)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return {}
         if isinstance(decoded, dict):
             return typing.cast('dict[str, typing.Any]', decoded)
@@ -360,25 +360,40 @@ async def find_user_by_subject(
     this is the numeric user ID as a string (e.g. ``"12345"``), which is
     what :func:`imbi_plugin_github.plugin._build_userinfo` stores.
 
-    Returns ``None`` when no active connection matches.
+    Returns ``None`` when no active connection matches OR when more than
+    one distinct Imbi user is reachable from the (``plugin_slug``,
+    ``subject``) pair — that's a data bug we don't want to paper over by
+    silently picking one. Callers (the gateway in particular) treat
+    ``None`` as "do not attribute" rather than as "no such user".
     """
     query: typing.LiteralString = """
     MATCH (c:IdentityConnection {{subject: {subject}}})
           -[:USES_PLUGIN]->(p:Plugin {{plugin_slug: {plugin_slug}}})
     WHERE c.status = 'active'
-    WITH c
-    MATCH (u:User)-[:HAS_IDENTITY]->(c)
-    RETURN u.id AS user_id
-    LIMIT 1
+    OPTIONAL MATCH (u:User)-[:HAS_IDENTITY]->(c)
+    WITH collect(DISTINCT u.id) AS user_ids
+    RETURN user_ids
     """
     records = await db.execute(
         query,
         {'subject': subject, 'plugin_slug': plugin_slug},
-        ['user_id'],
+        ['user_ids'],
     )
     if not records:
         return None
-    return str(graph.parse_agtype(records[0]['user_id']))
+    user_ids = graph.parse_agtype(records[0]['user_ids']) or []
+    matches = [uid for uid in user_ids if uid]
+    if len(matches) != 1:
+        if len(matches) > 1:
+            LOGGER.error(
+                'plugin_slug=%r subject=%r resolved to multiple Imbi '
+                'users %r; refusing to guess',
+                plugin_slug,
+                subject,
+                sorted(matches),
+            )
+        return None
+    return str(matches[0])
 
 
 async def stale_connections(

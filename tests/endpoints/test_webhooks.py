@@ -77,8 +77,8 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
-        self.test_app.dependency_overrides[graph._inject_graph] = (
-            lambda: self.mock_db
+        self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
+            self.mock_db
         )
 
         self.client = testclient.TestClient(self.test_app)
@@ -773,6 +773,52 @@ class WebhookEndpointsTestCase(unittest.TestCase):
         )
         self.assertEqual(data['identity_plugin_slug'], 'github')
 
+    def test_patch_identity_fields_rejected_without_tps(self) -> None:
+        """Setting identity selectors on a TPS-less webhook is a 400.
+
+        WebhookUpdate runs the model-level validator on the patched
+        document, so adding ``user_subject_selector`` /
+        ``identity_plugin_slug`` to a webhook that isn't linked to a
+        third-party service must be rejected, the same way the create
+        path rejects it. Suggested-by: coderabbitai
+        """
+        existing_record = {
+            'webhook': {
+                'id': 'abc123def4',
+                'name': 'Solo Hook',
+                'slug': 'solo-hook',
+                'description': None,
+                'notification_path': '/abc123def4',
+                'secret': None,
+            },
+            'tps': None,
+            'identifier_selector': None,
+            'user_subject_selector': None,
+            'identity_plugin_slug': None,
+            'rules': [],
+        }
+        self.mock_db.execute.side_effect = [[existing_record]]
+
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/webhooks/solo-hook',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/user_subject_selector',
+                        'value': '/deployment/creator/id',
+                    }
+                ],
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('third_party_service_slug', response.json()['detail'])
+
     def test_patch_webhook_slug_collision_returns_409(self) -> None:
         existing_record = {
             'webhook': {
@@ -1185,8 +1231,8 @@ class ProjectServicesEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
-        self.test_app.dependency_overrides[graph._inject_graph] = (
-            lambda: self.mock_db
+        self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
+            self.mock_db
         )
 
         self.client = testclient.TestClient(self.test_app)

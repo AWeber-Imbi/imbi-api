@@ -342,7 +342,7 @@ class UserEndpointsTestCase(unittest.TestCase):
         self.mock_db.match.return_value = [mock_user]
         # find_user_by_subject + _load_user_memberships both call execute
         self.mock_db.execute.side_effect = [
-            [{'user_id': 'user-nano-id'}],
+            [{'user_ids': ['user-nano-id']}],
             [{'org_name': 'Default', 'org_slug': 'default', 'role': 'dev'}],
         ]
 
@@ -372,7 +372,7 @@ class UserEndpointsTestCase(unittest.TestCase):
 
     def test_get_user_by_identity_user_node_missing(self) -> None:
         """find_user_by_subject hits but the User node was deleted."""
-        self.mock_db.execute.return_value = [{'user_id': 'orphan-id'}]
+        self.mock_db.execute.return_value = [{'user_ids': ['orphan-id']}]
         self.mock_db.match.return_value = []
 
         with mock.patch(
