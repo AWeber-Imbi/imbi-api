@@ -63,27 +63,21 @@ def _parse_filters(raw: list[str]) -> list[LogFilter]:
 
 async def _search_one_env(
     *,
-    db: graph.Graph,
     ctx_template: PluginContext,
     resolved: ResolvedPlugin,
-    auth: permissions.AuthContext,
+    credentials: dict[str, typing.Any],
     query: LogQuery,
     environment: str | None,
-    identity_options: dict[str, typing.Any] | None,
 ) -> LogResult:
     """Run a single (env-scoped) plugin search.
 
-    ``identity_options`` is pre-loaded once by the caller and shared
-    across the fan-out so the identity plugin's ``Plugin.options``
-    aren't re-queried per env.
+    The caller is responsible for hydrating identity and resolving
+    plugin credentials once — those operations don't vary by
+    environment, so doing them inside each fan-out task would
+    downgrade shared identity / credential failures into per-env
+    warnings.
     """
     ctx = ctx_template.model_copy(update={'environment': environment})
-    ctx = await attach_identity(
-        db, ctx, resolved, auth, identity_options=identity_options
-    )
-    credentials = await get_plugin_credentials(
-        db, resolved.plugin_id, resolved.entry
-    )
     handler = typing.cast(LogsPlugin, resolved.entry.handler_cls())
     return await call_with_timeout(handler.search(ctx, credentials, query))
 
@@ -185,8 +179,10 @@ async def search_logs(
         team_slug=team_slug,
         assignment_options=resolved.options,
     )
-    # Pre-load the identity plugin's options once so the multi-env
-    # fan-out shares the result (instead of re-querying per env).
+    # Hydrate identity and resolve plugin credentials once before
+    # fanning out — neither depends on ``ctx.environment`` and doing
+    # them per-task would downgrade shared identity / credential
+    # failures into per-env warnings on multi-env requests.
     identity_options = (
         await identity_resolution.load_plugin_options(
             db, resolved.identity_plugin_id
@@ -194,19 +190,29 @@ async def search_logs(
         if resolved.identity_plugin_id
         else None
     )
+    ctx_template = await attach_identity(
+        db, ctx_template, resolved, auth, identity_options=identity_options
+    )
+    try:
+        credentials = await get_plugin_credentials(
+            db, resolved.plugin_id, resolved.entry
+        )
+    except PluginCredentialsMissing as exc:
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
 
     envs: list[str | None] = list(environment) if environment else [None]
 
     if len(envs) == 1:
         try:
             result = await _search_one_env(
-                db=db,
                 ctx_template=ctx_template,
                 resolved=resolved,
-                auth=auth,
+                credentials=credentials,
                 query=query,
                 environment=envs[0],
-                identity_options=identity_options,
             )
         except CursorExpiredError as exc:
             raise fastapi.HTTPException(
@@ -216,11 +222,6 @@ async def search_logs(
                     'message': str(exc),
                 },
             ) from exc
-        except PluginCredentialsMissing as exc:
-            raise fastapi.HTTPException(
-                status_code=503,
-                detail=str(exc),
-            ) from exc
         return models.LogResultResponse(
             entries=_to_response_entries(result.entries),
             next_cursor=result.next_cursor,
@@ -228,19 +229,18 @@ async def search_logs(
             warnings=result.warnings,
         )
 
-    # Multi-env fan-out.  Each env gets its own identity hydration +
-    # plugin search; failures are surfaced as warnings rather than
-    # failing the whole request — partial results are still useful.
+    # Multi-env fan-out.  Identity / credentials are already resolved
+    # above; per-env failures from ``handler.search`` are surfaced as
+    # warnings rather than failing the whole request — partial
+    # results are still useful.
     raw_results = await asyncio.gather(
         *(
             _search_one_env(
-                db=db,
                 ctx_template=ctx_template,
                 resolved=resolved,
-                auth=auth,
+                credentials=credentials,
                 query=query,
                 environment=env,
-                identity_options=identity_options,
             )
             for env in envs
         ),
@@ -251,7 +251,7 @@ async def search_logs(
     warnings: list[str] = []
     total: int = 0
     for env, result_or_exc in zip(envs, raw_results, strict=True):
-        if isinstance(result_or_exc, BaseException):
+        if isinstance(result_or_exc, Exception):
             LOGGER.warning(
                 'Log search failed for env=%s: %s', env, result_or_exc
             )
@@ -259,6 +259,11 @@ async def search_logs(
                 f'Search for environment {env!r} failed: {result_or_exc}'
             )
             continue
+        if isinstance(result_or_exc, BaseException):
+            # CancelledError / KeyboardInterrupt / SystemExit must
+            # propagate — never downgrade them to a partial-failure
+            # warning.
+            raise result_or_exc
         merged_entries.extend(result_or_exc.entries)
         warnings.extend(result_or_exc.warnings)
         if result_or_exc.total is not None:
@@ -275,22 +280,14 @@ async def search_logs(
 
 async def _histogram_one_env(
     *,
-    db: graph.Graph,
     ctx_template: PluginContext,
     resolved: ResolvedPlugin,
-    auth: permissions.AuthContext,
+    credentials: dict[str, typing.Any],
     query: LogQuery,
     bucket_count: int,
     environment: str | None,
-    identity_options: dict[str, typing.Any] | None,
 ) -> list[LogHistogramBucket]:
     ctx = ctx_template.model_copy(update={'environment': environment})
-    ctx = await attach_identity(
-        db, ctx, resolved, auth, identity_options=identity_options
-    )
-    credentials = await get_plugin_credentials(
-        db, resolved.plugin_id, resolved.entry
-    )
     handler = typing.cast(LogsPlugin, resolved.entry.handler_cls())
     return await call_with_timeout(
         handler.histogram(ctx, credentials, query, bucket_count)
@@ -367,6 +364,8 @@ async def get_log_histogram(
         team_slug=team_slug,
         assignment_options=resolved.options,
     )
+    # Hydrate identity and resolve plugin credentials once before the
+    # fan-out — see the equivalent comment in ``search_logs``.
     identity_options = (
         await identity_resolution.load_plugin_options(
             db, resolved.identity_plugin_id
@@ -374,26 +373,30 @@ async def get_log_histogram(
         if resolved.identity_plugin_id
         else None
     )
+    ctx_template = await attach_identity(
+        db, ctx_template, resolved, auth, identity_options=identity_options
+    )
+    try:
+        credentials = await get_plugin_credentials(
+            db, resolved.plugin_id, resolved.entry
+        )
+    except PluginCredentialsMissing as exc:
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
 
     envs: list[str | None] = list(environment) if environment else [None]
 
     if len(envs) == 1:
-        try:
-            buckets = await _histogram_one_env(
-                db=db,
-                ctx_template=ctx_template,
-                resolved=resolved,
-                auth=auth,
-                query=query,
-                bucket_count=bucket_count,
-                environment=envs[0],
-                identity_options=identity_options,
-            )
-        except PluginCredentialsMissing as exc:
-            raise fastapi.HTTPException(
-                status_code=503,
-                detail=str(exc),
-            ) from exc
+        buckets = await _histogram_one_env(
+            ctx_template=ctx_template,
+            resolved=resolved,
+            credentials=credentials,
+            query=query,
+            bucket_count=bucket_count,
+            environment=envs[0],
+        )
         return [
             models.LogHistogramBucketResponse(
                 timestamp=b.timestamp,
@@ -411,14 +414,12 @@ async def get_log_histogram(
     raw_results = await asyncio.gather(
         *(
             _histogram_one_env(
-                db=db,
                 ctx_template=ctx_template,
                 resolved=resolved,
-                auth=auth,
+                credentials=credentials,
                 query=query,
                 bucket_count=bucket_count,
                 environment=env,
-                identity_options=identity_options,
             )
             for env in envs
         ),
@@ -426,11 +427,13 @@ async def get_log_histogram(
     )
     summed: dict[datetime.datetime, dict[str, int | dict[str, int]]] = {}
     for env, result_or_exc in zip(envs, raw_results, strict=True):
-        if isinstance(result_or_exc, BaseException):
+        if isinstance(result_or_exc, Exception):
             LOGGER.warning(
                 'Histogram failed for env=%s: %s', env, result_or_exc
             )
             continue
+        if isinstance(result_or_exc, BaseException):
+            raise result_or_exc
         for b in result_or_exc:
             slot = summed.setdefault(b.timestamp, {'count': 0, 'levels': {}})
             slot['count'] = typing.cast(int, slot['count']) + b.count

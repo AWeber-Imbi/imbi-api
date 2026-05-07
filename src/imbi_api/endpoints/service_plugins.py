@@ -638,6 +638,7 @@ async def replace_plugin_assignments(
 
         await validate_identity_plugin_ids(
             db,
+            org_slug,
             sorted(
                 {a.identity_plugin_id for a in body if a.identity_plugin_id}
             ),

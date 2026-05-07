@@ -43,21 +43,30 @@ def validate_one_default_per_tab(
 
 
 async def validate_identity_plugin_ids(
-    db: graph.Graph, identity_plugin_ids: list[str]
+    db: graph.Graph,
+    org_slug: str,
+    identity_plugin_ids: list[str],
 ) -> None:
     """Validate every supplied id is an identity-type plugin in registry.
 
-    Raises ``HTTPException(400)`` listing every invalid id.
+    The lookup is scoped to ``org_slug`` so an admin in one org can't
+    bind an assignment to an identity plugin owned by another org by
+    guessing its id.  Raises ``HTTPException(400)`` listing every
+    invalid id (not found, not loaded, wrong type, or out-of-org).
     """
     if not identity_plugin_ids:
         return
     query: typing.LiteralString = (
         'UNWIND {ids} AS pid '
-        'OPTIONAL MATCH (p:Plugin {{id: pid}}) '
+        'OPTIONAL MATCH (p:Plugin {{id: pid}})'
+        '<-[:HAS_PLUGIN]-(:ThirdPartyService)'
+        '-[:BELONGS_TO]->(:Organization {{slug: {org_slug}}}) '
         'RETURN pid AS id, p.plugin_slug AS slug'
     )
     rows = await db.execute(
-        query, {'ids': identity_plugin_ids}, ['id', 'slug']
+        query,
+        {'ids': identity_plugin_ids, 'org_slug': org_slug},
+        ['id', 'slug'],
     )
     bad: list[str] = []
     for row in rows:

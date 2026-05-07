@@ -150,6 +150,7 @@ async def replace_project_plugins(
 
         await validate_identity_plugin_ids(
             db,
+            org_slug,
             sorted(
                 {iid for row in rows if (iid := row.get('identity_plugin_id'))}
             ),
