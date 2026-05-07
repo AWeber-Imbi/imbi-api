@@ -91,7 +91,8 @@ def build_assignment_response(
     """Build a PluginAssignmentResponse from parsed plugin/edge dicts."""
     raw_identity = edge.get('identity_plugin_id')
     identity_plugin_id = (
-        str(raw_identity) if isinstance(raw_identity, str) and raw_identity
+        str(raw_identity)
+        if isinstance(raw_identity, str) and raw_identity
         else None
     )
     return models.PluginAssignmentResponse(

@@ -432,9 +432,7 @@ async def get_log_histogram(
             )
             continue
         for b in result_or_exc:
-            slot = summed.setdefault(
-                b.timestamp, {'count': 0, 'levels': {}}
-            )
+            slot = summed.setdefault(b.timestamp, {'count': 0, 'levels': {}})
             slot['count'] = typing.cast(int, slot['count']) + b.count
             levels_dict = typing.cast(dict[str, int], slot['levels'])
             for lvl, n in (b.levels or {}).items():

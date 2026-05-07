@@ -639,11 +639,7 @@ async def replace_plugin_assignments(
         await validate_identity_plugin_ids(
             db,
             sorted(
-                {
-                    a.identity_plugin_id
-                    for a in body
-                    if a.identity_plugin_id
-                }
+                {a.identity_plugin_id for a in body if a.identity_plugin_id}
             ),
         )
 

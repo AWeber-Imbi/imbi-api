@@ -121,11 +121,7 @@ async def replace_project_type_plugins(
         await validate_identity_plugin_ids(
             db,
             sorted(
-                {
-                    iid
-                    for row in rows
-                    if (iid := row.get('identity_plugin_id'))
-                }
+                {iid for row in rows if (iid := row.get('identity_plugin_id'))}
             ),
         )
 
