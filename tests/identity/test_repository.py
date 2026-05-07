@@ -269,6 +269,39 @@ class ListForUserTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [])
 
 
+class FindUserBySubjectTestCase(unittest.IsolatedAsyncioTestCase):
+    """Verify find_user_by_subject returns a user_id or None."""
+
+    async def test_returns_user_id_when_found(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = [{'user_id': '"user-42"'}]
+        with mock.patch.object(
+            repository.graph,
+            'parse_agtype',
+            return_value='user-42',
+        ):
+            result = await repository.find_user_by_subject(
+                db, 'github', '12345'
+            )
+        self.assertEqual(result, 'user-42')
+        _query, params, _cols = db.execute.await_args.args
+        self.assertEqual(params['plugin_slug'], 'github')
+        self.assertEqual(params['subject'], '12345')
+
+    async def test_returns_none_when_no_rows(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = []
+        result = await repository.find_user_by_subject(db, 'github', '99999')
+        self.assertIsNone(result)
+
+    async def test_query_filters_by_active_status(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = []
+        await repository.find_user_by_subject(db, 'github', '1')
+        query, _params, _cols = db.execute.await_args.args
+        self.assertIn("status = 'active'", query)
+
+
 class StaleConnectionsTestCase(unittest.IsolatedAsyncioTestCase):
     """Verify stale_connections returns parsed rows."""
 

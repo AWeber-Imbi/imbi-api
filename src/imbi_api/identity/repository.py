@@ -349,6 +349,38 @@ async def list_for_user(
     return out
 
 
+async def find_user_by_subject(
+    db: graph.Graph,
+    plugin_slug: str,
+    subject: str,
+) -> str | None:
+    """Return the Imbi user_id whose active connection has this subject.
+
+    ``subject`` is the external provider's unique ID — for GitHub plugins
+    this is the numeric user ID as a string (e.g. ``"12345"``), which is
+    what :func:`imbi_plugin_github.plugin._build_userinfo` stores.
+
+    Returns ``None`` when no active connection matches.
+    """
+    query: typing.LiteralString = """
+    MATCH (c:IdentityConnection {{subject: {subject}}})
+          -[:USES_PLUGIN]->(p:Plugin {{plugin_slug: {plugin_slug}}})
+    WHERE c.status = 'active'
+    WITH c
+    MATCH (u:User)-[:HAS_IDENTITY]->(c)
+    RETURN u.id AS user_id
+    LIMIT 1
+    """
+    records = await db.execute(
+        query,
+        {'subject': subject, 'plugin_slug': plugin_slug},
+        ['user_id'],
+    )
+    if not records:
+        return None
+    return str(graph.parse_agtype(records[0]['user_id']))
+
+
 async def stale_connections(
     db: graph.Graph,
     before: datetime.datetime,

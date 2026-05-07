@@ -34,6 +34,8 @@ class _WebhookRecord(typing.TypedDict):
     webhook: _WebhookDetails
     tps: typing.NotRequired[dict[str, str] | None]
     identifier_selector: typing.NotRequired[str | None]
+    user_subject_selector: typing.NotRequired[str | None]
+    identity_plugin_slug: typing.NotRequired[str | None]
     rules: list[_WebhookRule | None]
 
 
@@ -302,6 +304,62 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             json={
                 'name': 'Test',
                 'identifier_selector': '$.foo',
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_create_with_identity_fields(self) -> None:
+        """user_subject_selector and identity_plugin_slug round-trip."""
+        record = copy.deepcopy(self.webhook_record)
+        record['tps'] = {'name': 'GitHub', 'slug': 'github'}
+        record['identifier_selector'] = '/repository/full_name'
+        record['user_subject_selector'] = '/deployment/creator/id'
+        record['identity_plugin_slug'] = 'github'
+
+        self.mock_db.execute.return_value = [record]
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+        ):
+            payload = {
+                'name': 'GitHub Events',
+                'third_party_service_slug': 'github',
+                'identifier_selector': '/repository/full_name',
+                'user_subject_selector': '/deployment/creator/id',
+                'identity_plugin_slug': 'github',
+            }
+            response = self.client.post(
+                '/organizations/engineering/webhooks/',
+                json=payload,
+            )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(
+            data['user_subject_selector'], '/deployment/creator/id'
+        )
+        self.assertEqual(data['identity_plugin_slug'], 'github')
+
+    def test_create_user_subject_selector_without_service(self) -> None:
+        """user_subject_selector requires a third-party service."""
+        response = self.client.post(
+            '/organizations/engineering/webhooks/',
+            json={
+                'name': 'Test',
+                'user_subject_selector': '/foo',
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_create_identity_plugin_slug_without_service(self) -> None:
+        """identity_plugin_slug requires a third-party service."""
+        response = self.client.post(
+            '/organizations/engineering/webhooks/',
+            json={
+                'name': 'Test',
+                'identity_plugin_slug': 'github',
             },
         )
         self.assertEqual(response.status_code, 422)
@@ -657,6 +715,63 @@ class WebhookEndpointsTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+
+    def test_patch_identity_fields(self) -> None:
+        """Patching identity-related selectors round-trips through the edge."""
+        existing_record = {
+            'webhook': {
+                'id': 'abc123def4',
+                'name': 'GitHub Hook',
+                'slug': 'github-hook',
+                'description': None,
+                'notification_path': '/abc123def4',
+                'secret': None,
+            },
+            'tps': {'slug': 'github', 'name': 'GitHub'},
+            'identifier_selector': '/repository/full_name',
+            'user_subject_selector': None,
+            'identity_plugin_slug': None,
+            'rules': [],
+        }
+        updated_record = copy.deepcopy(existing_record)
+        updated_record['user_subject_selector'] = '/deployment/creator/id'
+        updated_record['identity_plugin_slug'] = 'github'
+
+        self.mock_db.execute.side_effect = [
+            [existing_record],
+            [updated_record],
+            [updated_record],
+        ]
+
+        with (
+            self._patch_encryption(),
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/webhooks/github-hook',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/user_subject_selector',
+                        'value': '/deployment/creator/id',
+                    },
+                    {
+                        'op': 'replace',
+                        'path': '/identity_plugin_slug',
+                        'value': 'github',
+                    },
+                ],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(
+            data['user_subject_selector'], '/deployment/creator/id'
+        )
+        self.assertEqual(data['identity_plugin_slug'], 'github')
 
     def test_patch_webhook_slug_collision_returns_409(self) -> None:
         existing_record = {
