@@ -1,3 +1,5 @@
+import logging
+
 import fastapi
 from fastapi import responses
 from fastapi.middleware import cors
@@ -7,6 +9,8 @@ from uvicorn.middleware import proxy_headers
 
 from imbi_api import endpoints, lifespans, openapi, settings, version
 from imbi_api.middleware import rate_limit
+
+LOGGER = logging.getLogger(__name__)
 
 
 def create_app() -> fastapi.FastAPI:
@@ -56,6 +60,7 @@ def create_app() -> fastapi.FastAPI:
         _request: fastapi.Request,
         exc: PluginCredentialsMissing,
     ) -> responses.JSONResponse:
+        LOGGER.warning('Plugin credentials missing: %s', exc)
         return responses.JSONResponse(
             status_code=503,
             content={'detail': str(exc)},
