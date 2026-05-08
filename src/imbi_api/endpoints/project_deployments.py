@@ -27,6 +27,7 @@ from imbi_common.plugins.errors import PluginCredentialsMissing
 
 from imbi_api.auth import permissions
 from imbi_api.endpoints._helpers import lookup_project_slugs
+from imbi_api.endpoints.releases import append_deployment_event
 from imbi_api.identity.host_integration import attach_identity
 from imbi_api.plugins import call_with_timeout
 from imbi_api.plugins.credentials import get_plugin_credentials
@@ -58,6 +59,7 @@ class DeploymentTriggerResponse(pydantic.BaseModel):
     run: DeploymentRun
     plugin_id: str
     plugin_slug: str
+    recorded: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +241,12 @@ async def trigger_deployment(
 ) -> DeploymentTriggerResponse:
     """Trigger a deploy or redeploy.
 
-    Persistence of ``DeploymentEvent`` on the ``DEPLOYED_TO`` edge is a
-    follow-on; this first cut returns the run reference straight from
-    the plugin so the UI can surface a "View workflow run" link.
+    When the committish (or its ``ref_label``) matches an existing
+    ``Release`` version on the project, append a ``DeploymentEvent``
+    with ``status='in_progress'`` to the
+    ``Release -[:DEPLOYED_TO]-> Environment`` edge.  Deploys of bare
+    SHAs (no matching Release) are still triggered but not graph-recorded
+    — Promote is the path that creates Release nodes.
     """
     resolved, ctx, credentials = await _resolve_and_context(
         db,
@@ -271,8 +276,27 @@ async def trigger_deployment(
         ctx.actor_user_id,
         run.run_id,
     )
+    note_parts = [f'via {resolved.plugin_slug}']
+    if run.run_url:
+        note_parts.append(run.run_url)
+    note = ' — '.join(note_parts)
+    recorded = False
+    for candidate in filter(None, (body.ref_label, body.committish)):
+        edge = await append_deployment_event(
+            db,
+            org_slug=org_slug,
+            project_id=project_id,
+            version=candidate,
+            env_slug=body.environment,
+            status='in_progress',
+            note=note,
+        )
+        if edge is not None:
+            recorded = True
+            break
     return DeploymentTriggerResponse(
         run=run,
         plugin_id=resolved.plugin_id,
         plugin_slug=resolved.plugin_slug,
+        recorded=recorded,
     )

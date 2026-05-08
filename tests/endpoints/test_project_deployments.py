@@ -143,6 +143,12 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                     return_value={'access_token': 'gho_test'},
                 )
             ),
+            'append_deployment_event': self._start(
+                mock.patch(
+                    f'{_MODULE}.append_deployment_event',
+                    return_value=None,
+                )
+            ),
         }
 
     def _start(self, patcher: typing.Any) -> mock.MagicMock:
@@ -223,6 +229,27 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(data['plugin_slug'], 'github-deployment')
         self.assertEqual(data['run']['run_id'], '42')
         self.assertEqual(data['run']['status'], 'queued')
+        self.assertFalse(data['recorded'])
+
+    def test_trigger_deploy_records_event_when_release_matches(self) -> None:
+        self.mocks['append_deployment_event'].return_value = mock.Mock()
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments',
+                json={
+                    'action': 'deploy',
+                    'environment': 'staging',
+                    'committish': 'v6.4.0',
+                },
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(response.json()['recorded'])
+        self.mocks['append_deployment_event'].assert_called_once()
+        call = self.mocks['append_deployment_event'].call_args
+        self.assertEqual(call.kwargs['version'], 'v6.4.0')
+        self.assertEqual(call.kwargs['env_slug'], 'staging')
+        self.assertEqual(call.kwargs['status'], 'in_progress')
+        self.assertIn('https://gh/runs/42', call.kwargs['note'] or '')
 
     def test_trigger_redeploy(self) -> None:
         with testclient.TestClient(self.test_app) as client:
