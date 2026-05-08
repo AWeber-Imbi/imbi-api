@@ -876,7 +876,7 @@ def _graph_summary(label: str, row: dict[str, typing.Any]) -> str:
             or graph.parse_agtype(row.get('project_slug'))
             or 'a project'
         )
-        return f'WroteWdocumentW"{title}" on {proj}'
+        return f'Wrote document "{title}" on {proj}'
     if label == 'release':
         version = graph.parse_agtype(row.get('version')) or ''
         proj = (
