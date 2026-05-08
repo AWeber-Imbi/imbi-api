@@ -1,6 +1,7 @@
 """Tests for the project deployment plugin endpoints."""
 
 import datetime
+import typing
 import unittest
 from unittest import mock
 
@@ -83,6 +84,9 @@ def _entry() -> RegistryEntry:
     )
 
 
+_MODULE = 'imbi_api.endpoints.project_deployments'
+
+
 class ProjectDeploymentsTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.test_app = app.create_app()
@@ -115,6 +119,37 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
             self.mock_db
         )
 
+        self.mocks = {
+            'resolve_plugin': self._start(
+                mock.patch(
+                    f'{_MODULE}.resolve_plugin', return_value=self._resolved()
+                )
+            ),
+            'lookup_project_slugs': self._start(
+                mock.patch(
+                    f'{_MODULE}.lookup_project_slugs',
+                    return_value=('proj', 'team'),
+                )
+            ),
+            'attach_identity': self._start(
+                mock.patch(
+                    f'{_MODULE}.attach_identity',
+                    side_effect=lambda db, ctx, resolved, auth: ctx,
+                )
+            ),
+            'get_plugin_credentials': self._start(
+                mock.patch(
+                    f'{_MODULE}.get_plugin_credentials',
+                    return_value={'access_token': 'gho_test'},
+                )
+            ),
+        }
+
+    def _start(self, patcher: typing.Any) -> mock.MagicMock:
+        m = patcher.start()
+        self.addCleanup(patcher.stop)
+        return m
+
     def _resolved(self) -> ResolvedPlugin:
         return ResolvedPlugin(
             plugin_id='p-1',
@@ -123,34 +158,8 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
             options={'owner': 'octo', 'repo': 'demo'},
         )
 
-    def _patches(self) -> tuple[mock._patch, ...]:
-        return (
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.resolve_plugin',
-                return_value=self._resolved(),
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.lookup_project_slugs',
-                return_value=('proj', 'team'),
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.attach_identity',
-                side_effect=lambda db, ctx, resolved, auth: ctx,
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.get_plugin_credentials',
-                return_value={'access_token': 'gho_test'},
-            ),
-        )
-
     def test_list_refs(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/refs'
             )
@@ -161,13 +170,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertTrue(data[0]['is_default'])
 
     def test_list_commits(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/'
                 'refs/main/commits'
@@ -178,13 +181,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertTrue(data[0]['is_head'])
 
     def test_resolve_commit(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/'
                 'commits/abc1234'
@@ -193,13 +190,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(response.json()['sha'], 'abc1234')
 
     def test_compare(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/'
                 'compare?base=v1&head=v2'
@@ -210,26 +201,14 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(data['head_sha'], 'v2')
 
     def test_compare_missing_query_param_400(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/compare'
             )
         self.assertEqual(response.status_code, 422)
 
     def test_trigger_deploy(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.post(
                 '/organizations/myorg/projects/proj1/deployments',
                 json={
@@ -246,13 +225,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(data['run']['status'], 'queued')
 
     def test_trigger_redeploy(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.post(
                 '/organizations/myorg/projects/proj1/deployments',
                 json={
@@ -264,13 +237,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
 
     def test_trigger_invalid_action(self) -> None:
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.post(
                 '/organizations/myorg/projects/proj1/deployments',
                 json={
@@ -282,25 +249,8 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_no_credentials_returns_503(self) -> None:
-        with (
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.resolve_plugin',
-                return_value=self._resolved(),
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.lookup_project_slugs',
-                return_value=('proj', 'team'),
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.attach_identity',
-                side_effect=lambda db, ctx, resolved, auth: ctx,
-            ),
-            mock.patch(
-                'imbi_api.endpoints.project_deployments.get_plugin_credentials',
-                return_value={},
-            ),
-            testclient.TestClient(self.test_app) as client,
-        ):
+        self.mocks['get_plugin_credentials'].return_value = {}
+        with testclient.TestClient(self.test_app) as client:
             response = client.get(
                 '/organizations/myorg/projects/proj1/deployments/refs'
             )
@@ -328,13 +278,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.test_app.dependency_overrides[permissions.get_current_user] = (
             mock_get_current_user
         )
-        with (
-            self._patches()[0],
-            self._patches()[1],
-            self._patches()[2],
-            self._patches()[3],
-            testclient.TestClient(self.test_app) as client,
-        ):
+        with testclient.TestClient(self.test_app) as client:
             response = client.post(
                 '/organizations/myorg/projects/proj1/deployments',
                 json={
