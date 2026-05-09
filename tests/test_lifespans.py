@@ -103,11 +103,10 @@ class ApplicationLifespanTestCase(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertFalse(captured[0].available)  # type: ignore[attr-defined]
         self.assertTrue(
-            any(
-                'Anthropic client disabled' in line
-                or 'Anthropic client initialized' in line
-                for line in cm.output
-            )
+            any('Anthropic client disabled' in line for line in cm.output)
+        )
+        self.assertFalse(
+            any('Anthropic client initialized' in line for line in cm.output)
         )
 
     def test_openapi_refresh_blueprint_failure(self) -> None:
