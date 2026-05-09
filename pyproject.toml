@@ -223,8 +223,8 @@ url = "https://pypi.org/simple"
 default = true
 
 [tool.uv.sources]
-imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", rev = "feature/oidc-refresh-resilience" }
-imbi-plugin-aws = { git = "https://github.com/AWeber-Imbi/imbi-plugin-aws.git", rev = "feature/oidc-refresh-resilience" }
-imbi-plugin-github = { git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git", rev = "feature/oidc-refresh-resilience" }
+imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", rev = "main" }
+imbi-plugin-aws = { git = "https://github.com/AWeber-Imbi/imbi-plugin-aws.git", rev = "main" }
+imbi-plugin-github = { git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git", rev = "main" }
 imbi-plugin-logzio = { git = "https://github.com/AWeber-Imbi/imbi-plugin-logzio.git", rev = "main" }
 imbi-plugin-oidc = { git = "https://github.com/AWeber-Imbi/imbi-plugin-oidc.git", rev = "main" }
