@@ -7,6 +7,7 @@ from unittest import mock
 
 from fastapi import testclient
 from imbi_common import graph
+from imbi_common.llm import AnthropicClient, CompletionResult
 from imbi_common.plugins.base import (
     Commit,
     CompareResult,
@@ -14,11 +15,15 @@ from imbi_common.plugins.base import (
     DeploymentRun,
     PluginManifest,
     Ref,
+    RefInfo,
+    ReleaseInfo,
 )
 from imbi_common.plugins.registry import RegistryEntry
 
 from imbi_api import app, models
 from imbi_api.auth import password, permissions
+from imbi_api.endpoints.project_deployments import DraftReleaseNotes
+from imbi_api.llm.dependencies import _get_anthropic_client
 from imbi_api.plugins.resolution import ResolvedPlugin
 
 
@@ -74,6 +79,23 @@ class _FakeDeploymentPlugin(DeploymentPlugin):
     ):
         return DeploymentRun(run_id=run_id, status='in_progress')
 
+    async def create_tag(  # type: ignore[override]
+        self, ctx, credentials, sha, tag, message
+    ):
+        return RefInfo(name=f'refs/tags/{tag}', sha=sha)
+
+    async def create_release(  # type: ignore[override]
+        self, ctx, credentials, tag, name, body_markdown, prerelease=False
+    ):
+        return ReleaseInfo(
+            id='rel-1',
+            tag=tag,
+            name=name,
+            html_url=f'https://gh/releases/{tag}',
+            url=f'https://api.gh/releases/{tag}',
+            prerelease=prerelease,
+        )
+
 
 def _entry() -> RegistryEntry:
     return RegistryEntry(
@@ -117,6 +139,22 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
         self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
             self.mock_db
+        )
+
+        self.mock_anthropic = mock.MagicMock(spec=AnthropicClient)
+        self.mock_anthropic.complete_json = mock.AsyncMock(
+            return_value=CompletionResult(
+                data=DraftReleaseNotes(
+                    bump='minor',
+                    version='v1.1.0',
+                    reasoning='added feature foo',
+                    notes_markdown='## Foo',
+                ),
+                degraded=False,
+            )
+        )
+        self.test_app.dependency_overrides[_get_anthropic_client] = lambda: (
+            self.mock_anthropic
         )
 
         self.mocks = {
@@ -315,3 +353,191 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_draft_release_notes_happy_path(self) -> None:
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'draft-release-notes',
+                json={
+                    'base_sha': 'aaa',
+                    'head_sha': 'bbb',
+                    'last_tag': 'v1.0.0',
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['bump'], 'minor')
+        self.assertEqual(data['version'], 'v1.1.0')
+        self.assertFalse(data['degraded'])
+        # Compare came back empty in the fake plugin (no commits stubbed
+        # for this path), so commits_considered is 0.
+        self.assertEqual(data['commits_considered'], 0)
+        # The Anthropic client was called with the system + prompt.
+        self.mock_anthropic.complete_json.assert_called_once()
+        call = self.mock_anthropic.complete_json.call_args
+        prompt = call.args[0] if call.args else call.kwargs.get('prompt', '')
+        self.assertIn('Project: proj', prompt)
+        self.assertIn('aaa..bbb', prompt)
+        self.assertTrue(call.kwargs['cache_system_prompt'])
+
+    def test_draft_release_notes_degraded_falls_back(self) -> None:
+        self.mock_anthropic.complete_json = mock.AsyncMock(
+            side_effect=lambda *args, **kwargs: CompletionResult(
+                data=kwargs['fallback'], degraded=True
+            )
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'draft-release-notes',
+                json={
+                    'base_sha': 'aaa',
+                    'head_sha': 'bbb',
+                    'last_tag': 'v1.2.3',
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['degraded'])
+        # No commits in the stub → patch bump → v1.2.4
+        self.assertEqual(data['bump'], 'patch')
+        self.assertEqual(data['version'], 'v1.2.4')
+        self.assertIn('AI unavailable', data['reasoning'])
+
+    def test_draft_release_notes_rebumps_invalid_version(self) -> None:
+        self.mock_anthropic.complete_json = mock.AsyncMock(
+            return_value=CompletionResult(
+                data=DraftReleaseNotes(
+                    bump='major',
+                    version='v9.0',  # not a valid semver
+                    reasoning='breaking',
+                    notes_markdown='## Breaking',
+                ),
+                degraded=False,
+            )
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'draft-release-notes',
+                json={
+                    'base_sha': 'aaa',
+                    'head_sha': 'bbb',
+                    'last_tag': 'v6.3.0',
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        # last_tag bumped major: 6.3.0 → 7.0.0
+        self.assertEqual(data['version'], 'v7.0.0')
+
+    def test_promote_happy_path(self) -> None:
+        # The append_deployment_event mock pretends a Release exists.
+        self.mocks['append_deployment_event'].return_value = mock.Mock()
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments',
+                json={
+                    'action': 'promote',
+                    'from_environment': 'testing',
+                    'to_environment': 'staging',
+                    'from_committish': '1a9c610',
+                    'tag': 'v6.4.0',
+                    'release_name': 'v6.4.0',
+                    'release_notes_markdown': '## Highlights\n- foo',
+                    'prerelease': False,
+                },
+            )
+        self.assertEqual(response.status_code, 202)
+        data = response.json()
+        self.assertEqual(data['tag'], 'v6.4.0')
+        self.assertEqual(data['release_url'], 'https://gh/releases/v6.4.0')
+        self.assertTrue(data['recorded'])
+        # The Release node was upserted via two db.execute calls
+        # (CREATE-if-missing then SET).
+        self.assertGreaterEqual(self.mock_db.execute.call_count, 2)
+        # The append_deployment_event helper saw the new tag as version.
+        call = self.mocks['append_deployment_event'].call_args
+        self.assertEqual(call.kwargs['version'], 'v6.4.0')
+        self.assertEqual(call.kwargs['env_slug'], 'staging')
+
+    def test_promote_falls_back_when_plugin_lacks_create_tag(self) -> None:
+        class _NoTag(_FakeDeploymentPlugin):
+            async def create_tag(  # type: ignore[override]
+                self, ctx, credentials, sha, tag, message
+            ):
+                raise NotImplementedError
+
+        self.mocks['resolve_plugin'].return_value = ResolvedPlugin(
+            plugin_id='p-1',
+            plugin_slug='no-tag',
+            entry=RegistryEntry(
+                handler_cls=_NoTag,
+                manifest=_NoTag.manifest,
+                package_name='x',
+                package_version='1',
+            ),
+            options={},
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.post(
+                '/organizations/myorg/projects/proj1/deployments',
+                json={
+                    'action': 'promote',
+                    'from_environment': 'testing',
+                    'to_environment': 'staging',
+                    'from_committish': '1a9c610',
+                    'tag': 'v1.2.3',
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'does not support creating tags', response.json()['detail']
+        )
+
+    def test_promotion_options_returns_consecutive_pairs(self) -> None:
+        # The endpoint runs a Cypher query, then for each gap calls
+        # plugin.compare().  Stub the graph response with three envs;
+        # the helper deduplicates by env-slug into the latest release
+        # per env, so we feed one row per env to keep the test simple.
+        def _mock_execute(query, params, columns):
+            del query, params, columns
+            return [
+                {
+                    'env': '{"slug": "testing", "name": "Testing", '
+                    '"sort_order": 1}',
+                    'release': '{"version": "v6.4.0"}',
+                    'deployments': None,
+                },
+                {
+                    'env': '{"slug": "staging", "name": "Staging", '
+                    '"sort_order": 2}',
+                    'release': '{"version": "v6.3.0"}',
+                    'deployments': None,
+                },
+                {
+                    'env': '{"slug": "production", "name": "Production", '
+                    '"sort_order": 3}',
+                    'release': '{"version": "v6.2.0"}',
+                    'deployments': None,
+                },
+            ]
+
+        self.mock_db.execute = mock.AsyncMock(side_effect=_mock_execute)
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'promotion-options'
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['from_environment'], 'testing')
+        self.assertEqual(data[0]['to_environment'], 'staging')
+        self.assertEqual(data[0]['from_version'], 'v6.4.0')
+        self.assertEqual(data[0]['to_version'], 'v6.3.0')
+        # Fake plugin's compare() returns ahead=1.
+        self.assertEqual(data[0]['commits_pending'], 1)
+        self.assertEqual(data[1]['from_environment'], 'staging')
+        self.assertEqual(data[1]['to_environment'], 'production')
