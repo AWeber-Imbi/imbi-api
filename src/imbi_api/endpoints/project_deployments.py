@@ -148,6 +148,38 @@ class PromotionOption(pydantic.BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _latest_deployment_timestamp(
+    raw: typing.Any,
+) -> datetime.datetime | None:
+    """Return the most recent deployment-event timestamp, or ``None``.
+
+    The ``deployments`` edge property is stored as a JSON-encoded list
+    of ``DeploymentEvent``-shaped objects.  We parse just the timestamp
+    field here so the promotion-options reducer can deterministically
+    rank ``(Release, Environment)`` rows by recency without paying for
+    full Pydantic validation.
+    """
+    if not raw:
+        return None
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(data, list):
+        return None
+    latest: datetime.datetime | None = None
+    for entry in data:  # type: ignore[reportUnknownVariableType]
+        if not isinstance(entry, dict):
+            continue
+        ts = entry.get('timestamp')  # type: ignore[reportUnknownMemberType]
+        if not isinstance(ts, str):
+            continue
+        try:
+            parsed = datetime.datetime.fromisoformat(ts)
+        except ValueError:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+    return latest
+
+
 async def _resolve_and_context(
     db: graph.Graph,
     org_slug: str,
@@ -467,11 +499,24 @@ async def _handle_promote(
             resolved.plugin_slug,
         )
 
-    # 3. Upsert the Release node so future deploys of the same tag
-    #    can attach a DeploymentEvent.
     release_url = (release_info.html_url if release_info else None) or (
         release_info.url if release_info else None
     )
+
+    # 3. Dispatch the workflow against the new tag.  We do this before
+    #    upserting the Release node so a trigger failure doesn't leave
+    #    a Release in the graph with no associated deployment run.
+    run = await call_with_timeout(
+        handler.trigger_deployment(
+            ctx,
+            credentials,
+            ref_or_sha=body.tag,
+            inputs=None,
+        )
+    )
+
+    # 4. Upsert the Release node so future deploys of the same tag
+    #    can attach a DeploymentEvent.
     await _upsert_release_node(
         db,
         project_id=project_id,
@@ -480,16 +525,6 @@ async def _handle_promote(
         notes_markdown=body.release_notes_markdown,
         release_url=release_url,
         created_by=auth.principal_name,
-    )
-
-    # 4. Dispatch the workflow against the new tag.
-    run = await call_with_timeout(
-        handler.trigger_deployment(
-            ctx,
-            credentials,
-            ref_or_sha=body.tag,
-            inputs=None,
-        )
     )
 
     # 5. Record the deployment event.
@@ -815,16 +850,52 @@ async def list_promotion_options(
     )
     if not rows:
         return []
+    # The query returns one row per (Release, Environment) pair, so an
+    # env with multiple historical releases produces multiple rows.
+    # To pick a stable "current" release per env, parse the deployment
+    # event history on each edge and rank by the most recent event
+    # timestamp. Envs with no deployment history fall back to no
+    # release.
     by_slug: dict[str, dict[str, typing.Any]] = {}
     for row in rows:
         env = graph.parse_agtype(row['env'])
         if not env:
             continue
-        release_raw = graph.parse_agtype(row['release'])
         slug = env['slug']
+        release_raw = graph.parse_agtype(row['release'])
+        latest = _latest_deployment_timestamp(
+            graph.parse_agtype(row['deployments'])
+        )
         existing = by_slug.get(slug)
-        if existing is None or (release_raw and not existing.get('release')):
-            by_slug[slug] = {'env': env, 'release': release_raw}
+        if existing is None:
+            by_slug[slug] = {
+                'env': env,
+                'release': release_raw,
+                'latest': latest,
+            }
+            continue
+        # Prefer the row with the most recent deployment event; fall
+        # back to keeping a non-null release if neither row has events.
+        existing_latest = existing.get('latest')
+        if latest is not None and (
+            existing_latest is None or latest > existing_latest
+        ):
+            by_slug[slug] = {
+                'env': env,
+                'release': release_raw,
+                'latest': latest,
+            }
+        elif (
+            latest is None
+            and existing_latest is None
+            and release_raw
+            and not existing.get('release')
+        ):
+            by_slug[slug] = {
+                'env': env,
+                'release': release_raw,
+                'latest': None,
+            }
 
     ordered = sorted(
         by_slug.values(),
