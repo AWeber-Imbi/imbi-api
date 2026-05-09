@@ -987,7 +987,7 @@ requires-dist = [
   { name = "fastapi" },
   { name = "filetype" },
   { name = "httpx", specifier = ">=0.28.1,<1" },
-  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fdeployment-event-run-url" },
+  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Frelease-train-ci-status" },
   { name = "jinja2" },
   { name = "jsonpatch", specifier = ">=1.33" },
   { name = "nanoid", specifier = ">=2.0.0" },
@@ -1032,15 +1032,15 @@ docs = [
 ]
 plugins = [
   { name = "imbi-plugin-aws", git = "https://github.com/AWeber-Imbi/imbi-plugin-aws.git?rev=main" },
-  { name = "imbi-plugin-github", git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git?rev=main" },
+  { name = "imbi-plugin-github", git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git?rev=feature%2Frelease-train-ci-status" },
   { name = "imbi-plugin-logzio", git = "https://github.com/AWeber-Imbi/imbi-plugin-logzio.git?rev=main" },
   { name = "imbi-plugin-oidc", git = "https://github.com/AWeber-Imbi/imbi-plugin-oidc.git?rev=main" },
 ]
 
 [[package]]
 name = "imbi-common"
-version = "0.8.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fdeployment-event-run-url#e6e780e26db9c19d3bb76d12cc8d3f12db2aec9b" }
+version = "0.8.1"
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Frelease-train-ci-status#5377ce21c8060d1e9806f9ee4f77d8b3c58fdc65" }
 dependencies = [
   { name = "cryptography" },
   { name = "jsonschema-models" },
@@ -1083,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "imbi-plugin-github"
 version = "0.1.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git?rev=main#b9e3dd02e876b123516be65d2d92d53d0dd48360" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-plugin-github.git?rev=feature%2Frelease-train-ci-status#8aee0b0f2d8480aed33456c5729ccc1c3c29cfb4" }
 dependencies = [
   { name = "httpx" },
   { name = "imbi-common" },
