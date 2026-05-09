@@ -987,7 +987,7 @@ requires-dist = [
   { name = "fastapi" },
   { name = "filetype" },
   { name = "httpx", specifier = ">=0.28.1,<1" },
-  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fanthropic-client" },
+  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main" },
   { name = "jinja2" },
   { name = "jsonpatch", specifier = ">=1.33" },
   { name = "nanoid", specifier = ">=2.0.0" },
@@ -1040,7 +1040,7 @@ plugins = [
 [[package]]
 name = "imbi-common"
 version = "0.7.1"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=feature%2Fanthropic-client#532a00cdcf3954cc2b6ab2491d8178a51b5731b4" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=main#3e04f673c3b0c8b7f187627bfbbc9a1fcbb03b78" }
 dependencies = [
   { name = "cryptography" },
   { name = "jsonschema-models" },
