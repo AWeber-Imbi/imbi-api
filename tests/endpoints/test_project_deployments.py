@@ -541,3 +541,211 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         self.assertEqual(data[0]['commits_pending'], 1)
         self.assertEqual(data[1]['from_environment'], 'staging')
         self.assertEqual(data[1]['to_environment'], 'production')
+
+    def test_promotion_options_picks_latest_release_per_env(self) -> None:
+        # Two rows for the same env: an older v6.3.0 with an earlier
+        # event timestamp and a newer v6.4.0.  The reducer should pick
+        # v6.4.0 as the testing env's current release.  We pair it
+        # against staging (single-row) so the test asserts the
+        # deterministic ordering rather than the staging row choice.
+        def _mock_execute(query, params, columns):
+            del query, params, columns
+            return [
+                {
+                    'env': '{"slug": "testing", "name": "Testing", '
+                    '"sort_order": 1}',
+                    'release': '{"version": "v6.3.0"}',
+                    'deployments': (
+                        '[{"timestamp": "2024-01-01T00:00:00+00:00", '
+                        '"status": "success"}]'
+                    ),
+                },
+                {
+                    'env': '{"slug": "testing", "name": "Testing", '
+                    '"sort_order": 1}',
+                    'release': '{"version": "v6.4.0"}',
+                    'deployments': (
+                        '[{"timestamp": "2024-06-01T00:00:00+00:00", '
+                        '"status": "success"}]'
+                    ),
+                },
+                {
+                    'env': '{"slug": "staging", "name": "Staging", '
+                    '"sort_order": 2}',
+                    'release': '{"version": "v6.2.0"}',
+                    'deployments': None,
+                },
+            ]
+
+        self.mock_db.execute = mock.AsyncMock(side_effect=_mock_execute)
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'promotion-options'
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['from_environment'], 'testing')
+        self.assertEqual(data[0]['from_version'], 'v6.4.0')
+        self.assertEqual(data[0]['to_version'], 'v6.2.0')
+
+    def test_promotion_options_falls_back_to_non_null_release(self) -> None:
+        # When neither row for an env has any deployment events, the
+        # reducer should still surface a non-null release if one row
+        # has it.
+        def _mock_execute(query, params, columns):
+            del query, params, columns
+            return [
+                {
+                    'env': '{"slug": "testing", "name": "Testing", '
+                    '"sort_order": 1}',
+                    'release': None,
+                    'deployments': None,
+                },
+                {
+                    'env': '{"slug": "testing", "name": "Testing", '
+                    '"sort_order": 1}',
+                    'release': '{"version": "v1.0.0"}',
+                    'deployments': None,
+                },
+                {
+                    'env': '{"slug": "staging", "name": "Staging", '
+                    '"sort_order": 2}',
+                    'release': '{"version": "v0.9.0"}',
+                    'deployments': None,
+                },
+            ]
+
+        self.mock_db.execute = mock.AsyncMock(side_effect=_mock_execute)
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get(
+                '/organizations/myorg/projects/proj1/deployments/'
+                'promotion-options'
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['from_version'], 'v1.0.0')
+
+
+class FallbackNotesTestCase(unittest.TestCase):
+    """Direct tests for ``_classify_bump`` and ``_fallback_notes``."""
+
+    def test_classify_bump_breaking(self) -> None:
+        from imbi_api.endpoints.project_deployments import _classify_bump
+
+        commits = [Commit(sha='a', short_sha='a', message='feat!: drop')]
+        self.assertEqual(_classify_bump(commits), 'major')
+
+    def test_classify_bump_feature(self) -> None:
+        from imbi_api.endpoints.project_deployments import _classify_bump
+
+        commits = [Commit(sha='a', short_sha='a', message='feat: new thing')]
+        self.assertEqual(_classify_bump(commits), 'minor')
+
+    def test_classify_bump_patch_default(self) -> None:
+        from imbi_api.endpoints.project_deployments import _classify_bump
+
+        commits = [Commit(sha='a', short_sha='a', message='fix: thing')]
+        self.assertEqual(_classify_bump(commits), 'patch')
+
+    def test_fallback_notes_groups_by_prefix(self) -> None:
+        from imbi_api.endpoints.project_deployments import _fallback_notes
+
+        commits = [
+            Commit(sha='a', short_sha='aaa', message='feat: one'),
+            Commit(sha='b', short_sha='bbb', message='fix: two'),
+            Commit(sha='c', short_sha='ccc', message='feat: three'),
+        ]
+        body = _fallback_notes(commits)
+        self.assertIn('### feat', body)
+        self.assertIn('### fix', body)
+        self.assertIn('feat: one (aaa)', body)
+        self.assertIn('fix: two (bbb)', body)
+
+    def test_fallback_notes_empty(self) -> None:
+        from imbi_api.endpoints.project_deployments import _fallback_notes
+
+        self.assertIn('No commits', _fallback_notes([]))
+
+    def test_fallback_notes_falls_back_to_other_for_long_prefix(self) -> None:
+        from imbi_api.endpoints.project_deployments import _fallback_notes
+
+        commits = [
+            Commit(
+                sha='a',
+                short_sha='aaa',
+                message='thisprefixiswaytoolong: hi',
+            ),
+        ]
+        body = _fallback_notes(commits)
+        self.assertIn('### other', body)
+
+
+class LatestDeploymentTimestampTestCase(unittest.TestCase):
+    """Direct tests for ``_latest_deployment_timestamp``."""
+
+    def test_returns_none_for_empty_or_missing(self) -> None:
+        from imbi_api.endpoints.project_deployments import (
+            _latest_deployment_timestamp,
+        )
+
+        self.assertIsNone(_latest_deployment_timestamp(None))
+        self.assertIsNone(_latest_deployment_timestamp(''))
+        self.assertIsNone(_latest_deployment_timestamp('[]'))
+
+    def test_returns_none_for_non_list_payloads(self) -> None:
+        from imbi_api.endpoints.project_deployments import (
+            _latest_deployment_timestamp,
+        )
+
+        self.assertIsNone(_latest_deployment_timestamp('"oops"'))
+        self.assertIsNone(_latest_deployment_timestamp('{"x": 1}'))
+
+    def test_picks_max_timestamp(self) -> None:
+        from imbi_api.endpoints.project_deployments import (
+            _latest_deployment_timestamp,
+        )
+
+        raw = (
+            '[{"timestamp": "2024-01-01T00:00:00+00:00", "status": "success"},'
+            ' {"timestamp": "2024-06-01T00:00:00+00:00", "status": "success"},'
+            ' {"timestamp": "2024-03-01T00:00:00+00:00", "status": "success"}]'
+        )
+        result = _latest_deployment_timestamp(raw)
+        self.assertEqual(
+            result,
+            datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC),
+        )
+
+    def test_skips_invalid_entries(self) -> None:
+        from imbi_api.endpoints.project_deployments import (
+            _latest_deployment_timestamp,
+        )
+
+        raw = (
+            '[{"timestamp": "not-a-date", "status": "success"},'
+            ' "scalar",'
+            ' {"timestamp": 42, "status": "success"},'
+            ' {"timestamp": "2024-06-01T00:00:00+00:00", '
+            '"status": "success"}]'
+        )
+        result = _latest_deployment_timestamp(raw)
+        self.assertEqual(
+            result,
+            datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC),
+        )
+
+    def test_accepts_already_decoded_list(self) -> None:
+        from imbi_api.endpoints.project_deployments import (
+            _latest_deployment_timestamp,
+        )
+
+        result = _latest_deployment_timestamp(
+            [{'timestamp': '2024-06-01T00:00:00+00:00', 'status': 'success'}]
+        )
+        self.assertEqual(
+            result,
+            datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC),
+        )
