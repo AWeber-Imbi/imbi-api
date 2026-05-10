@@ -167,7 +167,8 @@ async def lookup_project_links(
             return {}
     if not isinstance(raw, dict):
         return {}
-    return {str(k): str(v) for k, v in raw.items() if v}
+    items = typing.cast('dict[object, object]', raw)
+    return {str(k): str(v) for k, v in items.items() if v}
 
 
 async def lookup_project_type_slugs(
