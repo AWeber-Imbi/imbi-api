@@ -35,10 +35,16 @@ _USER_HAS_MEMBERSHIP_QUERY: typing.LiteralString = (
     'RETURN count(m) AS edges'
 )
 
+# MERGE rather than CREATE so two concurrent logins for the same
+# previously-unassigned user cannot leave behind duplicate MEMBER_OF
+# edges. ``role_slug`` is part of the merge pattern, so this is
+# idempotent only for the same role value — fine here because the
+# caller invokes this helper only when the user has zero memberships
+# of any kind.
 _CREATE_MEMBERSHIP_QUERY: typing.LiteralString = (
     'MATCH (u:User {{email: {email}}}), '
     '(o:Organization {{slug: {org_slug}}}) '
-    'CREATE (u)-[:MEMBER_OF {{role: {role_slug}}}]->(o) '
+    'MERGE (u)-[:MEMBER_OF {{role: {role_slug}}}]->(o) '
     'RETURN u.email AS email'
 )
 
