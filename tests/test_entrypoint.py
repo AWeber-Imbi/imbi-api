@@ -343,6 +343,31 @@ class BackfillNodeIdsTestCase(unittest.TestCase):
         self.assertTrue(sa_set_params['new_id'])
         self.assertEqual(sa_set_params['app_slug'], 'my-app')
 
+    def test_backfill_skips_updates_that_match_no_rows(self) -> None:
+        """When SET ... WHERE id IS NULL matches nothing, don't count it."""
+        self.mock_graph.execute.side_effect = [
+            # First SELECT: TPS missing id.
+            [{'org_slug': 'eng', 'slug': 'stripe'}],
+            # SET on the TPS returns no rows (e.g. concurrent backfill).
+            [],
+            # Second SELECT: ServiceApplication missing id.
+            [
+                {
+                    'org_slug': 'eng',
+                    'svc_slug': 'stripe',
+                    'app_slug': 'my-app',
+                }
+            ],
+            # SET on the ServiceApplication returns no rows.
+            [],
+        ]
+
+        result = self.runner.invoke(entrypoint.main, ['backfill-node-ids'])
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('ThirdPartyService: assigned id to 0', result.output)
+        self.assertIn('ServiceApplication: assigned id to 0', result.output)
+
     def test_backfill_graph_connection_failure(self) -> None:
         """When the graph pool fails to open, exit non-zero."""
         self.mock_graph.open.side_effect = ConnectionError('refused')

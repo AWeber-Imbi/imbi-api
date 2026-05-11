@@ -65,7 +65,7 @@ async def _backfill_tps_ids(db: graph.Graph) -> int:
             ' SET s.id = {new_id}'
             ' RETURN s.id AS id'
         )
-        await db.execute(
+        updated = await db.execute(
             update_query,
             {
                 'slug': slug,
@@ -74,7 +74,8 @@ async def _backfill_tps_ids(db: graph.Graph) -> int:
             },
             ['id'],
         )
-        count += 1
+        if updated:
+            count += 1
     return count
 
 
@@ -102,7 +103,7 @@ async def _backfill_service_application_ids(db: graph.Graph) -> int:
             ' SET a.id = {new_id}'
             ' RETURN a.id AS id'
         )
-        await db.execute(
+        updated = await db.execute(
             update_query,
             {
                 'app_slug': app_slug,
@@ -112,7 +113,8 @@ async def _backfill_service_application_ids(db: graph.Graph) -> int:
             },
             ['id'],
         )
-        count += 1
+        if updated:
+            count += 1
     return count
 
 
