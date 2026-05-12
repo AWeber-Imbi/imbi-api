@@ -19,6 +19,7 @@ from imbi_common.plugins.base import (
 from imbi_common.plugins.registry import RegistryEntry
 
 from imbi_api.plugins.lifecycle_dispatch import (
+    LifecycleEvent,
     LifecycleInvocation,
     dispatch_lifecycle,
 )
@@ -81,7 +82,12 @@ def _resolved(entry: RegistryEntry, plugin_id: str = 'p1') -> ResolvedPlugin:
 class DispatchLifecycleTestCase(unittest.TestCase):
     """Branch coverage for :func:`dispatch_lifecycle`."""
 
-    def _run(self, resolved_list, *, event='archived'):
+    def _run(
+        self,
+        resolved_list: list[ResolvedPlugin],
+        *,
+        event: LifecycleEvent = 'archived',
+    ) -> tuple[list[LifecycleInvocation], mock.AsyncMock]:
         mock_db = mock.AsyncMock()
         auth = _make_auth()
         with (
@@ -162,10 +168,12 @@ class DispatchLifecycleTestCase(unittest.TestCase):
 
         # Override the plugin handler at the registry to raise HTTPException
         # mid-call by patching the method on the registry's class.
-        class _Raises:
+        class _Raises(LifecyclePlugin):
             manifest = entry.manifest
 
-            async def on_project_archived(self, ctx, credentials):
+            async def on_project_archived(  # type: ignore[override]
+                self, ctx, credentials
+            ):
                 raise fastapi.HTTPException(
                     status_code=401,
                     detail={

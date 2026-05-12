@@ -214,13 +214,14 @@ async def _resolve_credentials(
 
 
 def _extract_http_detail(exc: fastapi.HTTPException) -> str:
-    detail = exc.detail
+    detail: object = exc.detail
     if isinstance(detail, dict):
-        error = detail.get('error') or 'http_error'
-        plugin_id = detail.get('plugin_id')
+        detail_dict = typing.cast(dict[str, object], detail)
+        error = str(detail_dict.get('error') or 'http_error')
+        plugin_id = detail_dict.get('plugin_id')
         if plugin_id:
             return f'{error} (plugin_id={plugin_id})'
-        return str(error)
+        return error
     return str(detail)
 
 
