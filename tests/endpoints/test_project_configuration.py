@@ -232,7 +232,7 @@ class ProjectConfigurationEndpointTestCase(unittest.TestCase):
         try:
             rows: list[dict[str, typing.Any]] = await ch.query(
                 'SELECT id, project_id, project_slug, environment_slug,'
-                ' entry_type, description, recorded_by'
+                ' entry_type, description, recorded_by, plugin_slug'
                 ' FROM operations_log FINAL'
                 ' WHERE project_id = {pid:String}'
                 '   AND recorded_at >= {after:DateTime64(3)}'
