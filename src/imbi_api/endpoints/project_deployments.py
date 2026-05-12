@@ -307,6 +307,17 @@ async def _resolve_deploys_via(
     return {**pt_props, **proj_props}
 
 
+def _promote_warning(step: str, exc: BaseException) -> str:
+    """Sanitized client-facing warning for a failed promote step.
+
+    Keeps the step name and the exception class for actionability
+    (e.g., ``RuntimeError``, ``ClientResponseError``) but withholds
+    the raw exception message, which can carry plugin internals.
+    Full detail is preserved in logs via ``LOGGER.exception``.
+    """
+    return f'{step} failed ({type(exc).__name__}); see server logs.'
+
+
 def _handler(resolved: ResolvedPlugin) -> DeploymentPlugin:
     """Instantiate and type-narrow the plugin handler."""
     return typing.cast(DeploymentPlugin, resolved.entry.handler_cls())
@@ -727,7 +738,7 @@ async def _handle_promote(
                 body.to_environment,
                 body.tag,
             )
-            warnings.append(f'create_tag failed: {exc}')
+            warnings.append(_promote_warning('create_tag', exc))
 
         # 2. Create the release on the remote.
         async def _create_release(c: PluginContext) -> typing.Any:
@@ -758,7 +769,7 @@ async def _handle_promote(
                 body.to_environment,
                 body.tag,
             )
-            warnings.append(f'create_release failed: {exc}')
+            warnings.append(_promote_warning('create_release', exc))
 
         release_url = (release_info.html_url if release_info else None) or (
             release_info.url if release_info else None
@@ -788,7 +799,7 @@ async def _handle_promote(
                 body.to_environment,
                 body.tag,
             )
-            warnings.append(f'trigger_deployment failed: {exc}')
+            warnings.append(_promote_warning('trigger_deployment', exc))
 
     # 4. Upsert the Release node so future deploys of the same tag
     #    can attach a DeploymentEvent.

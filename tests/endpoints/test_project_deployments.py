@@ -583,7 +583,12 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
         data = response.json()
         self.assertIsNotNone(data['warning'])
         self.assertIn('trigger_deployment failed', data['warning'])
-        self.assertIn('422', data['warning'])
+        # The raw exception text (here ``"422 Unprocessable Entity"``)
+        # must NOT leak into client warnings; only the exception class
+        # is included for actionability.
+        self.assertIn('RuntimeError', data['warning'])
+        self.assertNotIn('422', data['warning'])
+        self.assertNotIn('Unprocessable', data['warning'])
         self.assertTrue(data['recorded'])
 
     def test_promote_falls_back_when_plugin_lacks_create_tag(self) -> None:
