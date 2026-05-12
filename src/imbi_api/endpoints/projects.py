@@ -1695,9 +1695,18 @@ async def archive_project(
     project = await _set_archived_state(
         org_slug, project_id, True, request, db
     )
-    results = await dispatch_lifecycle(
-        db, project_id, org_slug, 'archived', auth
-    )
+    # State change is already committed; never let an unexpected
+    # dispatcher failure turn a successful archive into a 500.
+    try:
+        results = await dispatch_lifecycle(
+            db, project_id, org_slug, 'archived', auth
+        )
+    except Exception:
+        LOGGER.exception(
+            'Lifecycle dispatch failed after archiving project %s',
+            project_id,
+        )
+        results = []
     return ArchiveProjectResponse(
         **project.model_dump(),
         lifecycle_results=results,
@@ -1721,9 +1730,18 @@ async def unarchive_project(
     project = await _set_archived_state(
         org_slug, project_id, False, request, db
     )
-    results = await dispatch_lifecycle(
-        db, project_id, org_slug, 'unarchived', auth
-    )
+    # State change is already committed; never let an unexpected
+    # dispatcher failure turn a successful unarchive into a 500.
+    try:
+        results = await dispatch_lifecycle(
+            db, project_id, org_slug, 'unarchived', auth
+        )
+    except Exception:
+        LOGGER.exception(
+            'Lifecycle dispatch failed after unarchiving project %s',
+            project_id,
+        )
+        results = []
     return ArchiveProjectResponse(
         **project.model_dump(),
         lifecycle_results=results,

@@ -780,6 +780,37 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
+    def test_archive_succeeds_when_dispatch_raises(self) -> None:
+        """Dispatch failure must not poison a committed archive."""
+        archived = self._project_data(
+            archived=True,
+            archived_at='2026-05-11T20:00:00Z',
+        )
+        self.mock_db.execute.return_value = [
+            {
+                'project': archived,
+                'outbound_count': 0,
+                'inbound_count': 0,
+            },
+        ]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.dispatch_lifecycle',
+                mock.AsyncMock(side_effect=RuntimeError('boom')),
+            ),
+        ):
+            response = self.client.post(
+                f'/organizations/engineering/projects/{PROJECT_ID}/archive',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['lifecycle_results'], [])
+
     def test_unarchive_success(self) -> None:
         """Unarchiving a project clears archived state."""
         restored = self._project_data(
@@ -827,6 +858,37 @@ class ProjectEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
+
+    def test_unarchive_succeeds_when_dispatch_raises(self) -> None:
+        """Dispatch failure must not poison a committed unarchive."""
+        restored = self._project_data(
+            archived=False,
+            archived_at=None,
+        )
+        self.mock_db.execute.return_value = [
+            {
+                'project': restored,
+                'outbound_count': 0,
+                'inbound_count': 0,
+            },
+        ]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.dispatch_lifecycle',
+                mock.AsyncMock(side_effect=RuntimeError('boom')),
+            ),
+        ):
+            response = self.client.post(
+                f'/organizations/engineering/projects/{PROJECT_ID}/unarchive',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['lifecycle_results'], [])
 
     def test_list_excludes_archived_by_default(self) -> None:
         """List query filters out archived projects by default."""

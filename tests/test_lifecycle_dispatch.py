@@ -141,6 +141,15 @@ class DispatchLifecycleTestCase(unittest.TestCase):
         self.assertEqual(results[0].status, 'skipped')
         self.assertIn('on_project_unarchived', results[0].message or '')
 
+    def test_archive_not_implemented_is_failed(self) -> None:
+        # Archive is the plugin's primary contract: a missing
+        # implementation is a real failure, not a skip.
+        entry = _make_lifecycle_entry('gh', archive_raises=NotImplementedError)
+        results, _ = self._run([_resolved(entry)])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, 'failed')
+        self.assertIn('NotImplementedError', results[0].message or '')
+
     def test_plugin_exception_surfaces_failed(self) -> None:
         entry = _make_lifecycle_entry('gh', archive_raises=RuntimeError)
         results, _ = self._run([_resolved(entry)])

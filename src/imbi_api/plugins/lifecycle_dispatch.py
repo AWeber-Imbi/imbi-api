@@ -131,12 +131,22 @@ async def _invoke_one(
         result = await call_with_identity_retry(
             db, ctx, resolved, auth, fn=_call
         )
-    except NotImplementedError:
+    except NotImplementedError as exc:
+        # Only the unarchive inverse hook is optional; archive hooks are
+        # the plugin's primary contract, so a missing implementation is
+        # a real failure, not a skip.
+        if event == 'unarchived':
+            return LifecycleInvocation(
+                plugin_id=resolved.plugin_id,
+                plugin_slug=resolved.plugin_slug,
+                status='skipped',
+                message=f'Plugin does not implement {method_name}',
+            )
         return LifecycleInvocation(
             plugin_id=resolved.plugin_id,
             plugin_slug=resolved.plugin_slug,
-            status='skipped',
-            message=f'Plugin does not implement {method_name}',
+            status='failed',
+            message=f'NotImplementedError: {exc}',
         )
     except fastapi.HTTPException as exc:
         return LifecycleInvocation(
