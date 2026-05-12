@@ -31,7 +31,7 @@ dependencies = [
   "fastapi",
   "filetype",
   "httpx>=0.28.1,<1",
-  "imbi-common[databases,llm,server]>=0.8.5",
+  "imbi-common[databases,llm,server]>=0.11.0",
   "jinja2",
   "jsonpatch>=1.33",
   "nanoid>=2.0.0",
@@ -217,6 +217,9 @@ plugins = [
   "imbi-plugin-logzio>=1.0.0",
   "imbi-plugin-oidc>=1.0.0",
 ]
+
+[tool.uv.sources]
+imbi-common = { path = "../imbi-common", editable = true }
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"

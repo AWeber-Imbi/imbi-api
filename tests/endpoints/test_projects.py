@@ -53,8 +53,8 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
-        self.test_app.dependency_overrides[graph._inject_graph] = (
-            lambda: self.mock_db
+        self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
+            self.mock_db
         )
 
         self.client = TestClient(self.test_app)
@@ -746,9 +746,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.dispatch_lifecycle',
+                mock.AsyncMock(return_value=[]),
+            ),
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/archive',
@@ -758,6 +764,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertTrue(data['archived'])
         self.assertEqual(data['archived_at'], '2026-05-11T20:00:00Z')
+        self.assertEqual(data['lifecycle_results'], [])
         call_kwargs = self.mock_db.execute.call_args
         self.assertIs(call_kwargs.args[1]['archived'], True)
         self.assertIsNotNone(call_kwargs.args[1]['archived_at'])
@@ -787,9 +794,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             },
         ]
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.dispatch_lifecycle',
+                mock.AsyncMock(return_value=[]),
+            ),
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/unarchive',
@@ -799,6 +812,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertFalse(data['archived'])
         self.assertIsNone(data['archived_at'])
+        self.assertEqual(data['lifecycle_results'], [])
         call_kwargs = self.mock_db.execute.call_args
         self.assertIs(call_kwargs.args[1]['archived'], False)
         self.assertIsNone(call_kwargs.args[1]['archived_at'])
@@ -877,8 +891,8 @@ class _RelationshipsTestBase(unittest.TestCase):
         )
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
-        self.test_app.dependency_overrides[graph._inject_graph] = (
-            lambda: self.mock_db
+        self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
+            self.mock_db
         )
         self.client = TestClient(self.test_app)
 
