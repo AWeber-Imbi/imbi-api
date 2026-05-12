@@ -335,7 +335,13 @@ async def run_daily_tick(
     while stop is None or not stop.is_set():
         now = _now()
         if now.hour >= hour_utc:
-            await _try_daily_tick(client, db, now.date())
+            try:
+                await _try_daily_tick(client, db, now.date())
+            except Exception:
+                LOGGER.exception(
+                    'daily scoring tick iteration failed (date=%s)',
+                    now.date().isoformat(),
+                )
         if stop is None:
             await asyncio.sleep(poll_seconds)
             continue

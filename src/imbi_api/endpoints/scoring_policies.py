@@ -235,6 +235,8 @@ async def create_policy(
         policy = _POLICY_ADAPTER.validate_python(payload)
     except pydantic.ValidationError as exc:
         raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+    if data.targets:
+        await _validate_targets(db, data.targets)
     props = _serialize_props(_to_node_props(policy))
     set_pairs = ', '.join(f'{k}: {{{k}}}' for k in props)
     create_q = 'CREATE (sp:ScoringPolicy {{' + set_pairs + '}}) RETURN sp'
@@ -246,7 +248,7 @@ async def create_policy(
             detail=f'Scoring policy {policy.slug!r} already exists',
         ) from e
     if data.targets:
-        await _link_targets(db, policy.slug, data.targets)
+        await _create_target_edges(db, policy.slug, data.targets)
     refreshed = await load_policy(db, policy.slug)
     if refreshed is None:
         raise fastapi.HTTPException(
@@ -285,13 +287,6 @@ async def _create_target_edges(
         ' MERGE (sp)-[:TARGETS]->(pt)'
     )
     await db.execute(link_q, {'slug': slug, 'targets': targets})
-
-
-async def _link_targets(
-    db: graph.Graph, slug: str, targets: list[str]
-) -> None:
-    await _validate_targets(db, targets)
-    await _create_target_edges(db, slug, targets)
 
 
 _POLICY_READONLY_PATHS: frozenset[str] = json_patch.READONLY_PATHS | frozenset(
@@ -348,10 +343,11 @@ async def update_policy(
         + set_pairs
         + ' RETURN sp'
     )
+    targets_changed = set(new_targets) != set(existing.targets)
+    if targets_changed and new_targets:
+        await _validate_targets(db, new_targets)
     await db.execute(update_q, params, ['sp'])  # type: ignore[arg-type]
-    if set(new_targets) != set(existing.targets):
-        if new_targets:
-            await _validate_targets(db, new_targets)
+    if targets_changed:
         clear_q: typing.LiteralString = (
             'MATCH (sp:ScoringPolicy {{slug: {slug}}})-[r:TARGETS]->()'
             ' DELETE r'
