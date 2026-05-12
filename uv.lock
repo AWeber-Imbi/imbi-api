@@ -951,7 +951,7 @@ wheels = [
 
 [[package]]
 name = "imbi-api"
-version = "2.0.1"
+version = "2.0.7"
 source = { editable = "." }
 dependencies = [
   { name = "aioboto3" },
@@ -1025,7 +1025,7 @@ requires-dist = [
   { name = "fastapi" },
   { name = "filetype" },
   { name = "httpx", specifier = ">=0.28.1,<1" },
-  { name = "imbi-common", extras = ["databases", "llm", "server"], specifier = ">=0.8.5" },
+  { name = "imbi-common", extras = ["databases", "llm", "server"], specifier = ">=0.10.1" },
   { name = "jinja2" },
   { name = "jsonpatch", specifier = ">=1.33" },
   { name = "nanoid", specifier = ">=2.0.0" },
@@ -1077,7 +1077,7 @@ plugins = [
 
 [[package]]
 name = "imbi-common"
-version = "0.8.5"
+version = "0.10.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
   { name = "cryptography" },
@@ -1091,9 +1091,9 @@ dependencies = [
   { name = "python-slugify" },
   { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/1b/38e8b30ad0653f3cb8c2a73e48ddf0cbd81362d36fe6eef8c61dfd8e32d5/imbi_common-0.8.5.tar.gz", hash = "sha256:e3dff51d5d2fe01b66072e3c34317db04844a406a3745d4481bc2083b15a594a", size = 248174, upload-time = "2026-05-11T20:01:06.769Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/19/bf584f52cc7558c6ce4c6f6afb0b8ce712673f97dac057a8eb28f49c317a/imbi_common-0.10.1.tar.gz", hash = "sha256:abf8aae5e729f2ad37d2db4afba16ca16e534070e1228c25dce553c3852fde62", size = 250550, upload-time = "2026-05-12T16:26:40.198Z" }
 wheels = [
-  { url = "https://files.pythonhosted.org/packages/07/90/a95857698075fd59d5195d2de58910ddb9ce5802b29aec25a7dc585b9ac4/imbi_common-0.8.5-py3-none-any.whl", hash = "sha256:fc07e909369a6754e103a876252f0bc5696652c38e982227f7e38ab0f9a4f4fe", size = 73294, upload-time = "2026-05-11T20:01:05.51Z" },
+  { url = "https://files.pythonhosted.org/packages/ec/a6/3a743dd38166d9f4813b994fa06c96fb04a98b862e597f41ba49d737bdf5/imbi_common-0.10.1-py3-none-any.whl", hash = "sha256:f40f4417fe9b39accd612a8098e235dbb2200bd7e86fc6a1dc220ffdbed0290b", size = 74888, upload-time = "2026-05-12T16:26:38.45Z" },
 ]
 
 [package.optional-dependencies]
