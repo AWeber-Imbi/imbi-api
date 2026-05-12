@@ -753,14 +753,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             ),
             mock.patch(
                 'imbi_api.endpoints.projects.dispatch_lifecycle',
-                mock.AsyncMock(return_value=[]),
-            ),
+                new=mock.AsyncMock(return_value=[]),
+            ) as mock_dispatch,
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/archive',
             )
 
         self.assertEqual(response.status_code, 200)
+        mock_dispatch.assert_awaited_once()
         data = response.json()
         self.assertTrue(data['archived'])
         self.assertEqual(data['archived_at'], '2026-05-11T20:00:00Z')
@@ -801,14 +802,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             ),
             mock.patch(
                 'imbi_api.endpoints.projects.dispatch_lifecycle',
-                mock.AsyncMock(side_effect=RuntimeError('boom')),
-            ),
+                new=mock.AsyncMock(side_effect=RuntimeError('boom')),
+            ) as mock_dispatch,
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/archive',
             )
 
         self.assertEqual(response.status_code, 200)
+        mock_dispatch.assert_awaited_once()
         self.assertEqual(response.json()['lifecycle_results'], [])
 
     def test_unarchive_success(self) -> None:
@@ -832,14 +834,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             ),
             mock.patch(
                 'imbi_api.endpoints.projects.dispatch_lifecycle',
-                mock.AsyncMock(return_value=[]),
-            ),
+                new=mock.AsyncMock(return_value=[]),
+            ) as mock_dispatch,
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/unarchive',
             )
 
         self.assertEqual(response.status_code, 200)
+        mock_dispatch.assert_awaited_once()
         data = response.json()
         self.assertFalse(data['archived'])
         self.assertIsNone(data['archived_at'])
@@ -880,14 +883,15 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             ),
             mock.patch(
                 'imbi_api.endpoints.projects.dispatch_lifecycle',
-                mock.AsyncMock(side_effect=RuntimeError('boom')),
-            ),
+                new=mock.AsyncMock(side_effect=RuntimeError('boom')),
+            ) as mock_dispatch,
         ):
             response = self.client.post(
                 f'/organizations/engineering/projects/{PROJECT_ID}/unarchive',
             )
 
         self.assertEqual(response.status_code, 200)
+        mock_dispatch.assert_awaited_once()
         self.assertEqual(response.json()['lifecycle_results'], [])
 
     def test_list_excludes_archived_by_default(self) -> None:
