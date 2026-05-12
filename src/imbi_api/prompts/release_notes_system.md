@@ -38,33 +38,33 @@ Good: "Reduced API response latency for campaign queries"
 Bad: "Optimized query execution path"
 
 Link related work inline:
-- PRs: extract (#\d+) → [#29](https://github.com/{owner}/{repo}/pull/29)
+- PRs: extract (#\d+) and emit as plain text refs like `#29`
 - Jira tickets: extract [A-Z]+-\d+ → [TICKET-123](https://aweber.atlassian.net/browse/TICKET-123)
 - Skip these false positives: CVE-\d+, BLUE-\d+, GREEN-\d+, GREY-\d+,
   PURPLE-\d+, RED-\d+, YELLOW-\d+
 
 If dependency files (package.json, requirements*.txt, pyproject.toml,
 Pipfile) show version changes in the diff, add one bullet under Changed:
-  "Updated internal dependencies: foo from v1.0.0 to v2.0.0, ..."
+  "Updated internal dependencies: foo from 1.0.0 to 2.0.0, ..."
 
 ```markdown
 ## What's Changed
 
 ### Added
-- Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123)) ([#12]({base_url}/pull/12))
+- Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123)) (#12)
 
 ### Changed
-- Description ([#12]({base_url}/pull/12))
-- Updated internal dependencies: foo from v1.0.0 to v2.0.0
+- Description (#12)
+- Updated internal dependencies: foo from 1.0.0 to 2.0.0
 
 ### Deprecated
 - Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123))
 
 ### Removed
-- Description ([#12]({base_url}/pull/12))
+- Description (#12)
 
 ### Fixed
-- Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123)) ([#12]({base_url}/pull/12))
+- Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123)) (#12)
 
 ### Security
 - Description ([TICKET-123](https://aweber.atlassian.net/browse/TICKET-123))
