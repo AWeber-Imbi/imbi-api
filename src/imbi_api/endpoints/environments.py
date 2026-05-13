@@ -174,6 +174,8 @@ async def list_environments(
         org = graph.parse_agtype(record['o'])
         env['organization'] = org
         env.setdefault('sort_order', 0)
+        env.setdefault('can_deploy', True)
+        env.setdefault('can_promote', False)
         pc = graph.parse_agtype(record['project_count'])
         env['relationships'] = _environment_relationships(
             request, org_slug, env['slug'], pc or 0
