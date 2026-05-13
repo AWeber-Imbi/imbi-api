@@ -1025,7 +1025,7 @@ requires-dist = [
   { name = "fastapi" },
   { name = "filetype" },
   { name = "httpx", specifier = ">=0.28.1,<1" },
-  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fdeployment-resync-plugin-contract" },
+  { name = "imbi-common", extras = ["databases", "llm", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main" },
   { name = "jinja2" },
   { name = "jsonpatch", specifier = ">=1.33" },
   { name = "nanoid", specifier = ">=2.0.0" },
@@ -1078,7 +1078,7 @@ plugins = [
 [[package]]
 name = "imbi-common"
 version = "2.2.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=feature%2Fdeployment-resync-plugin-contract#7a156e295c6682de5622d63d2524d82a15481877" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main#d48d7bf652054ebb5a5f702c936d81a958c9eb1d" }
 dependencies = [
   { name = "cryptography" },
   { name = "jsonschema-models" },
