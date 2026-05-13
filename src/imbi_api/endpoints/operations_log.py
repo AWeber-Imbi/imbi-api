@@ -498,10 +498,9 @@ async def list_plugin_ops_log_templates(
             PluginOpsLogTemplate(
                 slug=entry.manifest.slug,
                 name=entry.manifest.name,
-                templates=dict(entry.manifest.ops_log_templates),
+                templates=dict(entry.manifest.ops_log_templates or {}),
             )
             for entry in list_plugins()
-            if entry.manifest.ops_log_templates
         ]
     )
 
