@@ -910,11 +910,16 @@ class ResyncProjectDeploymentsTestCase(ProjectDeploymentsTestCase):
         if edge_status == 'missing':
             self.mocks['append_deployment_event'].return_value = None
         else:
-            self.mocks['append_deployment_event'].return_value = mock.Mock(
+            outcome = 'noop' if edge_status == 'dedupe' else 'appended'
+            edge = mock.Mock(
                 deployments=[
                     mock.Mock(external_run_id=o.external_run_id)
                     for o in recent
                 ]
+            )
+            self.mocks['append_deployment_event'].return_value = (
+                edge,
+                outcome,
             )
 
     def _observed(

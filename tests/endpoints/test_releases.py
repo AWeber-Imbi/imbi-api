@@ -633,8 +633,11 @@ class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
                 'external_run_url': 'https://gh/runs/42',
             }
         ]
-        result = self._call(existing, external_run_id='42', status='success')
-        self.assertEqual(len(result.deployments), 1)
+        edge, outcome = self._call(
+            existing, external_run_id='42', status='success'
+        )
+        self.assertEqual(outcome, 'noop')
+        self.assertEqual(len(edge.deployments), 1)
         # Only the two read queries fired; the SET branch must not run.
         self.assertEqual(self.mock_db.execute.await_count, 2)
 
@@ -648,10 +651,13 @@ class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
                 'external_run_url': 'https://gh/runs/42',
             }
         ]
-        result = self._call(existing, external_run_id='42', status='success')
-        self.assertEqual(len(result.deployments), 1)
-        self.assertEqual(result.deployments[0].status, 'success')
-        self.assertEqual(result.current_status, 'success')
+        edge, outcome = self._call(
+            existing, external_run_id='42', status='success'
+        )
+        self.assertEqual(outcome, 'updated')
+        self.assertEqual(len(edge.deployments), 1)
+        self.assertEqual(edge.deployments[0].status, 'success')
+        self.assertEqual(edge.current_status, 'success')
 
     def test_different_run_id_still_appends(self) -> None:
         existing = [
@@ -663,9 +669,12 @@ class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
                 'external_run_url': None,
             }
         ]
-        result = self._call(existing, external_run_id='42', status='success')
-        self.assertEqual(len(result.deployments), 2)
-        self.assertEqual(result.deployments[-1].external_run_id, '42')
+        edge, outcome = self._call(
+            existing, external_run_id='42', status='success'
+        )
+        self.assertEqual(outcome, 'appended')
+        self.assertEqual(len(edge.deployments), 2)
+        self.assertEqual(edge.deployments[-1].external_run_id, '42')
 
     def test_no_external_run_id_keeps_append_only_semantics(self) -> None:
         existing = [
@@ -679,8 +688,11 @@ class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
         ]
         # Both have no external_run_id, so the pre-dedupe deploy / promote
         # flow remains append-only.
-        result = self._call(existing, external_run_id=None, status='success')
-        self.assertEqual(len(result.deployments), 2)
+        edge, outcome = self._call(
+            existing, external_run_id=None, status='success'
+        )
+        self.assertEqual(outcome, 'appended')
+        self.assertEqual(len(edge.deployments), 2)
 
 
 class CurrentReleasesTestCase(_ReleasesTestBase):

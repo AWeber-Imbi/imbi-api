@@ -19,7 +19,7 @@ from imbi_api.domain import models
 from imbi_api.endpoints.project_deployments import (
     ResyncProjectError,
     ResyncSummary,
-    _resync_for_project,
+    resync_for_project,
 )
 from imbi_api.graph_sql import props_template, set_clause
 
@@ -472,14 +472,20 @@ async def _projects_using_tps_for_deployment(
     de-duplicated, deterministic list so the resync fan-out is stable
     across calls.
     """
+    # Scope both Project branches to the requested organization via the
+    # OWNED_BY -> BELONGS_TO path so a TPS-wide resync triggered against
+    # one org can't sweep in projects in another org that happen to use
+    # the same plugin node.
     query: typing.LiteralString = """
     MATCH (tps:ThirdPartyService {{slug: {slug}}})
-          -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
+          -[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})
     MATCH (tps)-[:HAS_PLUGIN]->(plugin:Plugin)
-    OPTIONAL MATCH (p:Project)-[upe:USES_PLUGIN]->(plugin)
+    OPTIONAL MATCH (p:Project)-[upe:USES_PLUGIN]->(plugin),
+                   (p)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
     WHERE upe.tab = 'deployment'
     OPTIONAL MATCH (p2:Project)-[:TYPE]
-        ->(:ProjectType)-[upte:USES_PLUGIN]->(plugin)
+        ->(:ProjectType)-[upte:USES_PLUGIN]->(plugin),
+                   (p2)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
     WHERE upte.tab = 'deployment'
     WITH collect(DISTINCT p.id) AS direct_ids,
          collect(DISTINCT p2.id) AS typed_ids
@@ -492,7 +498,12 @@ async def _projects_using_tps_for_deployment(
     )
     if not rows:
         return []
-    parsed = graph.parse_agtype(rows[0].get('project_ids')) or []
+    raw: typing.Any = graph.parse_agtype(rows[0].get('project_ids'))
+    parsed: list[typing.Any] = (
+        list(typing.cast(collections.abc.Iterable[typing.Any], raw))
+        if isinstance(raw, list)
+        else []
+    )
     return sorted({str(pid) for pid in parsed if pid})
 
 
@@ -539,7 +550,7 @@ async def resync_service_deployments(
     async def _run(project_id: str) -> ResyncSummary:
         async with semaphore:
             try:
-                return await _resync_for_project(
+                return await resync_for_project(
                     db,
                     org_slug=org_slug,
                     project_id=project_id,

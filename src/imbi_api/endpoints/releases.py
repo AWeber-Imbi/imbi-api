@@ -798,6 +798,14 @@ def _edge_to_response(
     )
 
 
+#: Outcome reported by :func:`append_deployment_event`.  Lets callers
+#: distinguish a brand-new row (``appended``) from a dedupe path that
+#: refreshed an existing row in place (``updated``) versus a no-op
+#: replay (``noop``).  The resync flow uses this to keep its summary
+#: counters honest; the deploy/promote flows ignore it.
+AppendOutcome = typing.Literal['appended', 'updated', 'noop']
+
+
 async def append_deployment_event(
     db: graph.Graph,
     *,
@@ -812,13 +820,17 @@ async def append_deployment_event(
     external_run_id: str | None = None,
     external_run_url: str | None = None,
     timestamp: datetime.datetime | None = None,
-) -> ReleaseEnvironmentEdgeResponse | None:
+) -> tuple[ReleaseEnvironmentEdgeResponse, AppendOutcome] | None:
     """Append a ``DeploymentEvent`` to ``Release -[:DEPLOYED_TO]-> Env``.
 
-    Returns the resulting edge, or ``None`` when the named ``Release``
-    or ``Environment`` cannot be found — callers that auto-record from
-    a deploy of a SHA (which has no ``Release`` node) treat ``None`` as
-    "skip persistence, deploy still succeeded".
+    Returns a ``(edge, outcome)`` tuple, or ``None`` when the named
+    ``Release`` or ``Environment`` cannot be found — callers that
+    auto-record from a deploy of a SHA (which has no ``Release`` node)
+    treat ``None`` as "skip persistence, deploy still succeeded".
+
+    ``outcome`` is one of ``'appended'`` (new row), ``'updated'``
+    (dedupe path refreshed an existing row in place), or ``'noop'``
+    (dedupe path matched an identical existing row and made no write).
 
     Deduplicates on ``external_run_id``: when the caller supplies one
     and the most recent existing event already carries the same id,
@@ -855,7 +867,7 @@ async def append_deployment_event(
                     and candidate.note == note
                     and candidate.external_run_url == external_run_url
                 ):
-                    return _edge_to_response(env, existing)
+                    return _edge_to_response(env, existing), 'noop'
                 refreshed = candidate.model_copy(
                     update={
                         'status': status,
@@ -870,7 +882,7 @@ async def append_deployment_event(
                     refreshed,
                     *existing[idx + 1 :],
                 ]
-                return await _set_deployments(
+                updated_edge = await _set_deployments(
                     db,
                     project_id=project_id,
                     version=version,
@@ -878,6 +890,7 @@ async def append_deployment_event(
                     deployments=updated_list,
                     env=env,
                 )
+                return updated_edge, 'updated'
     event = models.DeploymentEvent(
         timestamp=timestamp or datetime.datetime.now(datetime.UTC),
         status=status,
@@ -887,7 +900,7 @@ async def append_deployment_event(
     )
     deployments = [*existing, event]
     if existing:
-        return await _set_deployments(
+        appended_edge = await _set_deployments(
             db,
             project_id=project_id,
             version=version,
@@ -895,7 +908,8 @@ async def append_deployment_event(
             deployments=deployments,
             env=env,
         )
-    return await _create_deployments_edge(
+        return appended_edge, 'appended'
+    created_edge = await _create_deployments_edge(
         db,
         project_id=project_id,
         version=version,
@@ -904,6 +918,7 @@ async def append_deployment_event(
         deployments=deployments,
         env=env,
     )
+    return created_edge, 'appended'
 
 
 async def _set_deployments(

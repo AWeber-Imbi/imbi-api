@@ -508,7 +508,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
 
     def test_resync_iterates_projects_and_aggregates(self) -> None:
         # First execute() returns the list of project ids; the rest is
-        # delegated to the patched ``_resync_for_project``.
+        # delegated to the patched ``resync_for_project``.
         self.mock_db.execute.return_value = [
             {'project_ids': ['proj-a', 'proj-b']}
         ]
@@ -547,7 +547,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'imbi_common.graph.parse_agtype', side_effect=lambda x: x
             ),
             mock.patch(
-                'imbi_api.endpoints.third_party_services._resync_for_project',
+                'imbi_api.endpoints.third_party_services.resync_for_project',
                 side_effect=_stub,
             ) as patched,
         ):
@@ -597,7 +597,7 @@ class ThirdPartyServiceEndpointsTestCase(unittest.TestCase):
                 'imbi_common.graph.parse_agtype', side_effect=lambda x: x
             ),
             mock.patch(
-                'imbi_api.endpoints.third_party_services._resync_for_project',
+                'imbi_api.endpoints.third_party_services.resync_for_project',
                 side_effect=_stub,
             ),
         ):

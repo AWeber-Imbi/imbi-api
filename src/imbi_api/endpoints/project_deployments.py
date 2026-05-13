@@ -39,7 +39,11 @@ from imbi_api.endpoints._helpers import (
     lookup_project_slugs,
     lookup_project_type_slugs,
 )
-from imbi_api.endpoints.releases import append_deployment_event
+from imbi_api.endpoints.releases import (
+    AppendOutcome,
+    ReleaseEnvironmentEdgeResponse,
+    append_deployment_event,
+)
 from imbi_api.identity.host_integration import (
     attach_identity,
     call_with_identity_retry,
@@ -504,7 +508,7 @@ async def _release_exists(
     return bool(rows)
 
 
-async def _resync_for_project(
+async def resync_for_project(
     db: graph.Graph,
     *,
     org_slug: str,
@@ -566,6 +570,11 @@ async def _resync_for_project(
             ),
         ) from exc
     summary.observed = len(observations)
+    # Track versions we've already touched so ``releases_created`` /
+    # ``releases_updated`` are counted once per distinct ``version`` --
+    # the same tag promoted across multiple environments is one
+    # Release node, not N.
+    seen_versions: set[str] = set()
     for observed in observations:
         try:
             await _apply_remote_deployment(
@@ -577,6 +586,7 @@ async def _resync_for_project(
                 recorded_by=auth.principal_name,
                 observed=observed,
                 summary=summary,
+                seen_versions=seen_versions,
             )
         except Exception as exc:
             LOGGER.exception(
@@ -604,10 +614,18 @@ async def _apply_remote_deployment(
     recorded_by: str,
     observed: RemoteDeployment,
     summary: ResyncSummary,
+    seen_versions: set[str],
 ) -> None:
-    """Persist one observed remote deployment + audit row."""
+    """Persist one observed remote deployment + audit row.
+
+    ``seen_versions`` is mutated to track which ``version`` strings
+    have already been counted against ``releases_created`` /
+    ``releases_updated`` during this resync, so a tag promoted across
+    multiple environments is counted as one Release node, not N.
+    """
     version = _resync_version(observed)
     title = observed.description or observed.ref or version
+    first_time_this_resync = version not in seen_versions
     existed = await _release_exists(db, project_id=project_id, version=version)
     await _upsert_release_node(
         db,
@@ -618,11 +636,13 @@ async def _apply_remote_deployment(
         release_url=observed.deployment_url,
         created_by=recorded_by,
     )
-    if existed:
-        summary.releases_updated += 1
-    else:
-        summary.releases_created += 1
-    edge = await append_deployment_event(
+    if first_time_this_resync:
+        seen_versions.add(version)
+        if existed:
+            summary.releases_updated += 1
+        else:
+            summary.releases_created += 1
+    result = await append_deployment_event(
         db,
         org_slug=org_slug,
         project_id=project_id,
@@ -634,7 +654,7 @@ async def _apply_remote_deployment(
         external_run_url=observed.run_url,
         timestamp=observed.created_at,
     )
-    if edge is None:
+    if result is None:
         # Either the Release upsert didn't take or the env slug isn't
         # wired up in this org -- record as an error so the operator
         # has a thread to pull rather than a silently swallowed row.
@@ -649,23 +669,16 @@ async def _apply_remote_deployment(
             )
         )
         return
-    # Count records by comparing the latest event timestamp against
-    # the observed creation time: dedupe path returns the existing
-    # edge unchanged, so the latest event's external_run_id matches
-    # but its timestamp may differ from ``observed.created_at`` only
-    # if we actually persisted a row this call.  Simpler heuristic:
-    # only the dedupe-no-op path leaves the deployment list unchanged
-    # in length, so compare counts via the edge response.
-    latest = edge.deployments[-1] if edge.deployments else None
-    if latest and latest.external_run_id == observed.external_run_id:
-        # Heuristic: same id + same status as the observed remote ->
-        # treat as recorded (covers both first-time append and
-        # dedupe-update paths); a true no-op leaves the timestamp
-        # unchanged from a prior run.  In practice we report at the
-        # event level: a row exists for this run on this edge.
-        summary.events_recorded += 1
-    else:
+    _edge, outcome = result
+    # Outcome comes straight from ``append_deployment_event``: a real
+    # write (``appended`` / ``updated``) bumps ``events_recorded``; a
+    # ``noop`` (dedupe matched an identical row) bumps
+    # ``events_skipped`` so a replay against an idle remote doesn't
+    # masquerade as fresh activity.
+    if outcome == 'noop':
         summary.events_skipped += 1
+    else:
+        summary.events_recorded += 1
     await _record_deployment_audit(
         project_id=project_id,
         project_slug=project_slug,
@@ -843,7 +856,7 @@ async def resync_project_deployments(
     advertise ``supports_deployment_sync`` -- callers should hide the
     button using the plugin manifest flag.
     """
-    return await _resync_for_project(
+    return await resync_for_project(
         db,
         org_slug=org_slug,
         project_id=project_id,
@@ -935,9 +948,9 @@ async def _handle_deploy(
     )
     note = f'via {resolved.plugin_slug}'
     recorded_version: str | None = None
-    edge = None
+    result: tuple[ReleaseEnvironmentEdgeResponse, AppendOutcome] | None = None
     for candidate in filter(None, (body.ref_label, body.committish)):
-        edge = await append_deployment_event(
+        result = await append_deployment_event(
             db,
             org_slug=org_slug,
             project_id=project_id,
@@ -948,7 +961,7 @@ async def _handle_deploy(
             external_run_id=str(run.run_id) if run.run_id else None,
             external_run_url=run.run_url,
         )
-        if edge is not None:
+        if result is not None:
             recorded_version = candidate
             break
     await _record_deployment_audit(
@@ -965,7 +978,7 @@ async def _handle_deploy(
         run=run,
         plugin_id=resolved.plugin_id,
         plugin_slug=resolved.plugin_slug,
-        recorded=edge is not None,
+        recorded=result is not None,
     )
 
 
@@ -1136,7 +1149,7 @@ async def _handle_promote(
 
     # 5. Record the deployment event.
     note = f'via {resolved.plugin_slug}'
-    edge = await append_deployment_event(
+    promote_result = await append_deployment_event(
         db,
         org_slug=org_slug,
         project_id=project_id,
@@ -1175,7 +1188,7 @@ async def _handle_promote(
         run=run,
         plugin_id=resolved.plugin_id,
         plugin_slug=resolved.plugin_slug,
-        recorded=edge is not None,
+        recorded=promote_result is not None,
         release_url=release_url,
         tag=body.tag,
         warning='; '.join(warnings) if warnings else None,
