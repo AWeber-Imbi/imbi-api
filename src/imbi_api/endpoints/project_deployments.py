@@ -307,9 +307,14 @@ class _EnvFlags(typing.NamedTuple):
 async def _load_env_flags(
     db: graph.Graph,
     *,
+    org_slug: str,
     env_slug: str,
 ) -> _EnvFlags:
     """Fetch ``can_deploy`` / ``can_promote`` for one env slug.
+
+    Scoped to the organization so multi-org data with overlapping
+    environment slugs (e.g. ``prod`` in two orgs) never reads flags
+    from the wrong org.
 
     Defaults conservative-but-permissive when the stored node predates
     the env-flag migration: ``can_deploy=True`` (no surprise lockouts)
@@ -317,11 +322,12 @@ async def _load_env_flags(
     """
     query: typing.LiteralString = """
     MATCH (e:Environment {{slug: {env_slug}}})
+          -[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})
     RETURN e.can_deploy AS can_deploy, e.can_promote AS can_promote
     """
     rows = await db.execute(
         query,
-        {'env_slug': env_slug},
+        {'env_slug': env_slug, 'org_slug': org_slug},
         ['can_deploy', 'can_promote'],
     )
     if not rows:
@@ -912,7 +918,11 @@ async def _handle_deploy(
     *,
     source: str | None,
 ) -> DeploymentTriggerResponse:
-    env_flags = await _load_env_flags(db, env_slug=body.environment)
+    env_flags = await _load_env_flags(
+        db,
+        org_slug=org_slug,
+        env_slug=body.environment,
+    )
     if not env_flags.found:
         raise fastapi.HTTPException(
             status_code=404,
@@ -1113,7 +1123,11 @@ async def _handle_promote(
     *,
     source: str | None,
 ) -> DeploymentTriggerResponse:
-    env_flags = await _load_env_flags(db, env_slug=body.to_environment)
+    env_flags = await _load_env_flags(
+        db,
+        org_slug=org_slug,
+        env_slug=body.to_environment,
+    )
     if not env_flags.found:
         raise fastapi.HTTPException(
             status_code=404,
