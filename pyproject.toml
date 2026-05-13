@@ -222,6 +222,13 @@ plugins = [
   "imbi-plugin-oidc>=1.0.0",
 ]
 
+# Track the unmerged imbi-common feature branch that adds
+# ``DeploymentPlugin.list_recent_deployments`` + ``RemoteDeployment`` +
+# ``supports_deployment_sync``.  Drop this block once imbi-common's PR
+# merges and a new release is cut.
+[tool.uv.sources]
+imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", branch = "feature/deployment-resync-plugin-contract" }
+
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 default = true

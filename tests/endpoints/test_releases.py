@@ -580,6 +580,109 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
         self.assertEqual(body['current_status'], 'success')
 
 
+class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
+    """Direct coverage for ``append_deployment_event`` dedupe semantics."""
+
+    def _call(
+        self,
+        existing: list[dict[str, typing.Any]],
+        *,
+        external_run_id: str | None,
+        status: str = 'success',
+        note: str | None = None,
+    ) -> typing.Any:
+        import asyncio
+
+        from imbi_api.endpoints.releases import append_deployment_event
+
+        self.mock_db.execute.side_effect = [
+            [{'release': _release_row()}],
+            [
+                {
+                    'env': {'slug': 'production', 'name': 'Production'},
+                    'deployments': json.dumps(existing) if existing else None,
+                }
+            ],
+            [{'deployments': None}],  # only consumed by append / set path
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            return asyncio.run(
+                append_deployment_event(
+                    self.mock_db,
+                    org_slug=ORG,
+                    project_id=PROJECT_ID,
+                    version='1.2.3',
+                    env_slug='production',
+                    status=typing.cast(typing.Any, status),
+                    note=note,
+                    external_run_id=external_run_id,
+                    external_run_url='https://gh/runs/42',
+                )
+            )
+
+    def test_same_run_id_same_status_is_no_op(self) -> None:
+        existing = [
+            {
+                'timestamp': '2026-05-13T14:00:00+00:00',
+                'status': 'success',
+                'note': None,
+                'external_run_id': '42',
+                'external_run_url': 'https://gh/runs/42',
+            }
+        ]
+        result = self._call(existing, external_run_id='42', status='success')
+        self.assertEqual(len(result.deployments), 1)
+        # Only the two read queries fired; the SET branch must not run.
+        self.assertEqual(self.mock_db.execute.await_count, 2)
+
+    def test_same_run_id_status_change_updates_in_place(self) -> None:
+        existing = [
+            {
+                'timestamp': '2026-05-13T14:00:00+00:00',
+                'status': 'in_progress',
+                'note': None,
+                'external_run_id': '42',
+                'external_run_url': 'https://gh/runs/42',
+            }
+        ]
+        result = self._call(existing, external_run_id='42', status='success')
+        self.assertEqual(len(result.deployments), 1)
+        self.assertEqual(result.deployments[0].status, 'success')
+        self.assertEqual(result.current_status, 'success')
+
+    def test_different_run_id_still_appends(self) -> None:
+        existing = [
+            {
+                'timestamp': '2026-05-13T14:00:00+00:00',
+                'status': 'success',
+                'note': None,
+                'external_run_id': '41',
+                'external_run_url': None,
+            }
+        ]
+        result = self._call(existing, external_run_id='42', status='success')
+        self.assertEqual(len(result.deployments), 2)
+        self.assertEqual(result.deployments[-1].external_run_id, '42')
+
+    def test_no_external_run_id_keeps_append_only_semantics(self) -> None:
+        existing = [
+            {
+                'timestamp': '2026-05-13T14:00:00+00:00',
+                'status': 'success',
+                'note': None,
+                'external_run_id': None,
+                'external_run_url': None,
+            }
+        ]
+        # Both have no external_run_id, so the pre-dedupe deploy / promote
+        # flow remains append-only.
+        result = self._call(existing, external_run_id=None, status='success')
+        self.assertEqual(len(result.deployments), 2)
+
+
 class CurrentReleasesTestCase(_ReleasesTestBase):
     """GET /releases/current — latest deployment event per env."""
 
