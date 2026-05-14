@@ -138,16 +138,19 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_multiple_results_returned(self) -> None:
+        # Use out-of-order distances to verify the endpoint preserves
+        # the ordering returned by db.search (which the DB sorts).
         self.mock_db.search.return_value = [
-            self._make_result(node_id='a', distance=0.05),
             self._make_result(node_id='b', distance=0.15),
+            self._make_result(node_id='a', distance=0.05),
             self._make_result(node_id='c', distance=0.30),
         ]
         response = self.client.get('/search?q=test')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 3)
-        self.assertEqual(data[0]['node_id'], 'a')
+        self.assertEqual(data[0]['node_id'], 'b')
+        self.assertEqual(data[1]['node_id'], 'a')
         self.assertEqual(data[2]['node_id'], 'c')
 
     def test_no_filter_defaults(self) -> None:
