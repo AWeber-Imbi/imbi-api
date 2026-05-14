@@ -269,6 +269,142 @@ class SearchEndpointTestCase(unittest.TestCase):
         response = self.client.get(f'{_BASE_URL}?q=foo&threshold=2.0')
         self.assertEqual(response.status_code, 200)
 
+    def test_falsy_org_id_and_nids_skipped(self) -> None:
+        """parse_agtype returning falsy for org_id or any nid skips it."""
+        # org_id is falsy ('') so org node is not added to the set,
+        # but the org IS found (non-empty list returned).
+        # BELONGS_TO and Document/Release return falsy nids; Projects is valid.
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '""'}],  # org found but parse_agtype -> ''
+            [{'nid': '""'}],  # BELONGS_TO: falsy nid skipped
+            [{'nid': '"proj-1"'}],  # Project: valid nid included
+            [{'nid': '""'}],  # Document: falsy nid skipped
+            [{'nid': '""'}],  # Release: falsy nid skipped
+        ]
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='proj-1'),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'proj-1')
+
+    def test_belongs_to_node_ids_included(self) -> None:
+        """Nodes returned by the BELONGS_TO query are included in org scope."""
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '"org-abc"'}],
+            [{'nid': '"team-1"'}],  # BELONGS_TO child (e.g. Team)
+            [],  # Projects
+            [],  # Documents
+            [],  # Releases
+        ]
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='team-1', node_label='Team'),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'team-1')
+
+    def test_document_node_ids_included(self) -> None:
+        """Document ATTACHED_TO query nodes are included in org scope."""
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '"org-abc"'}],
+            [],  # BELONGS_TO
+            [],  # Projects
+            [{'nid': '"doc-1"'}],  # Documents
+            [],  # Releases
+        ]
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='doc-1', node_label='Document'),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'doc-1')
+
+    def test_release_node_ids_included(self) -> None:
+        """Nodes returned by the Release HAS_RELEASE query are in org scope."""
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '"org-abc"'}],
+            [],  # BELONGS_TO
+            [],  # Projects
+            [],  # Documents
+            [{'nid': '"rel-1"'}],  # Releases
+        ]
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='rel-1', node_label='Release'),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'rel-1')
+
+    def test_limit_reached_mid_batch_stops_inner_loop(self) -> None:
+        """Inner loop breaks early when limit is reached mid-batch."""
+        self._setup_org(node_ids=['a', 'b', 'c'])
+        # Three in-org results in one batch; limit=2 should stop after 'b'.
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='a', distance=0.1),
+            self._make_result(node_id='b', distance=0.2),
+            self._make_result(node_id='c', distance=0.3),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test&limit=2')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['node_id'], 'a')
+        self.assertEqual(data[1]['node_id'], 'b')
+        # Only one search call needed because the limit was met in the batch.
+        self.assertEqual(self.mock_db.search.await_count, 1)
+
+    def test_project_falsy_nid_skipped(self) -> None:
+        """A falsy nid from the Project query is skipped."""
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '"org-abc"'}],
+            [],  # BELONGS_TO
+            [{'nid': '""'}],  # Project: falsy nid skipped
+            [],  # Documents
+            [],  # Releases
+        ]
+        self.mock_db.search.return_value = []
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_while_exits_at_condition_after_full_batch(self) -> None:
+        """While loop exits at condition when limit is met and batch was full.
+
+        When limit results are found mid-batch (inner break fires) but the
+        batch was not exhausted (len(raw) >= batch_size), the code re-enters
+        the while condition check, which is now false, and exits cleanly.
+        """
+        self._setup_org(node_ids=['target'])
+        # Return exactly _INITIAL_BATCH (50) items; first is in-org.
+        # That means len(raw)=50 == batch_size=50, so the exhaustion check
+        # does NOT break — we fall through to batch_size *= 2 and re-check
+        # the while condition, which is now false (limit already met).
+        from imbi_api.endpoints.search import _INITIAL_BATCH
+
+        batch = [
+            self._make_result(node_id='target', distance=0.01),
+        ] + [
+            self._make_result(node_id=f'out-{i}', distance=float(i + 1) / 10)
+            for i in range(_INITIAL_BATCH - 1)
+        ]
+        self.mock_db.search.return_value = batch
+        response = self.client.get(f'{_BASE_URL}?q=test&limit=1')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'target')
+        # Only one db.search call (limit met mid-batch, no second call needed).
+        self.assertEqual(self.mock_db.search.await_count, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

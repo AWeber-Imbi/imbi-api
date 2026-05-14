@@ -1,5 +1,6 @@
 """Vector similarity search endpoint."""
 
+import logging
 import typing
 
 import fastapi
@@ -7,6 +8,8 @@ import pydantic
 from imbi_common import graph
 
 from imbi_api.auth import permissions
+
+LOGGER = logging.getLogger(__name__)
 
 search_router = fastapi.APIRouter(tags=['Search'])
 
