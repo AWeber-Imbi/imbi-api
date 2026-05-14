@@ -10,7 +10,8 @@ from imbi_api.auth import permissions
 
 search_router = fastapi.APIRouter(tags=['Search'])
 
-_OVER_FETCH = 5
+_INITIAL_BATCH = 50
+_BATCH_GROWTH = 2
 
 
 class SearchResult(pydantic.BaseModel):
@@ -124,30 +125,44 @@ async def search(
             detail=f'Organization with slug {org_slug!r} not found',
         )
 
-    raw = await db.search(
-        q,
-        model_name=model,
-        node_label=node_label,
-        limit=limit * _OVER_FETCH,
-        distance_threshold=threshold,
-    )
-
     out: list[SearchResult] = []
-    for r in raw:
-        if r.node_id not in org_node_ids:
-            continue
-        if attribute is not None and r.attribute != attribute:
-            continue
-        out.append(
-            SearchResult(
-                node_label=r.node_label,
-                node_id=r.node_id,
-                attribute=r.attribute,
-                chunk_text=r.chunk_text,
-                distance=r.distance,
-            )
+    batch_size = max(_INITIAL_BATCH, limit)
+    seen: set[str] = set()
+
+    while len(out) < limit:
+        raw = await db.search(
+            q,
+            model_name=model,
+            node_label=node_label,
+            limit=batch_size,
+            distance_threshold=threshold,
         )
-        if len(out) == limit:
+
+        for r in raw:
+            if r.node_id in seen:
+                continue
+            seen.add(r.node_id)
+            if r.node_id not in org_node_ids:
+                continue
+            if attribute is not None and r.attribute != attribute:
+                continue
+            out.append(
+                SearchResult(
+                    node_label=r.node_label,
+                    node_id=r.node_id,
+                    attribute=r.attribute,
+                    chunk_text=r.chunk_text,
+                    distance=r.distance,
+                )
+            )
+            if len(out) == limit:
+                break
+
+        # Stop only when the backend returned fewer rows than requested,
+        # which means the result set is exhausted.
+        if len(raw) < batch_size:
             break
+
+        batch_size *= _BATCH_GROWTH
 
     return out

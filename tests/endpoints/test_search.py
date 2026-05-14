@@ -133,6 +133,7 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(call_kwargs['node_label'], 'Team')
 
     def test_attribute_filter(self) -> None:
+        """attribute is post-filtered after org-scoping."""
         self._setup_org(node_ids=['a', 'b'])
         self.mock_db.search.return_value = [
             self._make_result(node_id='a', attribute='name'),
@@ -144,12 +145,44 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['node_id'], 'a')
 
-    def test_limit_passed_with_over_fetch(self) -> None:
+    def test_initial_batch_at_least_limit(self) -> None:
+        """First db.search call uses at least limit rows."""
         self._setup_org()
         self.mock_db.search.return_value = []
         self.client.get(f'{_BASE_URL}?q=foo&limit=10')
         call_kwargs = self.mock_db.search.call_args.kwargs
-        self.assertEqual(call_kwargs['limit'], 50)
+        self.assertGreaterEqual(call_kwargs['limit'], 10)
+
+    def test_paged_loop_fetches_more_when_needed(self) -> None:
+        """When first batch has no in-org results a second batch is fetched."""
+        self._setup_org(node_ids=['proj-in-org'])
+        out_of_org = [
+            self._make_result(node_id=f'out-{i}', distance=float(i) / 100)
+            for i in range(50)
+        ]
+        in_org = [self._make_result(node_id='proj-in-org', distance=0.99)]
+        self.mock_db.search.side_effect = [out_of_org, in_org]
+        response = self.client.get(f'{_BASE_URL}?q=test&limit=1')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'proj-in-org')
+        self.assertEqual(self.mock_db.search.await_count, 2)
+
+    def test_stops_when_result_set_exhausted(self) -> None:
+        """Loop stops when db.search returns fewer rows than requested."""
+        self._setup_org(node_ids=['proj-1'])
+        # Return only 3 rows (less than the batch size), all out-of-org except
+        # the last; ensures we don't loop forever.
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='out-1', distance=0.1),
+            self._make_result(node_id='proj-1', distance=0.2),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test&limit=5')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(self.mock_db.search.await_count, 1)
 
     def test_threshold_param(self) -> None:
         self._setup_org()
