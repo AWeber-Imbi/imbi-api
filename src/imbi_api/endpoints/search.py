@@ -35,7 +35,10 @@ async def search(
     attribute: str | None = None,
     model: str = 'text',
     limit: typing.Annotated[int, fastapi.Query(ge=1, le=100)] = 10,
-    threshold: float | None = None,
+    threshold: typing.Annotated[
+        float | None,
+        fastapi.Query(ge=0.0, le=2.0),
+    ] = None,
 ) -> list[SearchResult]:
     """Search nodes by semantic similarity.
 
@@ -47,10 +50,11 @@ async def search(
         q,
         model_name=model,
         node_label=node_label,
-        attribute=attribute,
         limit=limit,
         distance_threshold=threshold,
     )
+    if attribute is not None:
+        results = [r for r in results if r.attribute == attribute]
     return [
         SearchResult(
             node_label=r.node_label,

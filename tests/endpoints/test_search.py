@@ -89,10 +89,19 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(call_kwargs['node_label'], 'Team')
 
     def test_attribute_filter(self) -> None:
-        self.mock_db.search.return_value = []
-        self.client.get('/search?q=foo&attribute=name')
+        # attribute filtering is applied in Python after db.search
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='a', attribute='name'),
+            self._make_result(node_id='b', attribute='description'),
+        ]
+        response = self.client.get('/search?q=foo&attribute=name')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'a')
+        # attribute is NOT forwarded to the db layer
         call_kwargs = self.mock_db.search.call_args.kwargs
-        self.assertEqual(call_kwargs['attribute'], 'name')
+        self.assertNotIn('attribute', call_kwargs)
 
     def test_limit_param(self) -> None:
         self.mock_db.search.return_value = []
@@ -146,10 +155,25 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.client.get('/search?q=test')
         call_kwargs = self.mock_db.search.call_args.kwargs
         self.assertIsNone(call_kwargs['node_label'])
-        self.assertIsNone(call_kwargs['attribute'])
+        self.assertNotIn('attribute', call_kwargs)
         self.assertIsNone(call_kwargs['distance_threshold'])
         self.assertEqual(call_kwargs['limit'], 10)
         self.assertEqual(call_kwargs['model_name'], 'text')
+
+    def test_threshold_too_high_rejected(self) -> None:
+        response = self.client.get('/search?q=foo&threshold=2.1')
+        self.assertEqual(response.status_code, 422)
+
+    def test_threshold_negative_rejected(self) -> None:
+        response = self.client.get('/search?q=foo&threshold=-0.1')
+        self.assertEqual(response.status_code, 422)
+
+    def test_threshold_boundary_values_accepted(self) -> None:
+        self.mock_db.search.return_value = []
+        response = self.client.get('/search?q=foo&threshold=0.0')
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get('/search?q=foo&threshold=2.0')
+        self.assertEqual(response.status_code, 200)
 
 
 if __name__ == '__main__':
