@@ -41,7 +41,6 @@ _NODE_TYPES: list[type[models.Node]] = [
 # GraphModel even though its type annotation says Node.
 _GRAPH_MODEL_TYPES: list[type[models.GraphModel]] = [
     models.Document,
-    models.Release,
 ]
 
 
