@@ -50,8 +50,8 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
         )
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
-        self.test_app.dependency_overrides[graph._inject_graph] = (
-            lambda: self.mock_db
+        self.test_app.dependency_overrides[graph._inject_graph] = lambda: (
+            self.mock_db
         )
 
         self.client = testclient.TestClient(self.test_app)
@@ -415,6 +415,63 @@ class EnvironmentEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['can_promote'])
+        update_params = self.mock_db.execute.await_args_list[1].args[1]
+        self.assertTrue(update_params['can_promote'])
+        self.assertTrue(update_params['can_deploy'])
+
+    def test_patch_can_deploy_on_pre_migration_env(self) -> None:
+        """Replace can_deploy when node lacks the field (pre-migration)."""
+        from imbi_common import models as common_models
+
+        existing_env = {
+            'name': 'Production',
+            'slug': 'production',
+            'description': None,
+            'sort_order': 0,
+        }
+        self.mock_db.execute.side_effect = [
+            [
+                {
+                    'e': existing_env,
+                    'o': {'name': 'Engineering', 'slug': 'engineering'},
+                }
+            ],
+            [
+                {
+                    'e': {
+                        'name': 'Production',
+                        'slug': 'production',
+                        'sort_order': 0,
+                        'can_deploy': False,
+                        'can_promote': False,
+                    },
+                    'o': {'name': 'Engineering', 'slug': 'engineering'},
+                    'project_count': 0,
+                }
+            ],
+        ]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+            ),
+            mock.patch(
+                'imbi_common.blueprints.get_model',
+                return_value=common_models.Environment,
+            ),
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/environments/production',
+                json=[
+                    {'op': 'replace', 'path': '/can_deploy', 'value': False}
+                ],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['can_deploy'])
+        update_params = self.mock_db.execute.await_args_list[1].args[1]
+        self.assertFalse(update_params['can_deploy'])
+        self.assertFalse(update_params['can_promote'])
 
     def test_patch_environment_slug_conflict(self) -> None:
         """Patch that renames slug to an existing one returns 409."""
