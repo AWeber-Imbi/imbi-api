@@ -1,4 +1,4 @@
-"""Tests for the vector similarity search endpoint."""
+"""Tests for the org-scoped vector similarity search endpoint."""
 
 import datetime
 import unittest
@@ -10,6 +10,9 @@ from imbi_common.graph.client import SearchResult
 
 from imbi_api import app, models
 from imbi_api.auth import permissions
+
+_ORG_SLUG = 'test-org'
+_BASE_URL = f'/organizations/{_ORG_SLUG}/search'
 
 
 class SearchEndpointTestCase(unittest.TestCase):
@@ -62,11 +65,33 @@ class SearchEndpointTestCase(unittest.TestCase):
             distance=distance,
         )
 
-    def test_basic_search(self) -> None:
-        self.mock_db.search.return_value = [
-            self._make_result(),
+    def _setup_org(self, node_ids: list[str] | None = None) -> None:
+        """Configure mock_db.execute for the five org-membership queries.
+
+        The search handler calls db.execute in this order:
+          1. org lookup -> [{org_id: ...}] or []
+          2. direct BELONGS_TO children -> [{nid: ...}, ...]
+          3. Project nodes -> [{nid: ...}, ...]
+          4. Document nodes -> []
+          5. Release nodes -> []
+        """
+        if node_ids is None:
+            node_ids = ['proj-1']
+        self.mock_db.execute.side_effect = [
+            [{'org_id': '"org-abc"'}],
+            [],
+            [{'nid': f'"{nid}"'} for nid in node_ids],
+            [],
+            [],
         ]
-        response = self.client.get('/search?q=api+gateway')
+
+    def _setup_org_not_found(self) -> None:
+        self.mock_db.execute.side_effect = [[]]
+
+    def test_basic_search(self) -> None:
+        self._setup_org()
+        self.mock_db.search.return_value = [self._make_result()]
+        response = self.client.get(f'{_BASE_URL}?q=api+gateway')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
@@ -75,77 +100,95 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(data[0]['attribute'], 'description')
         self.assertAlmostEqual(data[0]['distance'], 0.12)
 
+    def test_org_not_found_returns_404(self) -> None:
+        self._setup_org_not_found()
+        response = self.client.get(f'{_BASE_URL}?q=foo')
+        self.assertEqual(response.status_code, 404)
+
+    def test_filters_results_to_org(self) -> None:
+        self._setup_org(node_ids=['proj-1'])
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='proj-1', distance=0.10),
+            self._make_result(node_id='proj-2', distance=0.20),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['node_id'], 'proj-1')
+
     def test_passes_query_to_db_search(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=hello+world')
+        self.client.get(f'{_BASE_URL}?q=hello+world')
         self.mock_db.search.assert_awaited_once()
         call_args = self.mock_db.search.call_args
         self.assertEqual(call_args.args[0], 'hello world')
 
     def test_node_label_filter(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=foo&node_label=Team')
+        self.client.get(f'{_BASE_URL}?q=foo&node_label=Team')
         call_kwargs = self.mock_db.search.call_args.kwargs
         self.assertEqual(call_kwargs['node_label'], 'Team')
 
     def test_attribute_filter(self) -> None:
-        # attribute filtering is applied in Python after db.search
+        self._setup_org(node_ids=['a', 'b'])
         self.mock_db.search.return_value = [
             self._make_result(node_id='a', attribute='name'),
             self._make_result(node_id='b', attribute='description'),
         ]
-        response = self.client.get('/search?q=foo&attribute=name')
+        response = self.client.get(f'{_BASE_URL}?q=foo&attribute=name')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['node_id'], 'a')
-        # attribute is NOT forwarded to the db layer
-        call_kwargs = self.mock_db.search.call_args.kwargs
-        self.assertNotIn('attribute', call_kwargs)
 
-    def test_limit_param(self) -> None:
+    def test_limit_passed_with_over_fetch(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=foo&limit=25')
+        self.client.get(f'{_BASE_URL}?q=foo&limit=10')
         call_kwargs = self.mock_db.search.call_args.kwargs
-        self.assertEqual(call_kwargs['limit'], 25)
+        self.assertEqual(call_kwargs['limit'], 50)
 
     def test_threshold_param(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=foo&threshold=0.5')
+        self.client.get(f'{_BASE_URL}?q=foo&threshold=0.5')
         call_kwargs = self.mock_db.search.call_args.kwargs
         self.assertAlmostEqual(call_kwargs['distance_threshold'], 0.5)
 
     def test_model_param(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=foo&model=code')
+        self.client.get(f'{_BASE_URL}?q=foo&model=code')
         call_kwargs = self.mock_db.search.call_args.kwargs
         self.assertEqual(call_kwargs['model_name'], 'code')
 
     def test_empty_query_rejected(self) -> None:
-        response = self.client.get('/search?q=')
+        response = self.client.get(f'{_BASE_URL}?q=')
         self.assertEqual(response.status_code, 422)
 
     def test_limit_too_large_rejected(self) -> None:
-        response = self.client.get('/search?q=foo&limit=101')
+        response = self.client.get(f'{_BASE_URL}?q=foo&limit=101')
         self.assertEqual(response.status_code, 422)
 
     def test_limit_zero_rejected(self) -> None:
-        response = self.client.get('/search?q=foo&limit=0')
+        response = self.client.get(f'{_BASE_URL}?q=foo&limit=0')
         self.assertEqual(response.status_code, 422)
 
     def test_missing_query_param_rejected(self) -> None:
-        response = self.client.get('/search')
+        response = self.client.get(_BASE_URL)
         self.assertEqual(response.status_code, 422)
 
-    def test_multiple_results_returned(self) -> None:
-        # Use out-of-order distances to verify the endpoint preserves
-        # the ordering returned by db.search (which the DB sorts).
+    def test_multiple_results_preserved_in_order(self) -> None:
+        self._setup_org(node_ids=['a', 'b', 'c'])
         self.mock_db.search.return_value = [
             self._make_result(node_id='b', distance=0.15),
             self._make_result(node_id='a', distance=0.05),
             self._make_result(node_id='c', distance=0.30),
         ]
-        response = self.client.get('/search?q=test')
+        response = self.client.get(f'{_BASE_URL}?q=test')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 3)
@@ -153,29 +196,44 @@ class SearchEndpointTestCase(unittest.TestCase):
         self.assertEqual(data[1]['node_id'], 'a')
         self.assertEqual(data[2]['node_id'], 'c')
 
+    def test_limit_truncates_after_org_filter(self) -> None:
+        self._setup_org(node_ids=['a', 'b', 'c'])
+        self.mock_db.search.return_value = [
+            self._make_result(node_id='a', distance=0.05),
+            self._make_result(node_id='b', distance=0.10),
+            self._make_result(node_id='c', distance=0.20),
+        ]
+        response = self.client.get(f'{_BASE_URL}?q=test&limit=2')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['node_id'], 'a')
+        self.assertEqual(data[1]['node_id'], 'b')
+
     def test_no_filter_defaults(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        self.client.get('/search?q=test')
+        self.client.get(f'{_BASE_URL}?q=test')
         call_kwargs = self.mock_db.search.call_args.kwargs
         self.assertIsNone(call_kwargs['node_label'])
-        self.assertNotIn('attribute', call_kwargs)
         self.assertIsNone(call_kwargs['distance_threshold'])
-        self.assertEqual(call_kwargs['limit'], 10)
         self.assertEqual(call_kwargs['model_name'], 'text')
 
     def test_threshold_too_high_rejected(self) -> None:
-        response = self.client.get('/search?q=foo&threshold=2.1')
+        response = self.client.get(f'{_BASE_URL}?q=foo&threshold=2.1')
         self.assertEqual(response.status_code, 422)
 
     def test_threshold_negative_rejected(self) -> None:
-        response = self.client.get('/search?q=foo&threshold=-0.1')
+        response = self.client.get(f'{_BASE_URL}?q=foo&threshold=-0.1')
         self.assertEqual(response.status_code, 422)
 
     def test_threshold_boundary_values_accepted(self) -> None:
+        self._setup_org()
         self.mock_db.search.return_value = []
-        response = self.client.get('/search?q=foo&threshold=0.0')
+        response = self.client.get(f'{_BASE_URL}?q=foo&threshold=0.0')
         self.assertEqual(response.status_code, 200)
-        response = self.client.get('/search?q=foo&threshold=2.0')
+        self._setup_org()
+        response = self.client.get(f'{_BASE_URL}?q=foo&threshold=2.0')
         self.assertEqual(response.status_code, 200)
 
 

@@ -10,6 +10,8 @@ from imbi_api.auth import permissions
 
 search_router = fastapi.APIRouter(tags=['Search'])
 
+_OVER_FETCH = 5
+
 
 class SearchResult(pydantic.BaseModel):
     """A single vector search result."""
@@ -21,8 +23,77 @@ class SearchResult(pydantic.BaseModel):
     distance: float
 
 
+async def _get_org_node_ids(
+    db: graph.Graph,
+    org_slug: str,
+) -> set[str] | None:
+    """Return node IDs for all nodes in the org, or None if org not found.
+
+    Covers: the org itself, direct BELONGS_TO children (Team, Environment,
+    ProjectType, ThirdPartyService, Tag, DocumentTemplate, LinkDefinition),
+    Projects, Documents, and Releases.
+    """
+    org_rows = await db.execute(
+        'MATCH (o:Organization {{slug: {org_slug}}}) RETURN o.id AS org_id',
+        {'org_slug': org_slug},
+        columns=['org_id'],
+    )
+    if not org_rows:
+        return None
+
+    node_ids: set[str] = set()
+    org_id = graph.parse_agtype(org_rows[0]['org_id'])
+    if org_id:
+        node_ids.add(org_id)
+
+    for row in await db.execute(
+        'MATCH (n)-[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})'
+        ' RETURN n.id AS nid',
+        {'org_slug': org_slug},
+        columns=['nid'],
+    ):
+        nid = graph.parse_agtype(row['nid'])
+        if nid:
+            node_ids.add(nid)
+
+    for row in await db.execute(
+        'MATCH (p:Project)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->'
+        '(:Organization {{slug: {org_slug}}}) RETURN p.id AS nid',
+        {'org_slug': org_slug},
+        columns=['nid'],
+    ):
+        nid = graph.parse_agtype(row['nid'])
+        if nid:
+            node_ids.add(nid)
+
+    for row in await db.execute(
+        'MATCH (d:Document)-[:ATTACHED_TO]->(:Project)-[:OWNED_BY]->'
+        '(:Team)-[:BELONGS_TO]->(:Organization {{slug: {org_slug}}})'
+        ' RETURN d.id AS nid',
+        {'org_slug': org_slug},
+        columns=['nid'],
+    ):
+        nid = graph.parse_agtype(row['nid'])
+        if nid:
+            node_ids.add(nid)
+
+    for row in await db.execute(
+        'MATCH (:Organization {{slug: {org_slug}}})<-[:BELONGS_TO]-'
+        '(:Team)<-[:OWNED_BY]-(:Project)-[:HAS_RELEASE]->(r:Release)'
+        ' RETURN r.id AS nid',
+        {'org_slug': org_slug},
+        columns=['nid'],
+    ):
+        nid = graph.parse_agtype(row['nid'])
+        if nid:
+            node_ids.add(nid)
+
+    return node_ids
+
+
 @search_router.get('/search')
 async def search(
+    org_slug: str,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -40,28 +111,43 @@ async def search(
         fastapi.Query(ge=0.0, le=2.0),
     ] = None,
 ) -> list[SearchResult]:
-    """Search nodes by semantic similarity.
+    """Search nodes by semantic similarity within an organization.
 
     Results are ordered by cosine distance ascending (most similar
     first). ``threshold`` is a distance ceiling: 0.0 = identical,
     2.0 = maximally dissimilar.
     """
-    results = await db.search(
+    org_node_ids = await _get_org_node_ids(db, org_slug)
+    if org_node_ids is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Organization with slug {org_slug!r} not found',
+        )
+
+    raw = await db.search(
         q,
         model_name=model,
         node_label=node_label,
-        limit=limit,
+        limit=limit * _OVER_FETCH,
         distance_threshold=threshold,
     )
-    if attribute is not None:
-        results = [r for r in results if r.attribute == attribute]
-    return [
-        SearchResult(
-            node_label=r.node_label,
-            node_id=r.node_id,
-            attribute=r.attribute,
-            chunk_text=r.chunk_text,
-            distance=r.distance,
+
+    out: list[SearchResult] = []
+    for r in raw:
+        if r.node_id not in org_node_ids:
+            continue
+        if attribute is not None and r.attribute != attribute:
+            continue
+        out.append(
+            SearchResult(
+                node_label=r.node_label,
+                node_id=r.node_id,
+                attribute=r.attribute,
+                chunk_text=r.chunk_text,
+                distance=r.distance,
+            )
         )
-        for r in results
-    ]
+        if len(out) == limit:
+            break
+
+    return out

@@ -22,7 +22,6 @@ from .roles import roles_router
 from .sa_api_keys import sa_api_keys_router
 from .scoring import scoring_router
 from .scoring_policies import scoring_policies_router
-from .search import search_router
 from .service_accounts import service_accounts_router
 from .status import status_router
 from .uploads import uploads_router
@@ -47,7 +46,6 @@ prefixed_routers: list[fastapi.APIRouter] = [
     sa_api_keys_router,
     scoring_policies_router,
     scoring_router,
-    search_router,
     service_accounts_router,
     status_router,
     uploads_router,
