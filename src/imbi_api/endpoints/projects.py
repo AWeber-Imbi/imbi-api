@@ -149,6 +149,8 @@ class ProjectResponse(pydantic.BaseModel):
     score: float | None = None
     breakdown: scoring_models.ScoreBreakdown | None = None
     relationships: ProjectRelationships | None = None
+    open_pr_count: int = 0
+    closed_pr_count: int = 0
 
     @pydantic.field_validator(
         'links',
@@ -252,6 +254,37 @@ async def _validate_env_slugs(
             status_code=422,
             detail=(f'Environment slug(s) not found: {sorted(missing)!r}'),
         )
+
+
+async def _fetch_pr_counts(
+    project_ids: list[str],
+) -> dict[str, tuple[int, int]]:
+    """Return {project_id: (open_count, closed_count)} for the given IDs.
+
+    Errors are swallowed — PR counts are best-effort and should not
+    fail the project list endpoint.
+    """
+    if not project_ids:
+        return {}
+    sql = (
+        'SELECT project_id,'
+        " countIf(state = 'open') AS open_count,"
+        " countIf(state = 'closed') AS closed_count"
+        ' FROM pull_requests FINAL'
+        ' WHERE project_id IN {project_ids:Array(String)}'
+        ' GROUP BY project_id'
+    )
+    try:
+        rows = await ch_client.Clickhouse.get_instance().query(
+            sql, {'project_ids': project_ids}
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.warning('Failed to fetch PR counts for projects', exc_info=True)
+        return {}
+    return {
+        str(r['project_id']): (int(r['open_count']), int(r['closed_count']))
+        for r in rows
+    }
 
 
 _EVENT_SKIP_FIELDS: frozenset[str] = frozenset(
@@ -700,6 +733,7 @@ async def list_projects(
         },
         ['project', 'outbound_count', 'inbound_count'],
     )
+    project_data_list: list[dict[str, typing.Any]] = []
     for record in records:
         project_data = graph.parse_agtype(record['project'])
         _flatten_edge_props(project_data)
@@ -710,9 +744,19 @@ async def list_projects(
             graph.parse_agtype(record['outbound_count']),
             graph.parse_agtype(record['inbound_count']),
         )
-        results.append(
-            ProjectResponse.model_validate(project_data),
-        )
+        project_data_list.append(project_data)
+
+    project_ids = [
+        str(p.get('id', '')) for p in project_data_list if p.get('id')
+    ]
+    pr_counts = await _fetch_pr_counts(project_ids)
+
+    for project_data in project_data_list:
+        pid = str(project_data.get('id', ''))
+        open_count, closed_count = pr_counts.get(pid, (0, 0))
+        project_data['open_pr_count'] = open_count
+        project_data['closed_pr_count'] = closed_count
+        results.append(ProjectResponse.model_validate(project_data))
     return results
 
 
