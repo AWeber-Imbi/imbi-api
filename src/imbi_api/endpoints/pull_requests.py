@@ -59,6 +59,7 @@ class PullRequestResponse(pydantic.BaseModel):
 
 class PullRequestListResponse(pydantic.BaseModel):
     data: list[PullRequestResponse]
+    project_count: int
     total: int
 
 
@@ -109,7 +110,7 @@ async def _list_prs(
             detail=f'limit must be 1..{MAX_LIMIT}',
         )
     if not project_ids:
-        return PullRequestListResponse(data=[], total=0)
+        return PullRequestListResponse(data=[], project_count=0, total=0)
 
     clauses: list[str] = ['project_id IN {project_ids:Array(String)}']
     params: dict[str, typing.Any] = {'project_ids': project_ids}
@@ -124,8 +125,9 @@ async def _list_prs(
 
     where = ' AND '.join(clauses)
     count_sql = (
-        'SELECT count() AS total FROM pull_requests FINAL WHERE '  # noqa: S608
-        + where
+        'SELECT count() AS total,'  # noqa: S608
+        ' count(DISTINCT project_id) AS project_count'
+        ' FROM pull_requests FINAL WHERE ' + where
     )
     params['limit'] = limit
     params['offset'] = offset
@@ -138,6 +140,7 @@ async def _list_prs(
 
     count_rows = await clickhouse.query(count_sql, params)
     total = int(count_rows[0]['total']) if count_rows else 0
+    project_count = int(count_rows[0]['project_count']) if count_rows else 0
 
     data_rows = await clickhouse.query(data_sql, params)
     return PullRequestListResponse(
@@ -145,6 +148,7 @@ async def _list_prs(
             PullRequestResponse.model_validate(_row_to_response(r))
             for r in data_rows
         ],
+        project_count=project_count,
         total=total,
     )
 
