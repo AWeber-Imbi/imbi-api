@@ -98,6 +98,7 @@ async def _list_prs(
     *,
     project_ids: list[str],
     state: str | None = None,
+    author: str | None = None,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> PullRequestListResponse:
@@ -116,6 +117,10 @@ async def _list_prs(
     if state is not None:
         clauses.append('state = {state:String}')
         params['state'] = state
+
+    if author is not None:
+        clauses.append('author = {author:String}')
+        params['author'] = author
 
     where = ' AND '.join(clauses)
     count_sql = (
@@ -158,18 +163,21 @@ async def list_project_pull_requests(
         ),
     ],
     state: str | None = None,
+    author: str | None = None,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> PullRequestListResponse:
     """List pull requests for a single project.
 
     Optional ``state`` filter accepts ``open`` or ``closed``.
+    Optional ``author`` filter accepts a GitHub login.
     Results are ordered newest first.
     """
     del org_slug
     return await _list_prs(
         project_ids=[project_id],
         state=state,
+        author=author,
         limit=limit,
         offset=offset,
     )
@@ -189,6 +197,7 @@ async def list_org_pull_requests(
         ),
     ],
     state: str | None = None,
+    author: str | None = None,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> PullRequestListResponse:
@@ -196,12 +205,14 @@ async def list_org_pull_requests(
 
     The set of projects is resolved from the graph so results are
     scoped to the calling user's org.  Optional ``state`` filter
-    accepts ``open`` or ``closed``.  Results are ordered newest first.
+    accepts ``open`` or ``closed``.  Optional ``author`` filter
+    accepts a GitHub login.  Results are ordered newest first.
     """
     project_ids = await _fetch_org_project_ids(db, org_slug)
     return await _list_prs(
         project_ids=project_ids,
         state=state,
+        author=author,
         limit=limit,
         offset=offset,
     )
