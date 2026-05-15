@@ -132,6 +132,7 @@ class ReleaseInfo(pydantic.BaseModel):
     """Current release for a project in an environment."""
 
     deployed_at: datetime.datetime
+    performed_by: str | None = None
     version: str
 
 
@@ -334,6 +335,7 @@ async def _fetch_current_releases(
     sql = (
         'SELECT project_id, environment_slug,'
         ' argMax(version, occurred_at) AS version,'
+        ' argMax(performed_by, occurred_at) AS performed_by,'
         ' max(occurred_at) AS deployed_at'
         ' FROM operations_log FINAL'
         " WHERE entry_type = 'Deployed'"
@@ -355,6 +357,7 @@ async def _fetch_current_releases(
         env_slug = str(r['environment_slug'])
         result.setdefault(pid, {})[env_slug] = ReleaseInfo(
             version=str(r['version']),
+            performed_by=r.get('performed_by') or None,
             deployed_at=r['deployed_at'],
         )
     return result
