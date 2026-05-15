@@ -4,6 +4,7 @@ Projects are identified by a Nano-ID (``id`` field) and may
 belong to multiple project types.  See ADR-0006 for rationale.
 """
 
+import asyncio
 import datetime
 import json
 import logging
@@ -127,6 +128,13 @@ class ProjectRelationships(pydantic.BaseModel):
     inbound_count: int = 0
 
 
+class ReleaseInfo(pydantic.BaseModel):
+    """Current release for a project in an environment."""
+
+    deployed_at: datetime.datetime
+    version: str
+
+
 class ProjectResponse(pydantic.BaseModel):
     """Response body for a project."""
 
@@ -151,6 +159,11 @@ class ProjectResponse(pydantic.BaseModel):
     relationships: ProjectRelationships | None = None
     open_pr_count: int = 0
     closed_pr_count: int = 0
+    viewer_open_pr_count: int = 0
+    viewer_closed_pr_count: int = 0
+    current_releases: dict[str, ReleaseInfo] = pydantic.Field(
+        default_factory=dict
+    )
 
     @pydantic.field_validator(
         'links',
@@ -258,33 +271,93 @@ async def _validate_env_slugs(
 
 async def _fetch_pr_counts(
     project_ids: list[str],
-) -> dict[str, tuple[int, int]]:
-    """Return {project_id: (open_count, closed_count)} for the given IDs.
+    viewer: str | None = None,
+) -> dict[str, tuple[int, int, int, int]]:
+    """Return {project_id: (open, closed, viewer_open, viewer_closed)}.
 
     Errors are swallowed — PR counts are best-effort and should not
     fail the project list endpoint.
     """
     if not project_ids:
         return {}
+    params: dict[str, typing.Any] = {'project_ids': project_ids}
+    if viewer:
+        sql = (
+            'SELECT project_id,'
+            " countIf(state = 'open') AS open_count,"
+            " countIf(state = 'closed') AS closed_count,"
+            " countIf(state = 'open' AND author = {viewer:String})"
+            ' AS viewer_open_count,'
+            " countIf(state = 'closed' AND author = {viewer:String})"
+            ' AS viewer_closed_count'
+            ' FROM pull_requests FINAL'
+            ' WHERE project_id IN {project_ids:Array(String)}'
+            ' GROUP BY project_id'
+        )
+        params['viewer'] = viewer
+    else:
+        sql = (
+            'SELECT project_id,'
+            " countIf(state = 'open') AS open_count,"
+            " countIf(state = 'closed') AS closed_count,"
+            ' 0 AS viewer_open_count,'
+            ' 0 AS viewer_closed_count'
+            ' FROM pull_requests FINAL'
+            ' WHERE project_id IN {project_ids:Array(String)}'
+            ' GROUP BY project_id'
+        )
+    try:
+        rows = await ch_client.Clickhouse.get_instance().query(sql, params)
+    except Exception:  # noqa: BLE001
+        LOGGER.warning('Failed to fetch PR counts for projects', exc_info=True)
+        return {}
+    return {
+        str(r['project_id']): (
+            int(r['open_count']),
+            int(r['closed_count']),
+            int(r['viewer_open_count']),
+            int(r['viewer_closed_count']),
+        )
+        for r in rows
+    }
+
+
+async def _fetch_current_releases(
+    project_ids: list[str],
+) -> dict[str, dict[str, ReleaseInfo]]:
+    """Return {project_id: {env_slug: ReleaseInfo}} for current releases.
+
+    Errors are swallowed — release data is best-effort.
+    """
+    if not project_ids:
+        return {}
     sql = (
-        'SELECT project_id,'
-        " countIf(state = 'open') AS open_count,"
-        " countIf(state = 'closed') AS closed_count"
-        ' FROM pull_requests FINAL'
-        ' WHERE project_id IN {project_ids:Array(String)}'
-        ' GROUP BY project_id'
+        'SELECT project_id, environment_slug,'
+        ' argMax(version, occurred_at) AS version,'
+        ' max(occurred_at) AS deployed_at'
+        ' FROM operations_log FINAL'
+        " WHERE entry_type = 'Deployed'"
+        ' AND project_id IN {project_ids:Array(String)}'
+        ' GROUP BY project_id, environment_slug'
     )
     try:
         rows = await ch_client.Clickhouse.get_instance().query(
             sql, {'project_ids': project_ids}
         )
     except Exception:  # noqa: BLE001
-        LOGGER.warning('Failed to fetch PR counts for projects', exc_info=True)
+        LOGGER.warning(
+            'Failed to fetch current releases for projects', exc_info=True
+        )
         return {}
-    return {
-        str(r['project_id']): (int(r['open_count']), int(r['closed_count']))
-        for r in rows
-    }
+    result: dict[str, dict[str, ReleaseInfo]] = {}
+    for r in rows:
+        pid = str(r['project_id'])
+        env_slug = str(r['environment_slug'])
+        result.setdefault(pid, {})[env_slug] = ReleaseInfo(
+            version=str(r['version']),
+            deployed_at=r['deployed_at'],
+        )
+    return result
 
 
 _EVENT_SKIP_FIELDS: frozenset[str] = frozenset(
@@ -749,13 +822,22 @@ async def list_projects(
     project_ids = [
         str(p.get('id', '')) for p in project_data_list if p.get('id')
     ]
-    pr_counts = await _fetch_pr_counts(project_ids)
+    viewer = auth.identity_for('github-enterprise-cloud')
+    pr_counts, releases = await asyncio.gather(
+        _fetch_pr_counts(project_ids, viewer=viewer),
+        _fetch_current_releases(project_ids),
+    )
 
     for project_data in project_data_list:
         pid = str(project_data.get('id', ''))
-        open_count, closed_count = pr_counts.get(pid, (0, 0))
+        open_count, closed_count, viewer_open, viewer_closed = pr_counts.get(
+            pid, (0, 0, 0, 0)
+        )
         project_data['open_pr_count'] = open_count
         project_data['closed_pr_count'] = closed_count
+        project_data['viewer_open_pr_count'] = viewer_open
+        project_data['viewer_closed_pr_count'] = viewer_closed
+        project_data['current_releases'] = releases.get(pid, {})
         results.append(ProjectResponse.model_validate(project_data))
     return results
 
