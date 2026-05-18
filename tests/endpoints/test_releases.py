@@ -16,10 +16,14 @@ RELEASE_ID = 'rel456nanoid'
 ORG = 'engineering'
 
 
+DEFAULT_COMMITTISH = 'abc1234'
+
+
 def _release_row(**overrides: typing.Any) -> dict[str, typing.Any]:
     data: dict[str, typing.Any] = {
         'id': RELEASE_ID,
-        'version': '1.2.3',
+        'tag': '1.2.3',
+        'committish': DEFAULT_COMMITTISH,
         'title': 'Initial release',
         'description': None,
         'links': json.dumps([]),
@@ -102,7 +106,8 @@ class CreateReleaseTestCase(_ReleasesTestBase):
             response = self.client.post(
                 self._url('/'),
                 json={
-                    'version': '1.2.3',
+                    'tag': '1.2.3',
+                    'committish': DEFAULT_COMMITTISH,
                     'title': 'Initial release',
                     'description': 'First cut',
                     'links': [
@@ -116,7 +121,8 @@ class CreateReleaseTestCase(_ReleasesTestBase):
 
         self.assertEqual(response.status_code, 201)
         body = response.json()
-        self.assertEqual(body['version'], '1.2.3')
+        self.assertEqual(body['tag'], '1.2.3')
+        self.assertEqual(body['committish'], DEFAULT_COMMITTISH)
         self.assertEqual(body['project_id'], PROJECT_ID)
         self.assertEqual(body['id'], RELEASE_ID)
         self.assertEqual(body['created_by'], 'alice@example.com')
@@ -140,7 +146,8 @@ class CreateReleaseTestCase(_ReleasesTestBase):
             response = self.client.post(
                 self._url('/'),
                 json={
-                    'version': '1.2.3',
+                    'tag': '1.2.3',
+                    'committish': DEFAULT_COMMITTISH,
                     'title': 'Initial release',
                     'created_by': 'deploy-bot',
                 },
@@ -156,7 +163,11 @@ class CreateReleaseTestCase(_ReleasesTestBase):
         ):
             response = self.client.post(
                 self._url('/'),
-                json={'version': '1.0.0', 'title': 'x'},
+                json={
+                    'tag': '1.0.0',
+                    'committish': DEFAULT_COMMITTISH,
+                    'title': 'x',
+                },
             )
         self.assertEqual(response.status_code, 404)
 
@@ -171,7 +182,11 @@ class CreateReleaseTestCase(_ReleasesTestBase):
         ):
             response = self.client.post(
                 self._url('/'),
-                json={'version': '1.2.3', 'title': 'x'},
+                json={
+                    'tag': '1.2.3',
+                    'committish': DEFAULT_COMMITTISH,
+                    'title': 'x',
+                },
             )
         self.assertEqual(response.status_code, 409)
 
@@ -194,25 +209,41 @@ class CreateReleaseTestCase(_ReleasesTestBase):
         ):
             response = self.client.post(
                 self._url('/'),
-                json={'version': '1.2.3', 'title': 'x'},
+                json={
+                    'tag': '1.2.3',
+                    'committish': DEFAULT_COMMITTISH,
+                    'title': 'x',
+                },
             )
         self.assertEqual(response.status_code, 201)
 
     def test_create_two_releases_commitish_then_semver(self) -> None:
-        """Create both a commitish and a semver release for one project.
-
-        ``version_format`` is fixed at process start, so this test does
-        not flip it mid-run.
-        """
+        """Create commitish-only + tagged releases for one project."""
         self.mock_db.execute.side_effect = [
-            # First create: 214e932
+            # First create: commitish-only
             [{'id': PROJECT_ID}],
             [],
-            [{'release': _release_row(version='214e932', id='rel-commitish')}],
-            # Second create: 2.2.0
+            [
+                {
+                    'release': _release_row(
+                        tag=None,
+                        committish='214e932',
+                        id='rel-commitish',
+                    )
+                }
+            ],
+            # Second create: tagged
             [{'id': PROJECT_ID}],
             [],
-            [{'release': _release_row(version='2.2.0', id='rel-semver')}],
+            [
+                {
+                    'release': _release_row(
+                        tag='2.2.0',
+                        committish=DEFAULT_COMMITTISH,
+                        id='rel-semver',
+                    )
+                }
+            ],
         ]
         with (
             mock.patch(
@@ -226,19 +257,25 @@ class CreateReleaseTestCase(_ReleasesTestBase):
         ):
             first = self.client.post(
                 self._url('/'),
-                json={'version': '214e932', 'title': 'commitish build'},
+                json={'committish': '214e932', 'title': 'commitish build'},
             )
             second = self.client.post(
                 self._url('/'),
-                json={'version': '2.2.0', 'title': 'semver release'},
+                json={
+                    'tag': '2.2.0',
+                    'committish': DEFAULT_COMMITTISH,
+                    'title': 'semver release',
+                },
             )
 
         self.assertEqual(first.status_code, 201)
-        self.assertEqual(first.json()['version'], '214e932')
+        self.assertEqual(first.json()['tag'], None)
+        self.assertEqual(first.json()['committish'], '214e932')
         self.assertEqual(first.json()['id'], 'rel-commitish')
 
         self.assertEqual(second.status_code, 201)
-        self.assertEqual(second.json()['version'], '2.2.0')
+        self.assertEqual(second.json()['tag'], '2.2.0')
+        self.assertEqual(second.json()['committish'], DEFAULT_COMMITTISH)
         self.assertEqual(second.json()['id'], 'rel-semver')
 
 
@@ -247,8 +284,8 @@ class ListGetReleaseTestCase(_ReleasesTestBase):
 
     def test_list_releases(self) -> None:
         self.mock_db.execute.return_value = [
-            {'release': _release_row(version='1.0.0', id='a')},
-            {'release': _release_row(version='1.1.0', id='b')},
+            {'release': _release_row(tag='1.0.0', id='a')},
+            {'release': _release_row(tag='1.1.0', id='b')},
         ]
         with mock.patch(
             'imbi_common.graph.parse_agtype',
@@ -258,7 +295,7 @@ class ListGetReleaseTestCase(_ReleasesTestBase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 2)
-        self.assertEqual(data[0]['version'], '1.0.0')
+        self.assertEqual(data[0]['tag'], '1.0.0')
         self.assertEqual(data[0]['project_id'], PROJECT_ID)
 
     def test_get_release_success(self) -> None:
@@ -267,9 +304,9 @@ class ListGetReleaseTestCase(_ReleasesTestBase):
             'imbi_common.graph.parse_agtype',
             side_effect=lambda x: x,
         ):
-            response = self.client.get(self._url('/1.2.3'))
+            response = self.client.get(self._url(f'/{RELEASE_ID}'))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['version'], '1.2.3')
+        self.assertEqual(response.json()['tag'], '1.2.3')
 
     def test_get_release_not_found(self) -> None:
         self.mock_db.execute.return_value = []
@@ -277,12 +314,12 @@ class ListGetReleaseTestCase(_ReleasesTestBase):
             'imbi_common.graph.parse_agtype',
             side_effect=lambda x: x,
         ):
-            response = self.client.get(self._url('/9.9.9'))
+            response = self.client.get(self._url('/missing-id'))
         self.assertEqual(response.status_code, 404)
 
 
 class PatchReleaseTestCase(_ReleasesTestBase):
-    """PATCH /releases/{version}"""
+    """PATCH /releases/{release_id}"""
 
     def test_patch_title(self) -> None:
         self.mock_db.execute.side_effect = [
@@ -294,7 +331,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
                     {'op': 'replace', 'path': '/title', 'value': 'Updated'},
                 ],
@@ -327,7 +364,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
                     {
                         'op': 'replace',
@@ -362,7 +399,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
                     {'op': 'replace', 'path': '/title', 'value': ''},
                 ],
@@ -374,16 +411,20 @@ class PatchReleaseTestCase(_ReleasesTestBase):
         update_call = self.mock_db.execute.await_args_list[1]
         self.assertEqual(update_call.args[1]['title'], '')
 
-    def test_patch_readonly_version(self) -> None:
+    def test_patch_readonly_committish(self) -> None:
         self.mock_db.execute.side_effect = [[{'release': _release_row()}]]
         with mock.patch(
             'imbi_common.graph.parse_agtype',
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
-                    {'op': 'replace', 'path': '/version', 'value': '2.0.0'},
+                    {
+                        'op': 'replace',
+                        'path': '/committish',
+                        'value': 'deadbee',
+                    },
                 ],
             )
         self.assertEqual(response.status_code, 400)
@@ -396,7 +437,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
                     {'op': 'replace', 'path': '/bogus', 'value': 'x'},
                 ],
@@ -410,7 +451,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.patch(
-                self._url('/1.2.3'),
+                self._url(f'/{RELEASE_ID}'),
                 json=[
                     {'op': 'replace', 'path': '/title', 'value': 'x'},
                 ],
@@ -436,7 +477,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.post(
-                self._url('/1.2.3/environments/production'),
+                self._url(f'/{RELEASE_ID}/environments/production'),
                 json={'status': 'pending'},
             )
         self.assertEqual(response.status_code, 200)
@@ -469,7 +510,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.post(
-                self._url('/1.2.3/environments/production'),
+                self._url(f'/{RELEASE_ID}/environments/production'),
                 json={'status': 'success', 'note': 'rolled out'},
             )
         self.assertEqual(response.status_code, 200)
@@ -487,7 +528,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.post(
-                self._url('/1.2.3/environments/ghost'),
+                self._url(f'/{RELEASE_ID}/environments/ghost'),
                 json={'status': 'pending'},
             )
         self.assertEqual(response.status_code, 422)
@@ -499,7 +540,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.post(
-                self._url('/9.9.9/environments/production'),
+                self._url('/missing-id/environments/production'),
                 json={'status': 'pending'},
             )
         self.assertEqual(response.status_code, 404)
@@ -532,7 +573,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.get(
-                self._url('/1.2.3/environments'),
+                self._url(f'/{RELEASE_ID}/environments'),
             )
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -550,7 +591,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.get(
-                self._url('/1.2.3/environments/production'),
+                self._url(f'/{RELEASE_ID}/environments/production'),
             )
         self.assertEqual(response.status_code, 404)
 
@@ -573,7 +614,7 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
             side_effect=lambda x: x,
         ):
             response = self.client.get(
-                self._url('/1.2.3/environments/production'),
+                self._url(f'/{RELEASE_ID}/environments/production'),
             )
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -614,7 +655,7 @@ class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
                     self.mock_db,
                     org_slug=ORG,
                     project_id=PROJECT_ID,
-                    version='1.2.3',
+                    release_id=RELEASE_ID,
                     env_slug='production',
                     status=typing.cast(typing.Any, status),
                     note=note,
@@ -755,14 +796,14 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events(
                         ('2026-04-20T10:00:00+00:00', 'success'),
                     ),
                 },
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.1.0', id='r2'),
+                    'release': _release_row(tag='1.1.0', id='r2'),
                     'deployments': self._events(
                         ('2026-04-22T10:00:00+00:00', 'success'),
                     ),
@@ -777,7 +818,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]['release']['version'], '1.1.0')
+        self.assertEqual(data[0]['release']['tag'], '1.1.0')
         self.assertEqual(data[0]['current_status'], 'success')
         self.assertEqual(data[0]['last_event_at'], '2026-04-22T10:00:00Z')
 
@@ -789,7 +830,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production'),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events(
                         ('2026-04-20T10:00:00+00:00', 'success'),
                         ('2026-04-23T10:00:00+00:00', 'success'),
@@ -797,7 +838,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
                 },
                 {
                     'env': self._env('production'),
-                    'release': _release_row(version='1.1.0', id='r2'),
+                    'release': _release_row(tag='1.1.0', id='r2'),
                     'deployments': self._events(
                         ('2026-04-22T10:00:00+00:00', 'success'),
                         (
@@ -815,7 +856,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
             response = self.client.get(self._url('/current'))
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data[0]['release']['version'], '1.0.0')
+        self.assertEqual(data[0]['release']['tag'], '1.0.0')
         self.assertEqual(data[0]['current_status'], 'success')
 
     def test_sorts_by_environment_sort_order(self) -> None:
@@ -825,17 +866,17 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': events,
                 },
                 {
                     'env': self._env('testing', sort_order=10),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': events,
                 },
                 {
                     'env': self._env('staging', sort_order=20),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': events,
                 },
             ],
@@ -855,7 +896,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events(
                         ('2026-04-20T10:00:00+00:00', 'success'),
                     ),
@@ -877,7 +918,7 @@ class CurrentReleasesTestCase(_ReleasesTestBase):
         self.assertEqual(len(data), 2)
         by_slug = {row['environment']['slug']: row for row in data}
         self.assertIsNone(by_slug['testing']['release'])
-        self.assertEqual(by_slug['production']['release']['version'], '1.0.0')
+        self.assertEqual(by_slug['production']['release']['tag'], '1.0.0')
 
 
 class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
@@ -962,7 +1003,7 @@ class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events_with_run(
                         '2026-04-20T10:00:00+00:00', 'success'
                     ),
@@ -998,7 +1039,7 @@ class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events_with_run(
                         '2026-04-20T10:00:00+00:00',
                         'in_progress',
@@ -1010,7 +1051,7 @@ class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
             # The persistence path does additional db.execute calls
             # (re-fetch release, edge MATCH, SET).  Provide enough
             # truthy results so append_deployment_event can land.
-            [{'release': _release_row(version='1.0.0', id='r1')}],
+            [{'release': _release_row(tag='1.0.0', id='r1')}],
             [{'env': self._env('production'), 'deployments': None}],
             [{'deployments': '[]'}],
         ]
@@ -1036,7 +1077,7 @@ class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events_with_run(
                         '2026-04-20T10:00:00+00:00', 'success'
                     ),
@@ -1066,7 +1107,7 @@ class CurrentReleasesHydrationTestCase(_ReleasesTestBase):
             [
                 {
                     'env': self._env('production', sort_order=30),
-                    'release': _release_row(version='1.0.0', id='r1'),
+                    'release': _release_row(tag='1.0.0', id='r1'),
                     'deployments': self._events_with_run(
                         '2026-04-20T10:00:00+00:00',
                         'in_progress',
