@@ -129,11 +129,18 @@ class ProjectRelationships(pydantic.BaseModel):
 
 
 class ReleaseInfo(pydantic.BaseModel):
-    """Current release for a project in an environment."""
+    """Current release for a project in an environment.
+
+    ``tag`` is the optional human-readable label (e.g. ``1.0.0``);
+    ``committish`` is the 7-char short SHA. The UI displays
+    ``tag ?? committish`` and uses ``committish`` equality to group
+    environments showing the same release.
+    """
 
     deployed_at: datetime.datetime
     performed_by: str | None = None
-    version: str
+    tag: str | None = None
+    committish: str | None = None
 
 
 class ProjectResponse(pydantic.BaseModel):
@@ -347,9 +354,21 @@ async def _resolve_display_names(
 
 
 async def _fetch_current_releases(
+    db: graph.Graph,
     project_ids: list[str],
 ) -> dict[str, dict[str, ReleaseInfo]]:
     """Return {project_id: {env_slug: ReleaseInfo}} for current releases.
+
+    ClickHouse tells us which release ``version`` string is currently
+    deployed per (project, environment). The Release node itself
+    carries the structured ``tag`` + ``committish`` fields, so we
+    join back to AGE with a single bulk query keyed on
+    ``(project_id, version)`` — matching ``r.tag = version`` for
+    tagged releases and ``r.committish = version`` for raw-SHA
+    deploys. The ops_log writer (see
+    ``project_deployments._record_deployment_audit``) stores
+    ``tag if tag else committish`` in ``version``, so the ``OR``
+    branch is exhaustive in normal data.
 
     Errors are swallowed — release data is best-effort.
     """
@@ -374,14 +393,93 @@ async def _fetch_current_releases(
             'Failed to fetch current releases for projects', exc_info=True
         )
         return {}
+    # First pass: collect rows and the (project_id, version) pairs we
+    # need to translate to (tag, committish).
+    rows_list = list(rows)
+    pairs = sorted(
+        {
+            (str(r['project_id']), str(r['version']))
+            for r in rows_list
+            if r.get('version')
+        }
+    )
+    identity_by_pair = await _resolve_release_identities(db, pairs)
     result: dict[str, dict[str, ReleaseInfo]] = {}
-    for r in rows:
+    for r in rows_list:
         pid = str(r['project_id'])
         env_slug = str(r['environment_slug'])
+        version_value = str(r['version']) if r.get('version') else ''
+        tag, committish = identity_by_pair.get(
+            (pid, version_value), (None, None)
+        )
         result.setdefault(pid, {})[env_slug] = ReleaseInfo(
-            version=str(r['version']),
+            tag=tag,
+            committish=committish,
             performed_by=r.get('performed_by') or None,
             deployed_at=r['deployed_at'],
+        )
+    return result
+
+
+async def _resolve_release_identities(
+    db: graph.Graph,
+    pairs: list[tuple[str, str]],
+) -> dict[tuple[str, str], tuple[str | None, str | None]]:
+    """Look up ``(tag, committish)`` for each ``(project_id, version)`` pair.
+
+    Issues a single Cypher query that UNWINDs the pair list and
+    matches Release nodes where ``r.tag = version`` or
+    ``r.committish = version``. When both branches match (rare —
+    would require a tag string equal to another release's
+    committish), the tag-branch row wins because it appears first in
+    the result set ordering. Pairs with no match map to
+    ``(None, None)`` so the caller can render an empty ReleaseInfo
+    rather than crash.
+    """
+    if not pairs:
+        return {}
+    project_ids = [pid for pid, _ in pairs]
+    versions = [v for _, v in pairs]
+    query: typing.LiteralString = """
+    UNWIND range(0, size({project_ids}) - 1) AS i
+    WITH {project_ids}[i] AS project_id, {versions}[i] AS version
+    MATCH (p:Project {{id: project_id}})
+          -[:HAS_RELEASE]->(r:Release)
+    WHERE r.tag = version OR r.committish = version
+    RETURN project_id  AS project_id,
+           version     AS version,
+           r.tag       AS tag,
+           r.committish AS committish,
+           CASE WHEN r.tag = version THEN 0 ELSE 1 END AS rank
+    ORDER BY project_id, version, rank
+    """
+    try:
+        rows = await db.execute(
+            query,
+            {'project_ids': project_ids, 'versions': versions},
+            ['project_id', 'version', 'tag', 'committish', 'rank'],
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.warning(
+            'Failed to resolve release identities from the graph',
+            exc_info=True,
+        )
+        return {}
+    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    for row in rows:
+        pid = graph.parse_agtype(row.get('project_id'))
+        version = graph.parse_agtype(row.get('version'))
+        tag = graph.parse_agtype(row.get('tag'))
+        committish = graph.parse_agtype(row.get('committish'))
+        if not isinstance(pid, str) or not isinstance(version, str):
+            continue
+        key = (pid, version)
+        if key in result:
+            # Prefer the first row (tag match wins over committish).
+            continue
+        result[key] = (
+            str(tag) if tag else None,
+            str(committish) if committish else None,
         )
     return result
 
@@ -851,7 +949,7 @@ async def list_projects(
     viewer = auth.identity_for('github-enterprise-cloud')
     pr_counts, releases = await asyncio.gather(
         _fetch_pr_counts(project_ids, viewer=viewer),
-        _fetch_current_releases(project_ids),
+        _fetch_current_releases(db, project_ids),
     )
 
     emails = list(
