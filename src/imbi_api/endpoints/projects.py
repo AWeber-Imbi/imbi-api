@@ -427,37 +427,29 @@ async def _resolve_release_identities(
 ) -> dict[tuple[str, str], tuple[str | None, str | None]]:
     """Look up ``(tag, committish)`` for each ``(project_id, version)`` pair.
 
-    Issues a single Cypher query that UNWINDs the pair list and
-    matches Release nodes where ``r.tag = version`` or
-    ``r.committish = version``. When both branches match (rare —
-    would require a tag string equal to another release's
-    committish), the tag-branch row wins because it appears first in
-    the result set ordering. Pairs with no match map to
-    ``(None, None)`` so the caller can render an empty ReleaseInfo
-    rather than crash.
+    Fetches every release for the projects involved in one bulk
+    Cypher query, then joins against ``pairs`` in Python. Avoids
+    the cross-product scan that an inline UNWIND + ``OR`` filter
+    would force per pair (no tag/committish indexes exist, so each
+    pair would otherwise walk every Release for its project).
+
+    When a ``(project_id, version)`` matches both a release's
+    ``tag`` and another release's ``committish``, the tag match
+    wins so the human-readable label stays canonical.
     """
     if not pairs:
         return {}
-    project_ids = [pid for pid, _ in pairs]
-    versions = [v for _, v in pairs]
+    project_ids = sorted({pid for pid, _ in pairs})
     query: typing.LiteralString = """
-    UNWIND range(0, size({project_ids}) - 1) AS i
-    WITH {project_ids}[i] AS project_id, {versions}[i] AS version
-    MATCH (p:Project {{id: project_id}})
-          -[:HAS_RELEASE]->(r:Release)
-    WHERE r.tag = version OR r.committish = version
-    RETURN project_id  AS project_id,
-           version     AS version,
-           r.tag       AS tag,
-           r.committish AS committish,
-           CASE WHEN r.tag = version THEN 0 ELSE 1 END AS rank
-    ORDER BY project_id, version, rank
+    MATCH (p:Project)-[:HAS_RELEASE]->(r:Release)
+    WHERE p.id IN {project_ids}
+    RETURN p.id AS project_id, r.tag AS tag, r.committish AS committish
     """
     try:
         rows = await db.execute(
             query,
-            {'project_ids': project_ids, 'versions': versions},
-            ['project_id', 'version', 'tag', 'committish', 'rank'],
+            {'project_ids': project_ids},
+            ['project_id', 'tag', 'committish'],
         )
     except Exception:  # noqa: BLE001
         LOGGER.warning(
@@ -465,22 +457,34 @@ async def _resolve_release_identities(
             exc_info=True,
         )
         return {}
-    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+    # Build two indexes per project: tag → (tag, committish) and
+    # committish → (tag, committish). The tag index wins for lookup
+    # so a ``version`` that happens to match both indexes resolves
+    # to the tagged release.
+    by_tag: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    by_committish: dict[tuple[str, str], tuple[str | None, str | None]] = {}
     for row in rows:
         pid = graph.parse_agtype(row.get('project_id'))
-        version = graph.parse_agtype(row.get('version'))
-        tag = graph.parse_agtype(row.get('tag'))
-        committish = graph.parse_agtype(row.get('committish'))
-        if not isinstance(pid, str) or not isinstance(version, str):
+        tag_val = graph.parse_agtype(row.get('tag'))
+        committish_val = graph.parse_agtype(row.get('committish'))
+        if not isinstance(pid, str):
             continue
+        tag = str(tag_val) if tag_val else None
+        committish = str(committish_val) if committish_val else None
+        identity = (tag, committish)
+        if tag:
+            by_tag.setdefault((pid, tag), identity)
+        if committish:
+            by_committish.setdefault((pid, committish), identity)
+
+    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    for pid, version in pairs:
         key = (pid, version)
-        if key in result:
-            # Prefer the first row (tag match wins over committish).
-            continue
-        result[key] = (
-            str(tag) if tag else None,
-            str(committish) if committish else None,
-        )
+        if key in by_tag:
+            result[key] = by_tag[key]
+        elif key in by_committish:
+            result[key] = by_committish[key]
     return result
 
 
