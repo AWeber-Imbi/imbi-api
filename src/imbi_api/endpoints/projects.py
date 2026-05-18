@@ -323,6 +323,29 @@ async def _fetch_pr_counts(
     }
 
 
+async def _resolve_display_names(
+    db: graph.Graph,
+    emails: list[str],
+) -> dict[str, str]:
+    """Return {email: display_name} for known User nodes."""
+    if not emails:
+        return {}
+    query: typing.LiteralString = (
+        'MATCH (u:User) WHERE u.email IN {emails}'
+        ' RETURN u.email AS email, u.display_name AS display_name'
+    )
+    records = await db.execute(
+        query, {'emails': emails}, ['email', 'display_name']
+    )
+    return {
+        str(graph.parse_agtype(r['email'])): str(
+            graph.parse_agtype(r['display_name'])
+        )
+        for r in records
+        if r.get('email') and r.get('display_name')
+    }
+
+
 async def _fetch_current_releases(
     project_ids: list[str],
 ) -> dict[str, dict[str, ReleaseInfo]]:
@@ -830,6 +853,22 @@ async def list_projects(
         _fetch_pr_counts(project_ids, viewer=viewer),
         _fetch_current_releases(project_ids),
     )
+
+    emails = list(
+        {
+            info.performed_by
+            for env_map in releases.values()
+            for info in env_map.values()
+            if info.performed_by
+        }
+    )
+    display_names = await _resolve_display_names(db, emails)
+    for env_map in releases.values():
+        for slug, info in env_map.items():
+            if info.performed_by and info.performed_by in display_names:
+                env_map[slug] = info.model_copy(
+                    update={'performed_by': display_names[info.performed_by]}
+                )
 
     for project_data in project_data_list:
         pid = str(project_data.get('id', ''))
