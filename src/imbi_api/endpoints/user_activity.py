@@ -930,7 +930,8 @@ _GRAPH_ACTIVITY_COLUMNS: dict[str, list[str]] = {
     'release': [
         'id',
         'ts',
-        'version',
+        'tag',
+        'committish',
         'title',
         'project_id',
         'project_slug',
