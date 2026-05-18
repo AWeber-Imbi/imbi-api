@@ -865,10 +865,15 @@ async def list_projects(
     display_names = await _resolve_display_names(db, emails)
     for env_map in releases.values():
         for slug, info in env_map.items():
-            if info.performed_by and info.performed_by in display_names:
-                env_map[slug] = info.model_copy(
-                    update={'performed_by': display_names[info.performed_by]}
-                )
+            if not info.performed_by:
+                continue
+            if info.performed_by in display_names:
+                name: str = display_names[info.performed_by]
+            elif '@' in info.performed_by:
+                name = info.performed_by.split('@')[0]
+            else:
+                continue
+            env_map[slug] = info.model_copy(update={'performed_by': name})
 
     for project_data in project_data_list:
         pid = str(project_data.get('id', ''))
