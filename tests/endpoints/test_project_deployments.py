@@ -834,19 +834,19 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 {
                     'env': '{"slug": "testing", "name": "Testing", '
                     '"sort_order": 1}',
-                    'release': '{"version": "v6.4.0"}',
+                    'release': '{"tag": "v6.4.0", "committish": "aaa6400"}',
                     'deployments': None,
                 },
                 {
                     'env': '{"slug": "staging", "name": "Staging", '
                     '"sort_order": 2}',
-                    'release': '{"version": "v6.3.0"}',
+                    'release': '{"tag": "v6.3.0", "committish": "bbb6300"}',
                     'deployments': None,
                 },
                 {
                     'env': '{"slug": "production", "name": "Production", '
                     '"sort_order": 3}',
-                    'release': '{"version": "v6.2.0"}',
+                    'release': '{"tag": "v6.2.0", "committish": "ccc6200"}',
                     'deployments': None,
                 },
             ]
@@ -881,7 +881,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 {
                     'env': '{"slug": "testing", "name": "Testing", '
                     '"sort_order": 1}',
-                    'release': '{"version": "v6.3.0"}',
+                    'release': '{"tag": "v6.3.0", "committish": "bbb6300"}',
                     'deployments': (
                         '[{"timestamp": "2024-01-01T00:00:00+00:00", '
                         '"status": "success"}]'
@@ -890,7 +890,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 {
                     'env': '{"slug": "testing", "name": "Testing", '
                     '"sort_order": 1}',
-                    'release': '{"version": "v6.4.0"}',
+                    'release': '{"tag": "v6.4.0", "committish": "aaa6400"}',
                     'deployments': (
                         '[{"timestamp": "2024-06-01T00:00:00+00:00", '
                         '"status": "success"}]'
@@ -899,7 +899,7 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 {
                     'env': '{"slug": "staging", "name": "Staging", '
                     '"sort_order": 2}',
-                    'release': '{"version": "v6.2.0"}',
+                    'release': '{"tag": "v6.2.0", "committish": "ccc6200"}',
                     'deployments': None,
                 },
             ]
@@ -933,13 +933,13 @@ class ProjectDeploymentsTestCase(unittest.TestCase):
                 {
                     'env': '{"slug": "testing", "name": "Testing", '
                     '"sort_order": 1}',
-                    'release': '{"version": "v1.0.0"}',
+                    'release': '{"tag": "v1.0.0", "committish": "abc1000"}',
                     'deployments': None,
                 },
                 {
                     'env': '{"slug": "staging", "name": "Staging", '
                     '"sort_order": 2}',
-                    'release': '{"version": "v0.9.0"}',
+                    'release': '{"tag": "v0.9.0", "committish": "def0900"}',
                     'deployments': None,
                 },
             ]
