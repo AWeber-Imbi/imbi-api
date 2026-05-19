@@ -165,7 +165,7 @@ async def _load_user_identities(
         {'user_id': user_id},
         ['plugin_slug', 'subject'],
     )
-    result = []
+    result: list[IdentityInfo] = []
     for row in records:
         plugin_slug = graph.parse_agtype(row['plugin_slug'])
         subject = graph.parse_agtype(row['subject'])
