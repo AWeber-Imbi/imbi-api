@@ -312,9 +312,12 @@ async def _stamp_api_key_last_used(db: graph.Graph, key_id: str) -> None:
     "Entity failed to be updated" error.
     """
     now = datetime.datetime.now(datetime.UTC).isoformat()
-    await db.execute(
+    query: typing.LiteralString = (
         'MATCH (k:APIKey {{key_id: {key_id}}})'
-        ' SET k.last_used = {now} RETURN k',
+        ' SET k.last_used = {now} RETURN k'
+    )
+    await db.execute(
+        query,
         {'key_id': key_id, 'now': now},
         columns=['k'],
     )
