@@ -744,6 +744,37 @@ async def patch_release(
     serialized_links = _serialize_links(merged_links_raw)
     del update
 
+    # Identity is ``(committish, tag)`` — reject a patch that would
+    # collide with another release on this project's same SHA.  AGE
+    # has no NULL equality, so compare via ``COALESCE`` to a sentinel.
+    conflict_query: typing.LiteralString = """
+    MATCH (:Project {{id: {project_id}}})
+          -[:HAS_RELEASE]->(other:Release {{committish: {committish}}})
+    WHERE other.id <> {release_id}
+      AND COALESCE(other.tag, '') = COALESCE({tag}, '')
+    RETURN other.id AS id
+    LIMIT 1
+    """
+    conflict = await db.execute(
+        conflict_query,
+        {
+            'project_id': project_id,
+            'release_id': release_id,
+            'committish': data['committish'],
+            'tag': merged_tag,
+        },
+        ['id'],
+    )
+    if conflict:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=(
+                f'Release committish={data["committish"]!r}'
+                f' tag={merged_tag!r} already exists for project'
+                f' {project_id!r}'
+            ),
+        )
+
     update_query: typing.LiteralString = """
     MATCH (p:Project {{id: {project_id}}})
           -[:HAS_RELEASE]->(r:Release {{id: {release_id}}})

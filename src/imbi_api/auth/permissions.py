@@ -153,27 +153,41 @@ async def _load_user_identities(
     db: graph.Graph,
     user_id: str,
 ) -> list[IdentityInfo]:
-    """Return active third-party identity connections for the user."""
+    """Return active third-party identity connections for the user.
+
+    Identity enrichment is auxiliary — authentication has already
+    succeeded by the time this runs.  A failure here (DB hiccup,
+    AGType parse error) must not turn a valid token into a 5xx, so
+    all exceptions are caught, logged, and treated as "no identities".
+    """
     query: typing.LiteralString = """
     MATCH (u:User {{id: {user_id}}})-[:HAS_IDENTITY]->(c:IdentityConnection)
     WHERE c.status = 'active'
     OPTIONAL MATCH (c)-[:USES_PLUGIN]->(p:Plugin)
     RETURN p.plugin_slug AS plugin_slug, c.subject AS subject
     """
-    records = await db.execute(
-        query,
-        {'user_id': user_id},
-        ['plugin_slug', 'subject'],
-    )
-    result: list[IdentityInfo] = []
-    for row in records:
-        plugin_slug = graph.parse_agtype(row['plugin_slug'])
-        subject = graph.parse_agtype(row['subject'])
-        if plugin_slug and subject:
-            result.append(
-                IdentityInfo(plugin_slug=plugin_slug, subject=subject)
-            )
-    return result
+    try:
+        records = await db.execute(
+            query,
+            {'user_id': user_id},
+            ['plugin_slug', 'subject'],
+        )
+        result: list[IdentityInfo] = []
+        for row in records:
+            plugin_slug = graph.parse_agtype(row['plugin_slug'])
+            subject = graph.parse_agtype(row['subject'])
+            if plugin_slug and subject:
+                result.append(
+                    IdentityInfo(plugin_slug=plugin_slug, subject=subject)
+                )
+        return result
+    except Exception:  # noqa: BLE001
+        LOGGER.warning(
+            'Failed to load identity connections for user_id=%s',
+            user_id,
+            exc_info=True,
+        )
+        return []
 
 
 async def authenticate_jwt(

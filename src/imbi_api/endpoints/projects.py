@@ -334,16 +334,27 @@ async def _resolve_display_names(
     db: graph.Graph,
     emails: list[str],
 ) -> dict[str, str]:
-    """Return {email: display_name} for known User nodes."""
+    """Return {email: display_name} for known User nodes.
+
+    Best-effort enrichment: callers fall back to the local-part of
+    the email when a name is not returned, so DB errors should never
+    surface as a 500.
+    """
     if not emails:
         return {}
     query: typing.LiteralString = (
         'MATCH (u:User) WHERE u.email IN {emails}'
         ' RETURN u.email AS email, u.display_name AS display_name'
     )
-    records = await db.execute(
-        query, {'emails': emails}, ['email', 'display_name']
-    )
+    try:
+        records = await db.execute(
+            query, {'emails': emails}, ['email', 'display_name']
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.warning(
+            'Failed to resolve performer display names', exc_info=True
+        )
+        return {}
     return {
         str(graph.parse_agtype(r['email'])): str(
             graph.parse_agtype(r['display_name'])

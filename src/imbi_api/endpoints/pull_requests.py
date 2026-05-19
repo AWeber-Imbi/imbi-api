@@ -109,6 +109,11 @@ async def _list_prs(
             status_code=400,
             detail=f'limit must be 1..{MAX_LIMIT}',
         )
+    if offset < 0:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='offset must be >= 0',
+        )
     if not project_ids:
         return PullRequestListResponse(data=[], project_count=0, total=0)
 
@@ -160,6 +165,7 @@ async def _list_prs(
 async def list_project_pull_requests(
     org_slug: str,
     project_id: str,
+    db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
         fastapi.Depends(
@@ -177,7 +183,15 @@ async def list_project_pull_requests(
     Optional ``author`` filter accepts a GitHub login.
     Results are ordered newest first.
     """
-    del org_slug
+    org_project_ids = await _fetch_org_project_ids(db, org_slug)
+    if project_id not in org_project_ids:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(
+                f'Project {project_id!r} not found in organization'
+                f' {org_slug!r}'
+            ),
+        )
     return await _list_prs(
         project_ids=[project_id],
         state=state,

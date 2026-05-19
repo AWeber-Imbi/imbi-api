@@ -1383,12 +1383,17 @@ async def _upsert_release_node(
         else json.dumps([])
     )
     new_id: str = nanoid.generate()
+    # Match the exact identity (committish, tag) before deciding to
+    # create.  Filtering inside ``OPTIONAL MATCH`` keeps a sibling
+    # release with the same committish but a different tag from
+    # spawning a duplicate ``(committish, tag)`` row.
     create_query: typing.LiteralString = """
     MATCH (p:Project {{id: {project_id}}})
     OPTIONAL MATCH (p)-[:HAS_RELEASE]
         ->(existing:Release {{committish: {committish}}})
+    WHERE COALESCE(existing.tag, '') = COALESCE({tag}, '')
     WITH p, existing
-    WHERE existing IS NULL OR COALESCE(existing.tag, '') <> COALESCE({tag}, '')
+    WHERE existing IS NULL
     CREATE (p)-[:HAS_RELEASE]->(:Release {{
         id: {id},
         tag: {tag},

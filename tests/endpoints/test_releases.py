@@ -324,6 +324,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
     def test_patch_title(self) -> None:
         self.mock_db.execute.side_effect = [
             [{'release': _release_row()}],
+            [],  # _conflict_query — no collision
             [{'release': _release_row(title='Updated')}],
         ]
         with mock.patch(
@@ -342,6 +343,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
     def test_patch_description_and_links(self) -> None:
         self.mock_db.execute.side_effect = [
             [{'release': _release_row()}],
+            [],  # _conflict_query — no collision
             [
                 {
                     'release': _release_row(
@@ -392,6 +394,7 @@ class PatchReleaseTestCase(_ReleasesTestBase):
         """Explicit empty-string patches of ``title`` must persist."""
         self.mock_db.execute.side_effect = [
             [{'release': _release_row()}],
+            [],  # _conflict_query — no collision
             [{'release': _release_row(title='')}],
         ]
         with mock.patch(
@@ -408,7 +411,8 @@ class PatchReleaseTestCase(_ReleasesTestBase):
         self.assertEqual(response.json()['title'], '')
         # Confirm the SET clause received the empty string, not the old
         # title — i.e. the fix for truthiness-vs-presence is effective.
-        update_call = self.mock_db.execute.await_args_list[1]
+        # Index 2 = [fetch_release, conflict_query, update_query].
+        update_call = self.mock_db.execute.await_args_list[2]
         self.assertEqual(update_call.args[1]['title'], '')
 
     def test_patch_readonly_committish(self) -> None:
@@ -457,6 +461,28 @@ class PatchReleaseTestCase(_ReleasesTestBase):
                 ],
             )
         self.assertEqual(response.status_code, 404)
+
+    def test_patch_tag_collision_returns_409(self) -> None:
+        """Tagging a release with another release's ``(committish, tag)``
+        pair must 409 rather than silently creating an ambiguous pair."""
+        self.mock_db.execute.side_effect = [
+            [{'release': _release_row(tag=None)}],
+            # _conflict_query: another release on this SHA already has
+            # the target tag.
+            [{'id': 'other-release-id'}],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.patch(
+                self._url(f'/{RELEASE_ID}'),
+                json=[
+                    {'op': 'replace', 'path': '/tag', 'value': 'v1.2.3'},
+                ],
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('already exists', response.json()['detail'])
 
 
 class DeploymentEdgeTestCase(_ReleasesTestBase):
