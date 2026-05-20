@@ -6,6 +6,7 @@ concurrent session limits, and tracking session activity.
 
 import datetime
 import logging
+import typing
 
 from imbi_common import graph
 
@@ -82,7 +83,7 @@ async def update_session_activity(
     threshold = now - datetime.timedelta(
         seconds=max(0, auth_settings.last_used_throttle_seconds)
     )
-    query = (
+    query: typing.LiteralString = (
         'MATCH (s:Session {{session_id: {session_id}}}) '
         'WHERE s.last_activity IS NULL OR s.last_activity < {threshold} '
         'SET s.last_activity = {now} RETURN s'
