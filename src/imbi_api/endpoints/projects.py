@@ -1135,7 +1135,7 @@ async def list_projects(
             # Strip null/empty entries AGE can inject when
             # ``collect(CASE WHEN ... END)`` matches nothing.
             for key in ('project_types', 'environments'):
-                raw = project_data.get(key) or []
+                raw: list[typing.Any] = project_data.get(key) or []
                 project_data[key] = [
                     item for item in raw if isinstance(item, dict) and item
                 ]
