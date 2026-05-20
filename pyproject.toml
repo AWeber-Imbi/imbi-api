@@ -60,6 +60,7 @@ plugins = [
   "imbi-plugin-github>=1.0.0",
   "imbi-plugin-logzio>=1.0.0",
   "imbi-plugin-oidc>=1.0.0",
+  "imbi-plugin-sonarqube>=0.0.0",
 ]
 sentry = ["sentry-sdk"]
 

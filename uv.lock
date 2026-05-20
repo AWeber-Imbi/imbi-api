@@ -999,6 +999,7 @@ plugins = [
   { name = "imbi-plugin-github" },
   { name = "imbi-plugin-logzio" },
   { name = "imbi-plugin-oidc" },
+  { name = "imbi-plugin-sonarqube" },
 ]
 sentry = [
   { name = "sentry-sdk" },
@@ -1039,6 +1040,7 @@ requires-dist = [
   { name = "imbi-plugin-github", marker = "extra == 'plugins'", specifier = ">=1.0.0" },
   { name = "imbi-plugin-logzio", marker = "extra == 'plugins'", specifier = ">=1.0.0" },
   { name = "imbi-plugin-oidc", marker = "extra == 'plugins'", specifier = ">=1.0.0" },
+  { name = "imbi-plugin-sonarqube", marker = "extra == 'plugins'", specifier = ">=0.0.0" },
   { name = "jinja2" },
   { name = "jsonpatch", specifier = ">=1.33" },
   { name = "nanoid", specifier = ">=2.0.0" },
@@ -1060,7 +1062,7 @@ requires-dist = [
   { name = "uvicorn" },
   { name = "yarl" },
 ]
-provides-extras = ["otel", "sentry", "plugins"]
+provides-extras = ["otel", "plugins", "sentry"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1082,7 +1084,6 @@ docs = [
   { name = "mkdocstrings", extras = ["python"] },
   { name = "mkdocstrings-python-xref", specifier = ">=1.6,<2" },
 ]
-plugins = []
 
 [[package]]
 name = "imbi-common"
@@ -1180,6 +1181,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/4d/21adc15ee847aed5f536c9853e15c23a62e229a3e78a7b60717ccbb93d4c/imbi_plugin_oidc-1.0.1.tar.gz", hash = "sha256:655e47f8c7a69b3f8aaee18eb0d541c77d34ae3d0cd35f356772730e63bf353d", size = 98295, upload-time = "2026-05-11T00:18:16.585Z" }
 wheels = [
   { url = "https://files.pythonhosted.org/packages/fd/c1/e0983cb8f128812ffeaaa6fef637dd173c67c72abfeda3ef242eaf7f2d96/imbi_plugin_oidc-1.0.1-py3-none-any.whl", hash = "sha256:bafe19bcbcbe080be15b8fffba6281e36ffa2d5c08a4a00a5f236d75f617bea4", size = 5931, upload-time = "2026-05-11T00:18:15.163Z" },
+]
+
+[[package]]
+name = "imbi-plugin-sonarqube"
+version = "0.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+  { name = "httpx" },
+  { name = "imbi-common" },
+  { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/b1/c95632d66ac6019e1e402ea32e0f5e1a69751a7390cf09247cde1115fcb1/imbi_plugin_sonarqube-0.0.0.tar.gz", hash = "sha256:4ab77a3692c56d06b52c8c042733be767b45907ea490bcb68c135acf471a459a", size = 93406, upload-time = "2026-05-20T18:28:24.865Z" }
+wheels = [
+  { url = "https://files.pythonhosted.org/packages/03/c0/2f61fa2a791dbc3b0f6a3963f926fdfb1096a3e3dedcfd1c20dd4001788a/imbi_plugin_sonarqube-0.0.0-py3-none-any.whl", hash = "sha256:aad377473ebd06329137ea7c6833148054247a5a5c6acbdd44918ef3ca958e7c", size = 7945, upload-time = "2026-05-20T18:28:23.35Z" },
 ]
 
 [[package]]
