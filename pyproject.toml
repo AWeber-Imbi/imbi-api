@@ -220,9 +220,14 @@ max-complexity = 15
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S"]
 
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { "imbi-common" = false, "imbi-plugin-aws" = false, "imbi-plugin-github" = false, "imbi-plugin-logzio" = false, "imbi-plugin-oidc" = false, "imbi-plugin-pagerduty" = false, "imbi-plugin-sentry" = false, "imbi-plugin-sonarqube" = false }
+
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 default = true
 
 [tool.uv.sources]
+imbi-common = { path = "../imbi-common", editable = true }
 imbi-plugin-github = { path = "../imbi-plugin-github", editable = true }
