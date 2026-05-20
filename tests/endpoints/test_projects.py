@@ -445,13 +445,56 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         self.assertEqual(set(pt.keys()), {'name', 'slug', 'deployable'})
         env = item['environments'][0]
         self.assertEqual(
-            set(env.keys()) & {'name', 'slug', 'label_color', 'sort_order'},
+            set(env.keys()),
             {'name', 'slug', 'label_color', 'sort_order'},
         )
         # PR counts default to 0 when no rows come back from
         # ClickHouse (we don't mock the helpers here).
         self.assertEqual(item['open_pr_count'], 0)
         self.assertEqual(item['current_releases'], {})
+
+    def test_list_slim_handles_empty_collections(self) -> None:
+        """Slim mode tolerates empty project_types / environments.
+
+        AGE's ``collect(CASE WHEN node IS NOT NULL THEN ... END)``
+        pattern can yield ``[None]`` (a single null) when the
+        OPTIONAL MATCH finds nothing.  The slim branch must strip
+        those nulls before passing the row to
+        ``ProjectListItem.model_validate``, otherwise pydantic
+        raises and the endpoint 500s.
+        """
+        self.mock_db.execute.return_value = [
+            {
+                'project': {
+                    'id': PROJECT_ID,
+                    'name': 'Bare Project',
+                    'slug': 'bare-project',
+                    'description': None,
+                    'archived': False,
+                    'score': None,
+                    'team': {'name': 'Platform', 'slug': 'platform'},
+                    # AGE injects ``[None]`` for empty OPTIONAL MATCH.
+                    'project_types': [None],
+                    'environments': [None],
+                },
+            },
+        ]
+
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            response = self.client.get(
+                '/organizations/engineering/projects/?slim=true',
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        item = data[0]
+        self.assertEqual(item['slug'], 'bare-project')
+        self.assertEqual(item['project_types'], [])
+        self.assertEqual(item['environments'], [])
 
     # -- Get -----------------------------------------------------------
 

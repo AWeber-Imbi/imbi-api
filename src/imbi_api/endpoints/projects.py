@@ -1131,6 +1131,14 @@ async def list_projects(
                 graph.parse_agtype(record['outbound_count']),
                 graph.parse_agtype(record['inbound_count']),
             )
+        else:
+            # Strip null/empty entries AGE can inject when
+            # ``collect(CASE WHEN ... END)`` matches nothing.
+            for key in ('project_types', 'environments'):
+                raw = project_data.get(key) or []
+                project_data[key] = [
+                    item for item in raw if isinstance(item, dict) and item
+                ]
         project_data_list.append(project_data)
 
     project_ids = [
