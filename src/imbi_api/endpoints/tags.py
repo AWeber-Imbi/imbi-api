@@ -27,8 +27,8 @@ tags_router = fastapi.APIRouter(tags=['Tags'])
 
 
 class TagCreate(pydantic.BaseModel):
-    name: str
-    slug: str | None = None
+    name: str = pydantic.Field(min_length=1)
+    slug: str | None = pydantic.Field(default=None, min_length=1)
     description: str | None = None
 
 

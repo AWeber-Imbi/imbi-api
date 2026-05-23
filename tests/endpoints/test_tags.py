@@ -107,6 +107,20 @@ class TagEndpointsTestCase(unittest.TestCase):
         _, args, _ = self.mock_db.execute.mock_calls[0]
         self.assertEqual(args[1]['slug'], 'post-mortem')
 
+    def test_create_rejects_empty_name(self) -> None:
+        response = self.client.post(
+            '/organizations/engineering/tags/',
+            json={'name': ''},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_create_rejects_empty_slug(self) -> None:
+        response = self.client.post(
+            '/organizations/engineering/tags/',
+            json={'name': 'Runbook', 'slug': ''},
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_create_slug_conflict(self) -> None:
         self.mock_db.execute.side_effect = psycopg.errors.UniqueViolation()
         with mock.patch(

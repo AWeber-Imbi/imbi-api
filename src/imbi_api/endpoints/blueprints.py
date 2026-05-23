@@ -96,7 +96,7 @@ async def create_blueprint(
 ) -> models.Blueprint:
     """Create a new blueprint node in the graph database."""
     try:
-        await db.merge(blueprint)
+        await db.merge(blueprint, match_on=['slug', 'type'])
     except psycopg.errors.UniqueViolation as e:
         raise fastapi.HTTPException(
             status_code=409,
