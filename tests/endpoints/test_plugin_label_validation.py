@@ -55,7 +55,7 @@ def _registry_entry(
     )
 
 
-class ResolveLabelValidationTests(unittest.TestCase):
+class ResolveLabelValidationTests(unittest.IsolatedAsyncioTestCase):
     def test_valid_label_resolves(self) -> None:
         entry = _registry_entry(
             vertex_labels=[
@@ -108,7 +108,7 @@ class ResolveLabelValidationTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 500)
 
 
-class ResolveEdgeValidationTests(unittest.TestCase):
+class ResolveEdgeValidationTests(unittest.IsolatedAsyncioTestCase):
     def test_malicious_rel_type_is_rejected(self) -> None:
         with self.assertRaises(fastapi.HTTPException) as ctx:
             plugin_edges.resolve_edge_for(
