@@ -197,8 +197,8 @@ async def get_tag(
 
 
 class TagUpdate(pydantic.BaseModel):
-    name: str | None = None
-    slug: str | None = None
+    name: str | None = pydantic.Field(default=None, min_length=1)
+    slug: str | None = pydantic.Field(default=None, min_length=1)
     description: str | None = None
 
 

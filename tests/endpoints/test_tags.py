@@ -286,6 +286,34 @@ class TagEndpointsTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 400)
 
+    def test_patch_rejects_empty_name(self) -> None:
+        """Patching /name to an empty string yields a 400."""
+        self.mock_db.execute.return_value = [
+            {'t': self._tag_data(), 'o': self._org_data()}
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/tags/runbook',
+                json=[{'op': 'replace', 'path': '/name', 'value': ''}],
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_rejects_empty_slug(self) -> None:
+        """Patching /slug to an empty string yields a 400."""
+        self.mock_db.execute.return_value = [
+            {'t': self._tag_data(), 'o': self._org_data()}
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                '/organizations/engineering/tags/runbook',
+                json=[{'op': 'replace', 'path': '/slug', 'value': ''}],
+            )
+        self.assertEqual(response.status_code, 400)
+
     def test_patch_concurrent_delete_returns_404(self) -> None:
         """Update returning no rows after fetch yields 404."""
         self.mock_db.execute.side_effect = [
