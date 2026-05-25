@@ -2,6 +2,7 @@
 
 import asyncio
 import ipaddress
+import logging
 import os
 import secrets
 import socket
@@ -17,6 +18,8 @@ from imbi_common.auth import encryption
 from imbi_api import settings
 from imbi_api.auth import login_providers, models
 
+LOGGER = logging.getLogger(__name__)
+
 # Cache for OIDC discovery documents with TTL
 # Format: {issuer_url: (discovery_data, timestamp)}
 _oidc_discovery_cache: dict[str, tuple[dict[str, typing.Any], float]] = {}
@@ -27,7 +30,8 @@ def _insecure_urls_allowed() -> bool:
     """True iff the dev escape hatch ``IMBI_OAUTH_ALLOW_INSECURE_URLS`` is on.
 
     When set, ``_validate_external_url`` skips its scheme and IP-range
-    checks. Intended only for local dev against mock OIDC providers on
+    checks *only* for hostnames in ``{'localhost', '127.0.0.1', '::1'}``.
+    Intended only for local dev against mock OIDC providers on
     ``http://localhost``; never set in production.
     """
     return os.environ.get('IMBI_OAUTH_ALLOW_INSECURE_URLS', '').lower() in {
@@ -42,19 +46,24 @@ async def _validate_external_url(url: str, *, field: str) -> None:
 
     Used on every URL that this module is about to fetch (OIDC issuer,
     discovered token/userinfo endpoints) to close the SSRF channel an
-    admin-configurable ``issuer_url`` would otherwise open. Disable with
-    ``IMBI_OAUTH_ALLOW_INSECURE_URLS=true`` for dev against localhost
-    mocks.
+    admin-configurable ``issuer_url`` would otherwise open. The
+    ``IMBI_OAUTH_ALLOW_INSECURE_URLS=true`` dev escape hatch only
+    bypasses validation for ``localhost``/``127.0.0.1``/``::1``; every
+    other host is still validated normally.
 
     Raises:
         ValueError: If scheme is not ``https`` or hostname resolves to a
             loopback, link-local, private (RFC1918), multicast, or
             reserved address.
     """
-    if _insecure_urls_allowed():
+    parsed = urlparse.urlparse(url)
+    if _insecure_urls_allowed() and parsed.hostname in {
+        'localhost',
+        '127.0.0.1',
+        '::1',
+    }:
         return
 
-    parsed = urlparse.urlparse(url)
     if parsed.scheme != 'https':
         raise ValueError(
             f'{field} must use https:// (got scheme {parsed.scheme!r})'

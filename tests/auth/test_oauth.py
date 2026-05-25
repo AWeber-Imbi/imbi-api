@@ -322,7 +322,7 @@ class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
             'imbi_api.auth.oauth._validate_external_url',
             new=mock.AsyncMock(return_value=None),
         )
-        self._validate_patcher.start()
+        self._validate_mock = self._validate_patcher.start()
         self.addCleanup(self._validate_patcher.stop)
 
     @mock.patch('imbi_api.auth.oauth.httpx.AsyncClient')
@@ -363,6 +363,10 @@ class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Verify cache was populated
         self.assertIn('https://auth.example.com', oauth._oidc_discovery_cache)
+
+        # SSRF defense was invoked on the happy path; removal would fail
+        # this test rather than silently disabling the hook.
+        self._validate_mock.assert_awaited()
 
     @mock.patch('imbi_api.auth.oauth.httpx.AsyncClient')
     async def test_discover_oidc_endpoints_cached(
@@ -566,7 +570,7 @@ class _DBProviderTestBase(unittest.IsolatedAsyncioTestCase):
             'imbi_api.auth.oauth._validate_external_url',
             new=mock.AsyncMock(return_value=None),
         )
-        self._validate_patcher.start()
+        self._validate_mock = self._validate_patcher.start()
 
     def tearDown(self) -> None:
         self._patch.stop()
@@ -647,6 +651,10 @@ class OAuthProviderConfigTestCase(_DBProviderTestBase):
         self.assertEqual(token_url, 'https://auth.example.com/oauth/token')
         self.assertEqual(client_id, 'oidc-client-id')
         self.assertEqual(client_secret, 'oidc-client-secret')
+
+        # SSRF defense was invoked on the happy path; removal would fail
+        # this test rather than silently disabling the hook.
+        self._validate_mock.assert_awaited()
 
     async def test_get_provider_config_disabled(self) -> None:
         self.seed('google', enabled=False)
@@ -990,3 +998,36 @@ class URLValidationTestCase(unittest.IsolatedAsyncioTestCase):
                     'https://dns-rebinding.example', field='issuer'
                 )
         self.assertIn('non-public', str(ctx.exception))
+
+    async def test_rejects_multicast_reserved_and_unspecified(self) -> None:
+        """Multicast, reserved, and unspecified IP categories fail closed."""
+        for blocked_ip in ('224.0.0.1', '240.0.0.1', '0.0.0.0'):
+            with self.subTest(blocked_ip=blocked_ip):
+                with mock.patch(
+                    'imbi_api.auth.oauth.socket.getaddrinfo',
+                    return_value=[(0, 0, 0, '', (blocked_ip, 0))],
+                ):
+                    with self.assertRaises(ValueError) as ctx:
+                        await oauth._validate_external_url(
+                            'https://blocked.example', field='issuer'
+                        )
+                self.assertIn('non-public', str(ctx.exception))
+
+    async def test_dev_escape_hatch_does_not_bypass_non_localhost(
+        self,
+    ) -> None:
+        """Escape hatch must only short-circuit ``localhost``-style hosts.
+
+        For any other hostname the regular scheme/IP-range checks still
+        apply even when ``IMBI_OAUTH_ALLOW_INSECURE_URLS`` is set.
+        """
+        with mock.patch.dict(
+            'os.environ',
+            {'IMBI_OAUTH_ALLOW_INSECURE_URLS': 'true'},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'http://auth.example.com', field='issuer'
+                )
+        self.assertIn('https://', str(ctx.exception))
