@@ -311,8 +311,19 @@ class OIDCDiscoveryTestCase(unittest.IsolatedAsyncioTestCase):
     """Test cases for OIDC discovery."""
 
     def setUp(self) -> None:
-        """Clear OIDC discovery cache before each test."""
+        """Clear cache and short-circuit SSRF validation for fake hostnames.
+
+        ``_validate_external_url`` does a real DNS lookup, which fails
+        for ``*.example.com`` fixtures used here. The standalone
+        ``URLValidationTestCase`` below exercises the validator itself.
+        """
         oauth._oidc_discovery_cache.clear()
+        self._validate_patcher = mock.patch(
+            'imbi_api.auth.oauth._validate_external_url',
+            new=mock.AsyncMock(return_value=None),
+        )
+        self._validate_patcher.start()
+        self.addCleanup(self._validate_patcher.stop)
 
     @mock.patch('imbi_api.auth.oauth.httpx.AsyncClient')
     async def test_discover_oidc_endpoints_success(
@@ -551,9 +562,15 @@ class _DBProviderTestBase(unittest.IsolatedAsyncioTestCase):
             list_login_apps=_fake_list,
         )
         self._patch.start()
+        self._validate_patcher = mock.patch(
+            'imbi_api.auth.oauth._validate_external_url',
+            new=mock.AsyncMock(return_value=None),
+        )
+        self._validate_patcher.start()
 
     def tearDown(self) -> None:
         self._patch.stop()
+        self._validate_patcher.stop()
 
     def seed(self, slug: str, **kwargs: typing.Any) -> None:
         self.providers_by_slug[slug] = _stub_provider(slug, **kwargs)
@@ -853,3 +870,123 @@ class OAuthProfileFetchTestCase(_DBProviderTestBase):
         with self.assertRaises(ValueError) as context:
             await oauth._get_provider_config('oidc', self.db)
         self.assertIn('not enabled', str(context.exception).lower())
+
+
+class URLValidationTestCase(unittest.IsolatedAsyncioTestCase):
+    """H2: SSRF defense around OIDC/OAuth URL fetches."""
+
+    async def test_rejects_non_https_scheme(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await oauth._validate_external_url(
+                'http://auth.example.com', field='issuer'
+            )
+        self.assertIn('https://', str(ctx.exception))
+
+    async def test_rejects_missing_hostname(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await oauth._validate_external_url('https://', field='issuer')
+        self.assertIn('hostname', str(ctx.exception))
+
+    async def test_rejects_loopback(self) -> None:
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            return_value=[
+                (0, 0, 0, '', ('127.0.0.1', 0)),
+            ],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'https://localhost-aliased.example', field='issuer'
+                )
+        self.assertIn('non-public', str(ctx.exception))
+
+    async def test_rejects_link_local(self) -> None:
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            return_value=[
+                (0, 0, 0, '', ('169.254.169.254', 0)),
+            ],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'https://metadata.attacker.example', field='issuer'
+                )
+        self.assertIn('non-public', str(ctx.exception))
+
+    async def test_rejects_rfc1918(self) -> None:
+        for private_ip in ('10.0.0.1', '172.16.0.1', '192.168.1.1'):
+            with mock.patch(
+                'imbi_api.auth.oauth.socket.getaddrinfo',
+                return_value=[
+                    (0, 0, 0, '', (private_ip, 0)),
+                ],
+            ):
+                with self.assertRaises(ValueError) as ctx:
+                    await oauth._validate_external_url(
+                        'https://internal.attacker.example', field='issuer'
+                    )
+            self.assertIn(
+                'non-public', str(ctx.exception), f'failed for {private_ip}'
+            )
+
+    async def test_rejects_ipv6_loopback(self) -> None:
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            return_value=[
+                (0, 0, 0, '', ('::1', 0, 0, 0)),
+            ],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'https://v6.attacker.example', field='issuer'
+                )
+        self.assertIn('non-public', str(ctx.exception))
+
+    async def test_rejects_unresolvable_host(self) -> None:
+        import socket as _socket
+
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            side_effect=_socket.gaierror('no such host'),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'https://nope.example.invalid', field='issuer'
+                )
+        self.assertIn('does not resolve', str(ctx.exception))
+
+    async def test_allows_public_address(self) -> None:
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            return_value=[
+                (0, 0, 0, '', ('8.8.8.8', 0)),
+            ],
+        ):
+            await oauth._validate_external_url(
+                'https://auth.example.com', field='issuer'
+            )
+
+    async def test_dev_escape_hatch_skips_validation(self) -> None:
+        with mock.patch.dict(
+            'os.environ',
+            {'IMBI_OAUTH_ALLOW_INSECURE_URLS': 'true'},
+            clear=False,
+        ):
+            await oauth._validate_external_url(
+                'http://localhost:9000', field='issuer'
+            )
+
+    async def test_rejects_one_bad_ip_in_multi_result(self) -> None:
+        """If any resolved IP is private, fail closed."""
+        with mock.patch(
+            'imbi_api.auth.oauth.socket.getaddrinfo',
+            return_value=[
+                (0, 0, 0, '', ('8.8.8.8', 0)),
+                (0, 0, 0, '', ('127.0.0.1', 0)),
+            ],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await oauth._validate_external_url(
+                    'https://dns-rebinding.example', field='issuer'
+                )
+        self.assertIn('non-public', str(ctx.exception))
