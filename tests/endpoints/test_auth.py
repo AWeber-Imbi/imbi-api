@@ -1447,6 +1447,11 @@ class TokenRefreshTestCase(unittest.TestCase):
                 data['refresh_token'],
                 refresh_token,
             )
+            # The rotated pair must inherit the parent's family_id;
+            # otherwise the chain would split and a cascade revoke on
+            # reuse would miss every descendant minted from this call.
+            second_call_params = self.mock_db.execute.call_args_list[1][0][1]
+            self.assertEqual(second_call_params['family_id'], 'fam-test')
 
     def test_refresh_token_expired(self) -> None:
         """Test token refresh with expired token."""
