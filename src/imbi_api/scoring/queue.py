@@ -80,6 +80,60 @@ async def enqueue_recompute(
     return True
 
 
+async def enqueue_recompute_bulk(
+    client: valkey.Valkey | None,
+    project_ids: abc.Iterable[str],
+    reason: ChangeReason,
+    requested_by: str | None = None,
+) -> int:
+    """Pipeline-batched version of :func:`enqueue_recompute`.
+
+    Sends every debounce ``SET NX EX`` in one pipeline round trip,
+    then sends every ``XADD`` for the acquired ids in a second
+    pipeline. Returns the count of newly-enqueued jobs (the ones
+    whose debounce SET succeeded).
+
+    Designed for the admin-initiated bulk rescore path where
+    ``project_ids`` may be in the thousands — the previous
+    ``asyncio.gather`` over per-id calls produced 2N round trips
+    plus N debounce-fail rejections taking a full round trip each.
+    """
+    ids = list(project_ids)
+    if client is None or not ids:
+        return 0
+    requester = requested_by or 'system'
+    try:
+        async with client.pipeline(transaction=False) as pipe:
+            for pid in ids:
+                pipe.set(
+                    f'{DEBOUNCE_PREFIX}:{pid}',
+                    b'1',
+                    ex=DEBOUNCE_SECONDS,
+                    nx=True,
+                )
+            set_results = await pipe.execute()
+        accepted = [
+            pid for pid, ok in zip(ids, set_results, strict=True) if ok
+        ]
+        if not accepted:
+            return 0
+        async with client.pipeline(transaction=False) as pipe:
+            for pid in accepted:
+                pipe.xadd(
+                    STREAM,
+                    {
+                        'project_id': pid,
+                        'reason': reason,
+                        'requested_by': requester,
+                    },
+                )
+            await pipe.execute()
+    except Exception:
+        LOGGER.exception('enqueue_recompute_bulk failed (%d ids)', len(ids))
+        return 0
+    return len(accepted)
+
+
 async def ensure_group(client: valkey.Valkey) -> None:
     try:
         await client.xgroup_create(STREAM, GROUP, id='$', mkstream=True)
