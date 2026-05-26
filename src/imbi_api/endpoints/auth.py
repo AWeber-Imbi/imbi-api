@@ -1084,6 +1084,11 @@ async def oauth_callback(
         jwt.InvalidTokenError,
         httpx.HTTPError,
         fastapi.HTTPException,
+        # verify_oauth_state raises RuntimeError when the Valkey replay-
+        # protection backend is unavailable; surface that as the normal
+        # auth-failed redirect so a missing dependency doesn't return a
+        # bare 500.
+        RuntimeError,
     ) as err:
         LOGGER.exception('OAuth callback failed: %s', err)
         return fastapi.responses.RedirectResponse(
