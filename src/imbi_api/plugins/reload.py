@@ -97,7 +97,10 @@ async def _subscribe_reload(
                 continue
             if msg is None:
                 continue
-            raw_data = typing.cast('object', msg.get('data'))  # pyright: ignore[reportUnknownMemberType]
+            raw_data = typing.cast(
+                'object',
+                msg.get('data'),  # pyright: ignore[reportUnknownMemberType]
+            )
             if isinstance(raw_data, (bytes, bytearray)):
                 data = bytes(raw_data).decode('utf-8', errors='replace')
             elif isinstance(raw_data, str):
@@ -172,4 +175,6 @@ async def publish_reload(
     ts = int(time.time())
     nonce = secrets.token_urlsafe(16)
     payload = f'{ts}:{nonce}:{_sign(ts, nonce, key)}'
-    await client.publish(_CHANNEL, payload)  # pyright: ignore[reportUnknownMemberType]
+    await client.publish(  # pyright: ignore[reportUnknownMemberType]
+        _CHANNEL, payload
+    )

@@ -141,36 +141,29 @@ class LifecycleTestCase(unittest.TestCase):
             asyncio.run(lifecycle.audit_unavailable(mock_db))
 
 
-class ReloadHookTestCase(unittest.TestCase):
-    def test_plugin_reload_hook_no_valkey(self) -> None:
+class ReloadHookTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_plugin_reload_hook_no_valkey(self) -> None:
         from imbi_api.plugins.reload import plugin_reload_hook
 
-        async def _run() -> None:
-            with mock.patch(
-                'imbi_api.plugins.reload.valkey.get_client',
-                side_effect=RuntimeError('no valkey'),
-            ):
-                async with plugin_reload_hook(db=None):
-                    pass
+        with mock.patch(
+            'imbi_api.plugins.reload.valkey.get_client',
+            side_effect=RuntimeError('no valkey'),
+        ):
+            async with plugin_reload_hook(db=None):
+                pass
 
-        asyncio.run(_run())
-
-    def test_plugin_reload_hook_no_db(self) -> None:
+    async def test_plugin_reload_hook_no_db(self) -> None:
         from imbi_api.plugins.reload import plugin_reload_hook
 
         mock_client = mock.MagicMock()
+        with mock.patch(
+            'imbi_api.plugins.reload.valkey.get_client',
+            return_value=mock_client,
+        ):
+            async with plugin_reload_hook(db=None):
+                pass
 
-        async def _run() -> None:
-            with mock.patch(
-                'imbi_api.plugins.reload.valkey.get_client',
-                return_value=mock_client,
-            ):
-                async with plugin_reload_hook(db=None):
-                    pass
-
-        asyncio.run(_run())
-
-    def test_publish_reload(self) -> None:
+    async def test_publish_reload(self) -> None:
         from imbi_api.plugins import reload as reload_mod
 
         mock_client = mock.AsyncMock()
@@ -179,14 +172,14 @@ class ReloadHookTestCase(unittest.TestCase):
         with mock.patch.object(
             reload_mod, '_get_reload_key', return_value=derived
         ):
-            asyncio.run(reload_mod.publish_reload(mock_client))
+            await reload_mod.publish_reload(mock_client)
 
         mock_client.publish.assert_awaited_once()
         channel, payload = mock_client.publish.await_args.args
         self.assertEqual(channel, 'imbi:plugins:reload')
         self.assertTrue(reload_mod._verify(payload, derived))
 
-    def test_publish_reload_raises_without_key(self) -> None:
+    async def test_publish_reload_raises_without_key(self) -> None:
         from imbi_api.plugins import reload as reload_mod
 
         mock_client = mock.AsyncMock()
@@ -196,7 +189,7 @@ class ReloadHookTestCase(unittest.TestCase):
             ),
             self.assertRaises(RuntimeError),
         ):
-            asyncio.run(reload_mod.publish_reload(mock_client))
+            await reload_mod.publish_reload(mock_client)
         mock_client.publish.assert_not_awaited()
 
 
@@ -957,7 +950,7 @@ class CredentialsTestCase(unittest.TestCase):
         self.assertIn('client_id or client_secret', str(ctx.exception))
 
 
-class ReloadSubscriberTestCase(unittest.TestCase):
+class ReloadSubscriberTestCase(unittest.IsolatedAsyncioTestCase):
     """Test the pubsub subscriber loop in plugins.reload."""
 
     def _make_signed_payload(self, key: bytes, *, age: int = 0) -> bytes:
@@ -970,7 +963,7 @@ class ReloadSubscriberTestCase(unittest.TestCase):
         sig = reload_mod._sign(ts, nonce, key)
         return f'{ts}:{nonce}:{sig}'.encode()
 
-    def test_subscribe_processes_message_and_reloads(self) -> None:
+    async def test_subscribe_processes_message_and_reloads(self) -> None:
         from imbi_api.plugins import reload as reload_mod
 
         pubsub = mock.MagicMock()
@@ -982,40 +975,36 @@ class ReloadSubscriberTestCase(unittest.TestCase):
         mock_db.execute.return_value = []
         derived = b'k' * 32
         payload = self._make_signed_payload(derived)
+        stop = asyncio.Event()
+        calls: list[int] = []
 
-        async def _run() -> None:
-            stop = asyncio.Event()
-            calls: list[int] = []
+        async def _wait_for(*_a: object, **_k: object) -> object:
+            calls.append(1)
+            # First call delivers a message; second iteration we stop.
+            if len(calls) == 1:
+                return {'type': 'message', 'data': payload}
+            stop.set()
+            raise TimeoutError()
 
-            async def _wait_for(*_a: object, **_k: object) -> object:
-                calls.append(1)
-                # First call delivers a message; second iteration we stop.
-                if len(calls) == 1:
-                    return {'type': 'message', 'data': payload}
-                stop.set()
-                raise TimeoutError()
+        with (
+            mock.patch.object(
+                reload_mod.asyncio, 'wait_for', side_effect=_wait_for
+            ),
+            mock.patch.object(
+                reload_mod, '_get_reload_key', return_value=derived
+            ),
+            mock.patch.object(reload_mod, 'reload_plugins') as reload_p,
+            mock.patch.object(
+                reload_mod, 'audit_unavailable', mock.AsyncMock()
+            ) as audit,
+        ):
+            await reload_mod._subscribe_reload(client, mock_db, stop)
 
-            with (
-                mock.patch.object(
-                    reload_mod.asyncio, 'wait_for', side_effect=_wait_for
-                ),
-                mock.patch.object(
-                    reload_mod, '_get_reload_key', return_value=derived
-                ),
-                mock.patch.object(reload_mod, 'reload_plugins') as reload_p,
-                mock.patch.object(
-                    reload_mod, 'audit_unavailable', mock.AsyncMock()
-                ) as audit,
-            ):
-                await reload_mod._subscribe_reload(client, mock_db, stop)
+        reload_p.assert_called_once()
+        audit.assert_awaited()
+        pubsub.unsubscribe.assert_awaited()
 
-            reload_p.assert_called_once()
-            audit.assert_awaited()
-            pubsub.unsubscribe.assert_awaited()
-
-        asyncio.run(_run())
-
-    def _run_subscribe_with_payload(
+    async def _run_subscribe_with_payload(
         self,
         payload: object,
         *,
@@ -1030,62 +1019,58 @@ class ReloadSubscriberTestCase(unittest.TestCase):
         client = mock.MagicMock()
         client.pubsub = mock.MagicMock(return_value=pubsub)
         mock_db = mock.AsyncMock()
+        stop = asyncio.Event()
+        calls: list[int] = []
 
-        async def _run() -> tuple[mock.MagicMock, mock.AsyncMock]:
-            stop = asyncio.Event()
-            calls: list[int] = []
+        async def _wait_for(*_a: object, **_k: object) -> object:
+            calls.append(1)
+            if len(calls) == 1:
+                return {'type': 'message', 'data': payload}
+            stop.set()
+            raise TimeoutError()
 
-            async def _wait_for(*_a: object, **_k: object) -> object:
-                calls.append(1)
-                if len(calls) == 1:
-                    return {'type': 'message', 'data': payload}
-                stop.set()
-                raise TimeoutError()
+        with (
+            mock.patch.object(
+                reload_mod.asyncio, 'wait_for', side_effect=_wait_for
+            ),
+            mock.patch.object(reload_mod, '_get_reload_key', return_value=key),
+            mock.patch.object(reload_mod, 'reload_plugins') as reload_p,
+            mock.patch.object(
+                reload_mod, 'audit_unavailable', mock.AsyncMock()
+            ) as audit,
+        ):
+            await reload_mod._subscribe_reload(client, mock_db, stop)
+        return reload_p, audit
 
-            with (
-                mock.patch.object(
-                    reload_mod.asyncio, 'wait_for', side_effect=_wait_for
-                ),
-                mock.patch.object(
-                    reload_mod, '_get_reload_key', return_value=key
-                ),
-                mock.patch.object(reload_mod, 'reload_plugins') as reload_p,
-                mock.patch.object(
-                    reload_mod, 'audit_unavailable', mock.AsyncMock()
-                ) as audit,
-            ):
-                await reload_mod._subscribe_reload(client, mock_db, stop)
-            return reload_p, audit
-
-        return asyncio.run(_run())
-
-    def test_subscribe_rejects_unsigned_payload(self) -> None:
-        reload_p, audit = self._run_subscribe_with_payload(b'reload')
+    async def test_subscribe_rejects_unsigned_payload(self) -> None:
+        reload_p, audit = await self._run_subscribe_with_payload(b'reload')
         reload_p.assert_not_called()
         audit.assert_not_awaited()
 
-    def test_subscribe_rejects_bad_signature(self) -> None:
+    async def test_subscribe_rejects_bad_signature(self) -> None:
         derived = b'k' * 32
         payload = self._make_signed_payload(derived).replace(b'abc123', b'xxx')
-        reload_p, audit = self._run_subscribe_with_payload(
+        reload_p, audit = await self._run_subscribe_with_payload(
             payload, key=derived
         )
         reload_p.assert_not_called()
         audit.assert_not_awaited()
 
-    def test_subscribe_rejects_stale_timestamp(self) -> None:
+    async def test_subscribe_rejects_stale_timestamp(self) -> None:
         derived = b'k' * 32
         payload = self._make_signed_payload(derived, age=3600)
-        reload_p, audit = self._run_subscribe_with_payload(
+        reload_p, audit = await self._run_subscribe_with_payload(
             payload, key=derived
         )
         reload_p.assert_not_called()
         audit.assert_not_awaited()
 
-    def test_subscribe_drops_when_key_unavailable(self) -> None:
+    async def test_subscribe_drops_when_key_unavailable(self) -> None:
         derived = b'k' * 32
         payload = self._make_signed_payload(derived)
-        reload_p, audit = self._run_subscribe_with_payload(payload, key=None)
+        reload_p, audit = await self._run_subscribe_with_payload(
+            payload, key=None
+        )
         reload_p.assert_not_called()
         audit.assert_not_awaited()
 
