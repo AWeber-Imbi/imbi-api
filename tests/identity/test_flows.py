@@ -121,8 +121,14 @@ class LoadPluginHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         """M44: ``lookup='slug'`` must skip the by-id query entirely."""
         db = mock.AsyncMock()
         db.execute.return_value = []
+        # Use a slug that's guaranteed unregistered in any environment
+        # so the post-lookup ``get_plugin`` raises before reaching
+        # ``get_plugin_credentials`` (CI has real plugins loaded that
+        # would otherwise surface a different error first).
         with self.assertRaises(PluginNotFoundError):
-            await flows._load_plugin_handler(db, 'oidc', lookup='slug')
+            await flows._load_plugin_handler(
+                db, 'nonexistent-test-slug-xyz', lookup='slug'
+            )
         self.assertEqual(db.execute.await_count, 1)
 
 
