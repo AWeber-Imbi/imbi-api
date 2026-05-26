@@ -105,13 +105,18 @@ async def enqueue_recompute_bulk(
     try:
         async with client.pipeline(transaction=False) as pipe:
             for pid in ids:
-                pipe.set(
+                pipe.set(  # pyright: ignore[reportUnknownMemberType]
                     f'{DEBOUNCE_PREFIX}:{pid}',
                     b'1',
                     ex=DEBOUNCE_SECONDS,
                     nx=True,
                 )
-            set_results = await pipe.execute()
+            # ``execute()`` is typed as ``list[Unknown]`` by valkey-py
+            # — cast to the concrete shape we actually get from ``SET
+            # NX EX``: ``True`` on acquire, ``None`` on conflict.
+            set_results = typing.cast(
+                'list[bool | None]', await pipe.execute()
+            )
         accepted = [
             pid for pid, ok in zip(ids, set_results, strict=True) if ok
         ]
@@ -119,7 +124,7 @@ async def enqueue_recompute_bulk(
             return 0
         async with client.pipeline(transaction=False) as pipe:
             for pid in accepted:
-                pipe.xadd(
+                pipe.xadd(  # pyright: ignore[reportUnknownMemberType]
                     STREAM,
                     {
                         'project_id': pid,
