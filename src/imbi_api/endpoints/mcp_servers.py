@@ -40,7 +40,7 @@ class MCPServerCreate(pydantic.BaseModel):
 
     name: str
     slug: str
-    url: str
+    url: pydantic.HttpUrl
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     enabled: bool = True
@@ -51,7 +51,7 @@ class MCPServerCreate(pydantic.BaseModel):
     auth_type: AuthType = 'none'
     static_header: str | None = None
     static_value: str | None = None
-    oauth_token_url: str | None = None
+    oauth_token_url: pydantic.HttpUrl | None = None
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
     oauth_scope: str | None = None
@@ -68,7 +68,7 @@ class MCPServerUpdate(pydantic.BaseModel):
 
     name: str | None = None
     slug: str | None = None
-    url: str | None = None
+    url: pydantic.HttpUrl | None = None
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     enabled: bool | None = None
@@ -79,7 +79,7 @@ class MCPServerUpdate(pydantic.BaseModel):
     auth_type: AuthType | None = None
     static_header: str | None = None
     static_value: str | None = None
-    oauth_token_url: str | None = None
+    oauth_token_url: pydantic.HttpUrl | None = None
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
     oauth_scope: str | None = None
@@ -95,7 +95,7 @@ class MCPServerResponse(pydantic.BaseModel):
     id: str
     name: str
     slug: str
-    url: str
+    url: pydantic.HttpUrl
     description: str | None = None
     icon: pydantic.HttpUrl | str | None = None
     enabled: bool = True
@@ -106,7 +106,7 @@ class MCPServerResponse(pydantic.BaseModel):
     auth_type: AuthType = 'none'
     static_header: str | None = None
     has_static_value: bool = False
-    oauth_token_url: str | None = None
+    oauth_token_url: pydantic.HttpUrl | None = None
     oauth_client_id: str | None = None
     has_oauth_client_secret: bool = False
     oauth_scope: str | None = None
