@@ -1089,10 +1089,11 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             self.assertIn('access_token=', location)
             # Refresh token is an HttpOnly cookie now, not in the fragment (C2)
             self.assertNotIn('refresh_token=', location)
-            self.assertIn(
-                'imbi_refresh_token',
-                response.headers.get('set-cookie', ''),
-            )
+            set_cookie = response.headers.get('set-cookie', '')
+            self.assertIn('imbi_refresh_token=', set_cookie)
+            self.assertIn('HttpOnly', set_cookie)
+            self.assertIn('SameSite=strict', set_cookie)
+            self.assertIn('Path=/auth', set_cookie)
             self.assertIn('token_type=bearer', location)
             self.assertIn('expires_in=', location)
 
@@ -1192,10 +1193,11 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             self.assertIn('access_token=', location)
             # Refresh token moved to an HttpOnly cookie (C2)
             self.assertNotIn('refresh_token=', location)
-            self.assertIn(
-                'imbi_refresh_token',
-                response.headers.get('set-cookie', ''),
-            )
+            set_cookie = response.headers.get('set-cookie', '')
+            self.assertIn('imbi_refresh_token=', set_cookie)
+            self.assertIn('HttpOnly', set_cookie)
+            self.assertIn('SameSite=strict', set_cookie)
+            self.assertIn('Path=/auth', set_cookie)
 
             # Verify merge was called for user + identity
             self.assertTrue(self.mock_db.merge.called)
@@ -1684,9 +1686,11 @@ class TokenRefreshTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         # The rotated token is written back to the cookie.
-        self.assertIn(
-            'imbi_refresh_token', response.headers.get('set-cookie', '')
-        )
+        set_cookie = response.headers.get('set-cookie', '')
+        self.assertIn('imbi_refresh_token=', set_cookie)
+        self.assertIn('HttpOnly', set_cookie)
+        self.assertIn('SameSite=strict', set_cookie)
+        self.assertIn('Path=/auth', set_cookie)
 
     def test_refresh_token_missing_returns_401(self) -> None:
         """No cookie and no body yields 401 rather than a 422."""
@@ -2616,9 +2620,11 @@ class IdentityPluginLoginFlowTestCase(unittest.TestCase):
         self.assertIn('/projects#', location)
         self.assertIn('access_token=', location)
         self.assertNotIn('refresh_token=', location)
-        self.assertIn(
-            'imbi_refresh_token', response.headers.get('set-cookie', '')
-        )
+        set_cookie = response.headers.get('set-cookie', '')
+        self.assertIn('imbi_refresh_token=', set_cookie)
+        self.assertIn('HttpOnly', set_cookie)
+        self.assertIn('SameSite=strict', set_cookie)
+        self.assertIn('Path=/auth', set_cookie)
         upsert_mock.assert_awaited_once()
         # Verify the new user was upserted into the graph.
         merged = [c.args[0] for c in self.mock_db.merge.call_args_list]
