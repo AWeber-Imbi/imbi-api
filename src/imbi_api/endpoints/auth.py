@@ -83,6 +83,38 @@ def _is_safe_redirect_uri(
     return False
 
 
+_REFRESH_COOKIE = 'imbi_refresh_token'
+
+
+def _set_refresh_cookie(
+    response: fastapi.Response, refresh_token: str
+) -> None:
+    """Store the refresh token in an HttpOnly cookie (C2).
+
+    Keeps the long-lived refresh token out of JS-readable storage and out
+    of the OAuth callback URL fragment (where it would otherwise leak via
+    browser history, the Referer header, and logs). Scoped to ``/auth`` so
+    it is only sent to the token-refresh and logout endpoints. ``Secure``
+    is set outside development; ``SameSite=Strict`` is safe because the UI
+    and API are served from one origin behind the ingress.
+    """
+    auth_settings = settings.get_auth_settings()
+    response.set_cookie(
+        _REFRESH_COOKIE,
+        refresh_token,
+        max_age=auth_settings.refresh_token_expire_seconds,
+        path='/auth',
+        httponly=True,
+        secure=settings.get_server_config().environment != 'development',
+        samesite='strict',
+    )
+
+
+def _clear_refresh_cookie(response: fastapi.Response) -> None:
+    """Remove the refresh-token cookie (logout)."""
+    response.delete_cookie(_REFRESH_COOKIE, path='/auth')
+
+
 auth_router = fastapi.APIRouter(prefix='/auth', tags=['Authentication'])
 
 
@@ -298,6 +330,7 @@ async def token(
 @rate_limit.limiter.limit('5/minute')  # type: ignore[untyped-decorator]
 async def login(
     request: fastapi.Request,
+    response: fastapi.Response,
     db: graph.Pool,
     email: typing.Annotated[pydantic.EmailStr, fastapi.Body()],
     password: typing.Annotated[str, fastapi.Body()],
@@ -454,6 +487,7 @@ async def login(
 
     LOGGER.info('User %s logged in successfully', _redact_email(user.email))
 
+    _set_refresh_cookie(response, refresh_token)
     return auth_models.TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -533,8 +567,9 @@ async def _handle_refresh_reuse(
 @rate_limit.limiter.limit('10/minute')  # type: ignore[untyped-decorator]
 async def refresh_token(
     request: fastapi.Request,
+    response: fastapi.Response,
     db: graph.Pool,
-    refresh_request: auth_models.TokenRefreshRequest,
+    refresh_request: auth_models.TokenRefreshRequest | None = None,
 ) -> auth_models.TokenResponse:
     """Refresh access token and rotate refresh token (Phase 5).
 
@@ -555,11 +590,20 @@ async def refresh_token(
     """
     auth_settings = settings.get_auth_settings()
 
+    # The browser flow sends the refresh token as an HttpOnly cookie (C2);
+    # programmatic clients (e.g. the /auth/token grant) may still send it
+    # in the request body. Prefer the cookie, fall back to the body.
+    token_str = request.cookies.get(_REFRESH_COOKIE) or (
+        refresh_request.refresh_token if refresh_request else None
+    )
+    if not token_str:
+        raise fastapi.HTTPException(
+            status_code=401, detail='Missing refresh token'
+        )
+
     # Decode and validate refresh token
     try:
-        payload = core.verify_token(
-            refresh_request.refresh_token, auth_settings
-        )
+        payload = core.verify_token(token_str, auth_settings)
     except jwt.ExpiredSignatureError as err:
         LOGGER.warning('Token refresh failed: token expired')
         raise fastapi.HTTPException(
@@ -672,6 +716,7 @@ async def refresh_token(
         principal_id,
     )
 
+    _set_refresh_cookie(response, new_refresh_token)
     return auth_models.TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh_token,  # Phase 5: Return NEW
@@ -683,6 +728,7 @@ async def refresh_token(
 @rate_limit.limiter.limit('30/minute')  # type: ignore[untyped-decorator]
 async def logout(
     request: fastapi.Request,
+    response: fastapi.Response,
     db: graph.Pool,
     auth: typing.Annotated[
         permissions.AuthContext,
@@ -700,6 +746,9 @@ async def logout(
 
     """
     now_str = datetime.datetime.now(datetime.UTC).isoformat()
+
+    # Clear the browser refresh cookie (C2) regardless of revoke scope.
+    _clear_refresh_cookie(response)
 
     # Revoke current access token
     query: typing.LiteralString = """
@@ -1092,16 +1141,19 @@ async def oauth_callback(
             provider,
         )
 
-        # Redirect to frontend with tokens in URL fragment
+        # Hand the access token to the SPA via the URL fragment but keep
+        # the refresh token out of it — it goes in an HttpOnly cookie (C2)
+        # so it never lands in browser history, the Referer header, or logs.
         redirect_url = (
             f'{state_data.redirect_uri}#'
             f'access_token={at}&'
-            f'refresh_token={rt}&'
             f'token_type=bearer&'
             f'expires_in='
             f'{auth_settings.access_token_expire_seconds}'
         )
-        return fastapi.responses.RedirectResponse(url=redirect_url)
+        redirect = fastapi.responses.RedirectResponse(url=redirect_url)
+        _set_refresh_cookie(redirect, rt)
+        return redirect
 
     except (
         ValueError,
@@ -1221,19 +1273,19 @@ async def _identity_plugin_login_callback(
     user.last_login = meta['issued_at']
     await db.merge(user, match_on=['email'])
 
-    # Redirect to frontend with tokens in URL fragment so they are not
-    # forwarded to the server in subsequent requests, matching the
-    # legacy OAuth callback's behaviour.
+    # Access token via the URL fragment; refresh token via an HttpOnly
+    # cookie (C2) so it is never exposed in the fragment.
     target = return_to or '/dashboard'
     redirect_url = (
         f'{target}#'
         f'access_token={at}&'
-        f'refresh_token={rt}&'
         f'token_type=bearer&'
         f'expires_in='
         f'{auth_settings.access_token_expire_seconds}'
     )
-    return fastapi.responses.RedirectResponse(url=redirect_url)
+    redirect = fastapi.responses.RedirectResponse(url=redirect_url)
+    _set_refresh_cookie(redirect, rt)
+    return redirect
 
 
 async def find_or_create_oauth_identity(

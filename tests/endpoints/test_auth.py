@@ -1058,7 +1058,12 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             location = response.headers['location']
             self.assertIn('/dashboard#', location)
             self.assertIn('access_token=', location)
-            self.assertIn('refresh_token=', location)
+            # Refresh token is an HttpOnly cookie now, not in the fragment (C2)
+            self.assertNotIn('refresh_token=', location)
+            self.assertIn(
+                'imbi_refresh_token',
+                response.headers.get('set-cookie', ''),
+            )
             self.assertIn('token_type=bearer', location)
             self.assertIn('expires_in=', location)
 
@@ -1156,7 +1161,12 @@ class OAuthCallbackSuccessTestCase(unittest.TestCase):
             location = response.headers['location']
             self.assertIn('/dashboard#', location)
             self.assertIn('access_token=', location)
-            self.assertIn('refresh_token=', location)
+            # Refresh token moved to an HttpOnly cookie (C2)
+            self.assertNotIn('refresh_token=', location)
+            self.assertIn(
+                'imbi_refresh_token',
+                response.headers.get('set-cookie', ''),
+            )
 
             # Verify merge was called for user + identity
             self.assertTrue(self.mock_db.merge.called)
@@ -1610,6 +1620,56 @@ class TokenRefreshTestCase(unittest.TestCase):
             # reuse would miss every descendant minted from this call.
             second_call_params = self.mock_db.execute.call_args_list[1][0][1]
             self.assertEqual(second_call_params['family_id'], 'fam-test')
+
+    def test_refresh_token_via_cookie(self) -> None:
+        """Refresh succeeds from the HttpOnly cookie with no request body."""
+        from imbi_common.auth import core
+
+        from imbi_api import models
+
+        auth_settings = settings.Auth(
+            jwt_secret='test-secret-key-min-32-chars-long',
+        )
+        test_user = models.User(
+            email='test@example.com',
+            display_name='Test User',
+            is_active=True,
+            password_hash=None,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        refresh = core.create_refresh_token(
+            test_user.email, auth_settings=auth_settings
+        )
+        self.mock_db.match.return_value = [test_user]
+        self.mock_db.execute.side_effect = [
+            [{'family_id': 'fam-test'}],
+            [{'principal_count': 1}],
+        ]
+        with mock.patch(
+            'imbi_api.settings.get_auth_settings',
+            return_value=auth_settings,
+        ):
+            response = self.client.post(
+                '/auth/token/refresh',
+                cookies={'imbi_refresh_token': refresh},
+            )
+        self.assertEqual(response.status_code, 200)
+        # The rotated token is written back to the cookie.
+        self.assertIn(
+            'imbi_refresh_token', response.headers.get('set-cookie', '')
+        )
+
+    def test_refresh_token_missing_returns_401(self) -> None:
+        """No cookie and no body yields 401 rather than a 422."""
+        auth_settings = settings.Auth(
+            jwt_secret='test-secret-key-min-32-chars-long',
+        )
+        with mock.patch(
+            'imbi_api.settings.get_auth_settings',
+            return_value=auth_settings,
+        ):
+            response = self.client.post('/auth/token/refresh')
+        self.assertEqual(response.status_code, 401)
 
     def test_refresh_token_expired(self) -> None:
         """Test token refresh with expired token."""
@@ -2523,10 +2583,13 @@ class IdentityPluginLoginFlowTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 307)
         location = response.headers['location']
-        # Tokens land in the URL fragment, not the query string.
+        # Access token in the fragment; refresh token in an HttpOnly cookie.
         self.assertIn('/projects#', location)
         self.assertIn('access_token=', location)
-        self.assertIn('refresh_token=', location)
+        self.assertNotIn('refresh_token=', location)
+        self.assertIn(
+            'imbi_refresh_token', response.headers.get('set-cookie', '')
+        )
         upsert_mock.assert_awaited_once()
         # Verify the new user was upserted into the graph.
         merged = [c.args[0] for c in self.mock_db.merge.call_args_list]
