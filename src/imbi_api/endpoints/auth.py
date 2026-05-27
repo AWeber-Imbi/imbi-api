@@ -56,6 +56,33 @@ def _redact_email(email: str) -> str:
     return f'{prefix}***@{domain}'
 
 
+def _is_safe_redirect_uri(
+    redirect_uri: str, allowed_origins: list[str]
+) -> bool:
+    """Return whether *redirect_uri* is a safe post-login destination.
+
+    The OAuth callback hands freshly-minted tokens to this URI, so a
+    caller-controlled value is an account-takeover vector (tokens
+    exfiltrated to an attacker host). Only two shapes are allowed:
+
+    * a same-origin relative path — a single leading ``/`` that is not a
+      scheme-relative ``//host`` or a ``/\\`` backslash trick; and
+    * an absolute ``http(s)`` URL whose ``scheme://host[:port]`` origin is
+      in the configured CORS allow-list (the trusted front-ends).
+
+    Everything else (arbitrary absolute URLs, ``javascript:``/``data:``
+    schemes, embedded whitespace browsers may strip) is rejected.
+    """
+    if not redirect_uri or any(c.isspace() for c in redirect_uri):
+        return False
+    if redirect_uri.startswith('/'):
+        return not redirect_uri.startswith(('//', '/\\'))
+    parsed = urlparse.urlparse(redirect_uri)
+    if parsed.scheme in ('http', 'https') and parsed.netloc:
+        return f'{parsed.scheme}://{parsed.netloc}' in allowed_origins
+    return False
+
+
 auth_router = fastapi.APIRouter(prefix='/auth', tags=['Authentication'])
 
 
@@ -799,6 +826,18 @@ async def oauth_login(
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Invalid provider: {provider}',
+        )
+
+    # Enforce the redirect-URI allow-list before it is signed into the
+    # OAuth state: the callback delivers tokens to this destination, so an
+    # off-origin value would exfiltrate them (C2).
+    server_config = settings.get_server_config()
+    if not _is_safe_redirect_uri(
+        redirect_uri, server_config.cors_allowed_origins
+    ):
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Invalid redirect_uri',
         )
 
     # Identity-plugin login providers route through the registry's

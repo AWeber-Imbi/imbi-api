@@ -12,6 +12,7 @@ from imbi_api import app, settings
 from imbi_api.auth import local_auth, login_providers
 from imbi_api.auth import models as auth_models
 from imbi_api.domain import models as domain_models
+from imbi_api.endpoints import auth as auth_endpoints
 from imbi_api.middleware import rate_limit
 
 
@@ -84,6 +85,50 @@ def _patch_providers(
         list_login_apps=fake_list,
         get_login_app=fake_get,
     )
+
+
+class IsSafeRedirectURITestCase(unittest.TestCase):
+    """Unit tests for the OAuth redirect_uri allow-list (C2)."""
+
+    _ALLOWED: typing.ClassVar[list[str]] = [
+        'https://imbi.example.com',
+        'http://localhost:5173',
+    ]
+
+    def _ok(self, uri: str) -> None:
+        self.assertTrue(
+            auth_endpoints._is_safe_redirect_uri(uri, self._ALLOWED), uri
+        )
+
+    def _bad(self, uri: str) -> None:
+        self.assertFalse(
+            auth_endpoints._is_safe_redirect_uri(uri, self._ALLOWED), uri
+        )
+
+    def test_relative_paths_allowed(self) -> None:
+        self._ok('/dashboard')
+        self._ok('/projects/42?tab=overview')
+
+    def test_absolute_url_in_allowlist_allowed(self) -> None:
+        self._ok('https://imbi.example.com/dashboard')
+        self._ok('http://localhost:5173/')
+
+    def test_absolute_url_not_in_allowlist_rejected(self) -> None:
+        self._bad('https://evil.example/steal')
+        self._bad('https://imbi.example.com.evil.example/')
+
+    def test_scheme_relative_and_backslash_rejected(self) -> None:
+        self._bad('//evil.example/path')
+        self._bad('/\\evil.example')
+
+    def test_non_http_schemes_rejected(self) -> None:
+        self._bad('javascript:alert(1)')
+        self._bad('data:text/html,<script>')
+
+    def test_empty_and_whitespace_rejected(self) -> None:
+        self._bad('')
+        self._bad('/path\nwith-newline')
+        self._bad(' /leading-space')
 
 
 class RedactEmailTestCase(unittest.TestCase):
@@ -286,6 +331,16 @@ class OAuthFlowTestCase(unittest.TestCase):
         location = response.headers['location']
         self.assertIn('github.com/login/oauth/authorize', location)
         self.assertIn('client_id=github-id', location)
+
+    def test_oauth_login_rejects_offsite_redirect_uri(self) -> None:
+        """An off-origin redirect_uri is refused before the provider hop."""
+        with _patch_providers([_stub_provider('google', client_id='id')]):
+            response = self.client.get(
+                '/auth/oauth/google?redirect_uri=https://evil.example/x',
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Invalid redirect_uri', response.json()['detail'])
 
     def test_oauth_callback_error_handling(self) -> None:
         """Test OAuth callback handles provider errors."""
