@@ -131,6 +131,35 @@ class IsSafeRedirectURITestCase(unittest.TestCase):
         self._bad(' /leading-space')
 
 
+class RefreshCookiePathTestCase(unittest.TestCase):
+    """The refresh cookie must be scoped under the public API prefix (C2).
+
+    The auth router lives at ``/auth`` inside the app, but the browser
+    sees it behind ``IMBI_API_URL``'s prefix (``/api`` in deployment). A
+    cookie scoped to a bare ``/auth`` is never sent to
+    ``/api/auth/token/refresh``, silently breaking token refresh.
+    """
+
+    def _path_for(self, api_url: str) -> str:
+        with mock.patch.dict('os.environ', {'IMBI_API_URL': api_url}):
+            cfg = settings.ServerConfig(_env_file=None)
+        with mock.patch.object(
+            auth_endpoints.settings, 'get_server_config', return_value=cfg
+        ):
+            return auth_endpoints._refresh_cookie_path()
+
+    def test_path_includes_deployment_prefix(self) -> None:
+        self.assertEqual(
+            self._path_for('https://imbi.example.com/api'), '/api/auth'
+        )
+
+    def test_path_is_bare_auth_without_prefix(self) -> None:
+        self.assertEqual(self._path_for('https://imbi.example.com'), '/auth')
+
+    def test_path_is_bare_auth_in_dev_loopback(self) -> None:
+        self.assertEqual(self._path_for(''), '/auth')
+
+
 class RedactEmailTestCase(unittest.TestCase):
     """Test cases for the _redact_email log helper."""
 

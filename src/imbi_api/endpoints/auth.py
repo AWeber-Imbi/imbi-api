@@ -86,6 +86,18 @@ def _is_safe_redirect_uri(
 _REFRESH_COOKIE = 'imbi_refresh_token'
 
 
+def _refresh_cookie_path() -> str:
+    """Browser-visible path the refresh cookie is scoped to.
+
+    The auth router is mounted at ``/auth`` within the app, but the app is
+    served behind the public ``IMBI_API_URL`` prefix (``/api`` in
+    deployment, empty in dev-loopback). The cookie ``Path`` is matched by
+    the browser against the public URL, so it must include that prefix or
+    the cookie is never sent to ``{prefix}/auth/token/refresh``.
+    """
+    return f'{settings.get_server_config().api_prefix}/auth'
+
+
 def _set_refresh_cookie(
     response: fastapi.Response, refresh_token: str
 ) -> None:
@@ -93,8 +105,8 @@ def _set_refresh_cookie(
 
     Keeps the long-lived refresh token out of JS-readable storage and out
     of the OAuth callback URL fragment (where it would otherwise leak via
-    browser history, the Referer header, and logs). Scoped to ``/auth`` so
-    it is only sent to the token-refresh and logout endpoints. ``Secure``
+    browser history, the Referer header, and logs). Scoped to the auth
+    endpoints so it is only sent to token-refresh and logout. ``Secure``
     is set outside development; ``SameSite=Strict`` is safe because the UI
     and API are served from one origin behind the ingress.
     """
@@ -103,7 +115,7 @@ def _set_refresh_cookie(
         _REFRESH_COOKIE,
         refresh_token,
         max_age=auth_settings.refresh_token_expire_seconds,
-        path='/auth',
+        path=_refresh_cookie_path(),
         httponly=True,
         secure=settings.get_server_config().environment != 'development',
         samesite='strict',
@@ -112,7 +124,7 @@ def _set_refresh_cookie(
 
 def _clear_refresh_cookie(response: fastapi.Response) -> None:
     """Remove the refresh-token cookie (logout)."""
-    response.delete_cookie(_REFRESH_COOKIE, path='/auth')
+    response.delete_cookie(_REFRESH_COOKIE, path=_refresh_cookie_path())
 
 
 auth_router = fastapi.APIRouter(prefix='/auth', tags=['Authentication'])
