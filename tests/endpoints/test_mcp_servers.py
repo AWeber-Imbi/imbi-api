@@ -154,6 +154,45 @@ class MCPServerEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn('already exists', response.json()['detail'])
 
+    def test_create_static_missing_fields_returns_400(self) -> None:
+        """auth_type 'static' without header/value is rejected."""
+        with mock.patch(
+            'imbi_api.endpoints.mcp_servers.encrypt_config_value',
+            side_effect=lambda v: None if v is None else f'enc:{v}',
+        ):
+            response = self.client.post(
+                '/mcp-servers/',
+                json={
+                    'name': 'Example',
+                    'slug': 'example',
+                    'url': 'https://mcp.example.com',
+                    'auth_type': 'static',
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('static', response.json()['detail'])
+        self.mock_db.execute.assert_not_called()
+
+    def test_create_oauth_missing_fields_returns_400(self) -> None:
+        """auth_type 'oauth_client_credentials' missing fields is rejected."""
+        with mock.patch(
+            'imbi_api.endpoints.mcp_servers.encrypt_config_value',
+            side_effect=lambda v: None if v is None else f'enc:{v}',
+        ):
+            response = self.client.post(
+                '/mcp-servers/',
+                json={
+                    'name': 'Example',
+                    'slug': 'example',
+                    'url': 'https://mcp.example.com',
+                    'auth_type': 'oauth_client_credentials',
+                    'oauth_token_url': 'https://auth.example.com/token',
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('oauth_client_credentials', response.json()['detail'])
+        self.mock_db.execute.assert_not_called()
+
     # -- List / Get ----------------------------------------------------
 
     def test_list_success(self) -> None:
@@ -296,6 +335,21 @@ class MCPServerEndpointsTestCase(unittest.TestCase):
         data = response.json()
         self.assertTrue(data['has_static_value'])
         self.assertNotIn('static_value_encrypted', data)
+
+    def test_patch_auth_switch_missing_fields_returns_400(self) -> None:
+        """Switching auth_type without its required fields is rejected."""
+        self.mock_db.match.return_value = [self._model()]
+        with mock.patch(
+            'imbi_api.endpoints.mcp_servers.encrypt_config_value',
+            side_effect=lambda v: None if v is None else f'enc:{v}',
+        ):
+            response = self.client.patch(
+                '/mcp-servers/srv-1',
+                json={'auth_type': 'oauth_client_credentials'},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('oauth_client_credentials', response.json()['detail'])
+        self.mock_db.execute.assert_not_called()
 
     def test_patch_not_found(self) -> None:
         """Patching a missing id returns 404."""
