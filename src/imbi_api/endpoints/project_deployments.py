@@ -42,6 +42,7 @@ from imbi_api.endpoints._helpers import (
     lookup_project_links,
     lookup_project_slugs,
     lookup_project_type_slugs,
+    update_project_link,
 )
 from imbi_api.endpoints.releases import (
     AppendOutcome,
@@ -293,6 +294,40 @@ async def _resolve_and_context(
                 ),
             )
     return resolved, ctx, credentials
+
+
+async def heal_relocated_link(db: graph.Graph, ctx: PluginContext) -> None:
+    """Persist a repository rename a deployment plugin reported on ``ctx``.
+
+    A deployment plugin sets ``ctx.repository_relocation`` when the remote
+    reports the repository has permanently moved (e.g. a GitHub ``301``
+    after a rename). Rewrite the project's stored link so later calls skip
+    the redirect and the UI shows the current name. Best-effort: a write
+    failure is logged and swallowed so self-healing never fails the
+    user-facing request whose result we already have.
+    """
+    reloc = ctx.repository_relocation
+    if reloc is None:
+        return
+    try:
+        changed = await update_project_link(
+            db, ctx.project_id, reloc.link_key, reloc.new_url
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.warning(
+            'Failed to self-heal relocated repository link for project %s',
+            ctx.project_id,
+            exc_info=True,
+        )
+        return
+    if changed:
+        LOGGER.info(
+            'Self-healed %s link for project %s after repo rename %s -> %s',
+            reloc.link_key,
+            ctx.project_id,
+            reloc.old_owner_repo,
+            reloc.new_owner_repo,
+        )
 
 
 class _EnvFlags(typing.NamedTuple):
@@ -654,6 +689,7 @@ async def resync_for_project(
                 'list_recent_deployments.'
             ),
         ) from exc
+    await heal_relocated_link(db, ctx)
     summary.observed = len(observations)
     # Track identities we've already touched so ``releases_created`` /
     # ``releases_updated`` are counted once per distinct
@@ -823,9 +859,11 @@ async def list_refs(
         db, org_slug, project_id, auth, source=source
     )
     handler = _handler(resolved)
-    return await call_with_timeout(
+    refs = await call_with_timeout(
         handler.list_refs(ctx, credentials, kind=kind, query=q)
     )
+    await heal_relocated_link(db, ctx)
+    return refs
 
 
 @project_deployments_router.get('/refs/{ref:path}/commits')
@@ -848,9 +886,11 @@ async def list_commits(
         db, org_slug, project_id, auth, source=source
     )
     handler = _handler(resolved)
-    return await call_with_timeout(
+    commits = await call_with_timeout(
         handler.list_commits(ctx, credentials, ref=ref, limit=limit)
     )
+    await heal_relocated_link(db, ctx)
+    return commits
 
 
 @project_deployments_router.get('/commits/{committish}')
@@ -872,9 +912,11 @@ async def resolve_commit(
         db, org_slug, project_id, auth, source=source
     )
     handler = _handler(resolved)
-    return await call_with_timeout(
+    commit = await call_with_timeout(
         handler.resolve_committish(ctx, credentials, committish)
     )
+    await heal_relocated_link(db, ctx)
+    return commit
 
 
 @project_deployments_router.get('/compare')
@@ -897,9 +939,11 @@ async def compare_refs(
         db, org_slug, project_id, auth, source=source
     )
     handler = _handler(resolved)
-    return await call_with_timeout(
+    result = await call_with_timeout(
         handler.compare(ctx, credentials, base=base, head=head)
     )
+    await heal_relocated_link(db, ctx)
+    return result
 
 
 @project_deployments_router.post('', status_code=202)
@@ -1095,6 +1139,7 @@ async def _handle_deploy(
     run = await call_with_identity_retry(
         db, ctx, resolved, auth, fn=_trigger, attached=True
     )
+    await heal_relocated_link(db, ctx)
     LOGGER.info(
         'Deployment triggered: project=%s env=%s ref=%s plugin=%s '
         'action=%s actor=%s run_id=%s',
@@ -1409,6 +1454,8 @@ async def _handle_promote(
             tag=body.tag,
             warning='; '.join(warnings) if warnings else None,
         )
+
+    await heal_relocated_link(db, ctx)
 
     # 4. Upsert the Release node so future deploys of the same tag
     #    can attach a DeploymentEvent.

@@ -171,6 +171,37 @@ async def lookup_project_links(
     return {str(k): str(v) for k, v in items.items() if v}
 
 
+async def update_project_link(
+    db: graph.Graph,
+    project_id: str,
+    key: str,
+    url: str,
+) -> bool:
+    """Set a single entry in the project's external link map.
+
+    Reads the current links (via :func:`lookup_project_links`), sets
+    ``links[key] = url``, and writes the map back as the JSON-encoded
+    string ``p.links`` is stored as on the AGE node. Returns ``True`` when
+    a write happened and ``False`` when the link already had ``url`` (a
+    no-op). Used to self-heal a stale ``github-repository`` link after a
+    deployment plugin reports the remote repository was renamed.
+    """
+    links = await lookup_project_links(db, project_id)
+    if links.get(key) == url:
+        return False
+    links[key] = url
+    query: typing.LiteralString = (
+        'MATCH (p:Project {{id: {project_id}}}) '
+        'SET p.links = {links} RETURN p.id AS id'
+    )
+    await db.execute(
+        query,
+        {'project_id': project_id, 'links': json.dumps(links)},
+        ['id'],
+    )
+    return True
+
+
 async def lookup_project_type_slugs(
     db: graph.Graph,
     project_id: str,
