@@ -1125,9 +1125,22 @@ def _build_attribute_filter(
                 ),
             )
         if op in ('exists', 'not_exists'):
+            if value:
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail=(
+                        f'Filter {raw!r} does not accept a value for '
+                        f'operator {op!r}'
+                    ),
+                )
             null_op = 'IS NOT NULL' if op == 'exists' else 'IS NULL'
             clauses.append(f'p.{field} {null_op}')
             continue
+        if op in ('eq', 'ne') and value == '':
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f'Filter {raw!r} requires a value',
+            )
         values = (
             [v for v in value.split(',') if v]
             if op in ('in', 'not_in')

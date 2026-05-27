@@ -1302,6 +1302,21 @@ class ProjectEndpointsTestCase(unittest.TestCase):
         response = self._list_with_filter('filter=framework')
         self.assertEqual(response.status_code, 400)
 
+    def test_filter_exists_with_value_rejected(self) -> None:
+        response = self._list_with_filter('filter=framework:exists:x')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('does not accept a value', response.json()['detail'])
+
+    def test_filter_eq_without_value_rejected(self) -> None:
+        response = self._list_with_filter('filter=framework:eq')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('requires a value', response.json()['detail'])
+
+    def test_filter_ne_without_value_rejected(self) -> None:
+        response = self._list_with_filter('filter=framework:ne')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('requires a value', response.json()['detail'])
+
 
 class _RelationshipsTestBase(unittest.TestCase):
     """Shared setup for relationship endpoint tests."""
