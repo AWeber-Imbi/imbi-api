@@ -39,10 +39,10 @@ from imbi_common.plugins.errors import PluginCredentialsMissing
 
 from imbi_api.auth import permissions
 from imbi_api.endpoints._helpers import (
+    heal_relocated_link,
     lookup_project_links,
     lookup_project_slugs,
     lookup_project_type_slugs,
-    update_project_link,
 )
 from imbi_api.endpoints.releases import (
     AppendOutcome,
@@ -294,40 +294,6 @@ async def _resolve_and_context(
                 ),
             )
     return resolved, ctx, credentials
-
-
-async def heal_relocated_link(db: graph.Graph, ctx: PluginContext) -> None:
-    """Persist a repository rename a deployment plugin reported on ``ctx``.
-
-    A deployment plugin sets ``ctx.repository_relocation`` when the remote
-    reports the repository has permanently moved (e.g. a GitHub ``301``
-    after a rename). Rewrite the project's stored link so later calls skip
-    the redirect and the UI shows the current name. Best-effort: a write
-    failure is logged and swallowed so self-healing never fails the
-    user-facing request whose result we already have.
-    """
-    reloc = ctx.repository_relocation
-    if reloc is None:
-        return
-    try:
-        changed = await update_project_link(
-            db, ctx.project_id, reloc.link_key, reloc.new_url
-        )
-    except Exception:  # noqa: BLE001
-        LOGGER.warning(
-            'Failed to self-heal relocated repository link for project %s',
-            ctx.project_id,
-            exc_info=True,
-        )
-        return
-    if changed:
-        LOGGER.info(
-            'Self-healed %s link for project %s after repo rename %s -> %s',
-            reloc.link_key,
-            ctx.project_id,
-            reloc.old_owner_repo,
-            reloc.new_owner_repo,
-        )
 
 
 class _EnvFlags(typing.NamedTuple):

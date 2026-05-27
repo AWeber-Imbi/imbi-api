@@ -164,6 +164,7 @@ def _entry() -> RegistryEntry:
 
 
 _MODULE = 'imbi_api.endpoints.project_deployments'
+_UPDATE_LINK = 'imbi_api.endpoints._helpers.update_project_link'
 
 
 class ProjectDeploymentsTestCase(unittest.TestCase):
@@ -1528,7 +1529,7 @@ class RepositoryRelocationHealingTestCase(ProjectDeploymentsTestCase):
         self.mocks['resolve_plugin'].return_value = _relocating_resolved()
         # update_project_link is async; patch auto-uses AsyncMock.
         self.update_link = self._start(
-            mock.patch(f'{_MODULE}.update_project_link', return_value=True)
+            mock.patch(_UPDATE_LINK, return_value=True)
         )
 
     def test_list_commits_heals_relocated_link(self) -> None:
@@ -1574,7 +1575,7 @@ class HealRelocatedLinkTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_noop_when_no_relocation(self) -> None:
         db = mock.AsyncMock()
-        with mock.patch(f'{_MODULE}.update_project_link') as update_link:
+        with mock.patch(_UPDATE_LINK) as update_link:
             await heal_relocated_link(db, self._ctx(None))
         update_link.assert_not_called()
 
@@ -1586,9 +1587,7 @@ class HealRelocatedLinkTestCase(unittest.IsolatedAsyncioTestCase):
             old_owner_repo='octo/demo',
             new_owner_repo='octo/renamed',
         )
-        with mock.patch(
-            f'{_MODULE}.update_project_link', return_value=True
-        ) as update_link:
+        with mock.patch(_UPDATE_LINK, return_value=True) as update_link:
             await heal_relocated_link(db, self._ctx(reloc))
         update_link.assert_awaited_once_with(
             db, 'proj1', 'github-repository', 'https://github.com/octo/renamed'
@@ -1601,7 +1600,7 @@ class HealRelocatedLinkTestCase(unittest.IsolatedAsyncioTestCase):
             new_url='https://github.com/octo/renamed',
         )
         with mock.patch(
-            f'{_MODULE}.update_project_link',
+            _UPDATE_LINK,
             side_effect=RuntimeError('graph down'),
         ):
             # Must not raise — self-heal is best-effort.
