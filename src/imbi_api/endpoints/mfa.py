@@ -369,7 +369,7 @@ async def disable_mfa(
 
         # Fetch and verify MFA code
         totp_data = await fetch_totp_secret(db, auth.require_user.email)
-        if totp_data is None:
+        if totp_data is None or not totp_data.get('enabled', False):
             raise fastapi.HTTPException(
                 status_code=404, detail='MFA not enabled'
             )

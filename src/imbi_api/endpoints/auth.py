@@ -373,7 +373,10 @@ async def login(
                 update_q,
                 {'email': user.email, 'now': now_str},
             )
-            LOGGER.info('MFA verified via TOTP for user %s', user.email)
+            LOGGER.info(
+                'MFA verified via TOTP for user %s',
+                _redact_email(user.email),
+            )
         else:
             # Backup-code path: atomically remove the used code. The
             # ``WHERE {used_hash} IN t.backup_codes`` guard + list
@@ -398,13 +401,16 @@ async def login(
             if not update_records:
                 LOGGER.warning(
                     'MFA backup code already consumed for user %s (race)',
-                    user.email,
+                    _redact_email(user.email),
                 )
                 raise fastapi.HTTPException(
                     status_code=401,
                     detail='Invalid MFA code',
                 )
-            LOGGER.info('MFA verified via backup code for user %s', user.email)
+            LOGGER.info(
+                'MFA verified via backup code for user %s',
+                _redact_email(user.email),
+            )
 
     # Create tokens
     auth_settings = settings.get_auth_settings()
