@@ -830,11 +830,16 @@ async def oauth_login(
 
     # Enforce the redirect-URI allow-list before it is signed into the
     # OAuth state: the callback delivers tokens to this destination, so an
-    # off-origin value would exfiltrate them (C2).
+    # off-origin value would exfiltrate them (C2). The SPA sends an
+    # absolute same-origin callback (``window.location.origin/auth/callback``)
+    # and UI+API share a host behind the ingress, so the API's own public
+    # origin must be trusted alongside any configured CORS origins.
     server_config = settings.get_server_config()
-    if not _is_safe_redirect_uri(
-        redirect_uri, server_config.cors_allowed_origins
-    ):
+    allowed_origins = list(server_config.cors_allowed_origins)
+    own = urlparse.urlparse(server_config.public_base_url)
+    if own.scheme and own.netloc:
+        allowed_origins.append(f'{own.scheme}://{own.netloc}')
+    if not _is_safe_redirect_uri(redirect_uri, allowed_origins):
         raise fastapi.HTTPException(
             status_code=400,
             detail='Invalid redirect_uri',

@@ -271,6 +271,7 @@ class OAuthFlowTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """Set up test client."""
         settings._auth_settings = None
+        rate_limit.limiter.reset()
         self.test_app = app.create_app()
 
         self.mock_db = mock.AsyncMock(spec=graph.Graph)
@@ -283,6 +284,7 @@ class OAuthFlowTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         """Reset settings singleton after tests."""
         settings._auth_settings = None
+        rate_limit.limiter.reset()
 
     def test_oauth_login_invalid_provider(self) -> None:
         """Test OAuth login with unknown provider slug."""
@@ -341,6 +343,26 @@ class OAuthFlowTestCase(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 400)
         self.assertIn('Invalid redirect_uri', response.json()['detail'])
+
+    def test_oauth_login_allows_same_origin_absolute_callback(self) -> None:
+        """The SPA's absolute same-origin callback URL is accepted.
+
+        imbi-ui sends ``redirect_uri=<api-origin>/auth/callback`` (an
+        absolute URL), and UI+API share a host, so the API's own public
+        origin must satisfy the allow-list even with no CORS origins set.
+        """
+        from urllib import parse as _urlparse
+
+        cfg = settings.get_server_config()
+        origin = _urlparse.urlparse(cfg.public_base_url)
+        callback = f'{origin.scheme}://{origin.netloc}/auth/callback'
+        with _patch_providers([_stub_provider('google', client_id='id')]):
+            response = self.client.get(
+                f'/auth/oauth/google?redirect_uri={callback}',
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 307)
+        self.assertIn('accounts.google.com', response.headers['location'])
 
     def test_oauth_callback_error_handling(self) -> None:
         """Test OAuth callback handles provider errors."""
