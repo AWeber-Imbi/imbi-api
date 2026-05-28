@@ -236,8 +236,8 @@ exclude-newer-package = { "clickhouse-connect" = false, "imbi-common" = false, "
 url = "https://pypi.org/simple"
 default = true
 
-# Pinned to the imbi-common feature branch while the new lifecycle
-# plugin contract (PR AWeber-Imbi/imbi-common#138) is unreleased.
-# Revert this block when imbi-common 2.8.0 ships to PyPI.
+# Pinned to imbi-common main while 2.8.0 is unreleased — #138 has
+# merged but no PyPI release has been cut yet.  Remove this block when
+# imbi-common 2.8.0 ships to PyPI.
 [tool.uv.sources]
-imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", branch = "feature/project-lifecycle-plugin-contract" }
+imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", branch = "main" }
