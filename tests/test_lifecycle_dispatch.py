@@ -35,9 +35,19 @@ def _make_lifecycle_entry(
     slug: str,
     *,
     archive_status: str = 'ok',
-    unarchive_raises: type[BaseException] | None = NotImplementedError,
+    unarchive_raises: type[BaseException] | None = None,
     archive_raises: type[BaseException] | None = None,
 ) -> RegistryEntry:
+    """Build a registry entry for a synthetic lifecycle plugin.
+
+    ``unarchive_raises`` defaults to ``None`` so the fixture inherits the
+    base ``LifecyclePlugin.on_project_unarchived`` stub (which raises
+    :class:`NotImplementedError`); the dispatcher detects the missing
+    hook by identity and reports ``status='skipped'`` without invoking.
+    Pass an exception class to install an *implemented* override that
+    raises -- exercising the runtime-failure path.
+    """
+
     class _FakeLifecycle(LifecyclePlugin):
         manifest = PluginManifest(
             slug=slug,
@@ -54,10 +64,13 @@ def _make_lifecycle_entry(
                 artifacts={'repo_url': 'https://github.com/o/r'},
             )
 
-        async def on_project_unarchived(self, ctx, credentials):  # type: ignore[override]
-            if unarchive_raises is not None:
-                raise unarchive_raises('unarchive boom')
-            return LifecycleResult(status='ok')
+    if unarchive_raises is not None:
+        _exc = unarchive_raises
+
+        async def _on_unarchived(self, ctx, credentials):  # type: ignore[no-untyped-def]
+            raise _exc('unarchive boom')
+
+        _FakeLifecycle.on_project_unarchived = _on_unarchived  # type: ignore[method-assign]
 
     return RegistryEntry(
         handler_cls=_FakeLifecycle,

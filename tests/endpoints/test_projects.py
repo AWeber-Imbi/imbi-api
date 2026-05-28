@@ -1363,7 +1363,9 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 },
             ],
         ]
-        self._dispatch_patcher.stop()
+        # The setUp patcher is registered via addCleanup; nest a new
+        # ``mock.patch`` on the same target so its return value wins for
+        # the duration of this test without double-stopping the cleanup.
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
@@ -1422,7 +1424,9 @@ class ProjectEndpointsTestCase(unittest.TestCase):
                 },
             ],
         ]
-        self._dispatch_patcher.stop()
+        # Nest a fresh ``dispatch_lifecycle`` patch over the setUp one --
+        # the inner mock.patch wins for the duration of the with-block
+        # and addCleanup handles teardown of the outer patcher.
         with (
             mock.patch(
                 'imbi_common.blueprints.get_model',
@@ -1459,8 +1463,9 @@ class ProjectEndpointsTestCase(unittest.TestCase):
     ) -> None:
         """``delete_repository=false`` short-circuits the dispatch."""
         self.mock_db.execute.return_value = [{'deleted': 1}]
-        self._dispatch_patcher.stop()
-        self._bundle_patcher.stop()
+        # Nest fresh patches over the setUp ones -- the inner mock.patch
+        # wins for the duration of the with-block; addCleanup handles
+        # teardown of the outer patchers without a double-stop.
         with (
             mock.patch(
                 'imbi_common.graph.parse_agtype',

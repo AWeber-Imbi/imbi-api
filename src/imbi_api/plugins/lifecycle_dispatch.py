@@ -14,6 +14,7 @@ state change -- the operator's intent is authoritative.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import datetime
 import logging
@@ -103,9 +104,17 @@ async def build_lifecycle_context_bundle(
         lookup_project_type_slugs,
     )
 
-    project_slug, team_slug = await lookup_project_slugs(db, project_id)
-    project_links = await lookup_project_links(db, project_id)
-    project_type_slugs = await lookup_project_type_slugs(db, project_id)
+    # Three independent DB lookups; gather them concurrently so each
+    # lifecycle dispatch pays one round-trip latency rather than three.
+    (
+        (project_slug, team_slug),
+        project_links,
+        project_type_slugs,
+    ) = await asyncio.gather(
+        lookup_project_slugs(db, project_id),
+        lookup_project_links(db, project_id),
+        lookup_project_type_slugs(db, project_id),
+    )
     return LifecycleContextBundle(
         project_slug=project_slug,
         team_slug=team_slug,
@@ -202,6 +211,32 @@ async def _invoke_one(
     handler = typing.cast(LifecyclePlugin, resolved.entry.handler_cls())
     method_name = _EVENT_METHOD[event]
 
+    # Detect a truly-unimplemented hook (the plugin inherits the base
+    # ``LifecyclePlugin`` stub) *before* we call into it.  This lets a
+    # real ``NotImplementedError`` raised by an implemented hook surface
+    # as ``status='failed'`` via the generic exception handler instead of
+    # being misreported as ``skipped``.  ``on_project_archived`` is the
+    # only required hook -- a missing impl there still maps to ``failed``.
+    method = getattr(handler, method_name)
+    base_method = getattr(LifecyclePlugin, method_name, None)
+    if (
+        base_method is not None
+        and getattr(method, '__func__', method) is base_method
+    ):
+        if event == 'archived':
+            return LifecycleInvocation(
+                plugin_id=resolved.plugin_id,
+                plugin_slug=resolved.plugin_slug,
+                status='failed',
+                message=f'Plugin does not implement {method_name}',
+            )
+        return LifecycleInvocation(
+            plugin_id=resolved.plugin_id,
+            plugin_slug=resolved.plugin_slug,
+            status='skipped',
+            message=f'Plugin does not implement {method_name}',
+        )
+
     # call_with_identity_retry re-attaches identity onto a fresh context
     # before invoking ``_call`` (attached defaults to False here), so the
     # plugin mutates that inner context, not ``ctx``. Capture any link
@@ -220,24 +255,6 @@ async def _invoke_one(
     try:
         result = await call_with_identity_retry(
             db, ctx, resolved, auth, fn=_call
-        )
-    except NotImplementedError as exc:
-        # ``on_project_archived`` is the only required hook on
-        # :class:`LifecyclePlugin`; every other event's missing
-        # implementation is just "this plugin doesn't speak that event"
-        # and maps to a clean ``skipped`` rather than a hard failure.
-        if event == 'archived':
-            return LifecycleInvocation(
-                plugin_id=resolved.plugin_id,
-                plugin_slug=resolved.plugin_slug,
-                status='failed',
-                message=f'NotImplementedError: {exc}',
-            )
-        return LifecycleInvocation(
-            plugin_id=resolved.plugin_id,
-            plugin_slug=resolved.plugin_slug,
-            status='skipped',
-            message=f'Plugin does not implement {method_name}',
         )
     except fastapi.HTTPException as exc:
         return LifecycleInvocation(
