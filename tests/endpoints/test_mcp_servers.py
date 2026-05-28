@@ -605,6 +605,14 @@ class MCPServerPermissionTestCase(unittest.TestCase):
         response = self.client.get('/mcp-servers/')
         self.assertEqual(response.status_code, 200)
 
+    def test_test_config_denied(self) -> None:
+        """Testing an unsaved config without mcp_server:create is forbidden."""
+        response = self.client.post(
+            '/mcp-servers/test',
+            json={'url': 'https://mcp.example.com', 'auth_type': 'none'},
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_test_denied(self) -> None:
         """Testing without mcp_server:update is forbidden."""
         response = self.client.post('/mcp-servers/srv-1/test')

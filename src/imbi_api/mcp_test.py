@@ -63,11 +63,16 @@ class OAuthClientCredentialsAuth(httpx.Auth):
         client_id: str,
         client_secret: str,
         scope: str | None = None,
+        *,
+        verify_ssl: bool = True,
+        timeout_s: float = _OAUTH_TOKEN_TIMEOUT,
     ) -> None:
         self._token_url = token_url
         self._client_id = client_id
         self._client_secret = client_secret
         self._scope = scope
+        self._verify_ssl = verify_ssl
+        self._timeout_s = timeout_s
 
     async def _fetch_token(self) -> str:
         data: dict[str, str] = {
@@ -78,7 +83,8 @@ class OAuthClientCredentialsAuth(httpx.Auth):
         if self._scope:
             data['scope'] = self._scope
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_OAUTH_TOKEN_TIMEOUT)
+            timeout=httpx.Timeout(self._timeout_s),
+            verify=self._verify_ssl,
         ) as client:
             response = await client.post(self._token_url, data=data)
             response.raise_for_status()
@@ -118,6 +124,8 @@ def _build_auth(
                 client_id=server.oauth_client_id,
                 client_secret=secret,
                 scope=server.oauth_scope,
+                verify_ssl=server.verify_ssl,
+                timeout_s=float(server.timeout),
             )
         raise ValueError('OAuth auth is missing configuration')
     return None, None

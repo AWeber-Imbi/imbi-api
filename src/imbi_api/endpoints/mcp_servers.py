@@ -577,8 +577,10 @@ async def _persist(db: graph.Pool, node: models.MCPServer) -> models.MCPServer:
     """Write a mutated node back to the graph and return the result.
 
     ``id`` and ``created_at`` are preserved; every other property is
-    overwritten from ``node``.
+    overwritten from ``node``. ``updated_at`` is refreshed to the current
+    UTC time so callers always observe fresh metadata.
     """
+    node.updated_at = datetime.datetime.now(datetime.UTC)
     props = node.model_dump(mode='json', exclude={'id', 'created_at'})
     set_stmt = set_clause('n', props)
     query = f'MATCH (n:MCPServer {{{{id: {{id}}}}}}) {set_stmt} RETURN n'
