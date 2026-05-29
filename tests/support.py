@@ -5,24 +5,50 @@ Building the FastAPI app via :func:`imbi_api.app.create_app` costs
 app is ``dependency_overrides``. Rebuilding it in every ``setUp`` adds
 up to minutes across the suite, so share a single instance and reset
 the overrides between tests instead.
+
+Because the app is shared across every test in the process, per-test
+state must be torn down reliably even when a subclass overrides
+``setUp``/``tearDown`` without chaining to ``super()``. The reset is
+therefore registered in :meth:`run` (via ``addCleanup``), which always
+runs regardless of subclass overrides:
+
+* ``dependency_overrides`` is cleared so mocked dependencies cannot leak
+  into the next test that reuses the cached app.
+* Any :class:`starlette.testclient.TestClient` stored as an instance
+  attribute is closed so its portal thread/transport is not leaked.
 """
 
 import functools
 import unittest
 
 import fastapi
-
-from imbi_api import app
+from starlette import testclient
 
 
 @functools.cache
 def shared_app() -> fastapi.FastAPI:
     """Return a process-wide :class:`fastapi.FastAPI` instance."""
+    from imbi_api import app
+
     return app.create_app()
 
 
+def _reset(case: unittest.TestCase, test_app: fastapi.FastAPI) -> None:
+    """Clear shared-app state and close any per-test TestClient."""
+    test_app.dependency_overrides.clear()
+    for value in list(vars(case).values()):
+        if isinstance(value, testclient.TestClient):
+            value.close()
+
+
 class SharedAppTestCase(unittest.TestCase):
-    """Base case that reuses one app and clears overrides per test."""
+    """Base case that reuses one app and resets per-test state.
+
+    The reset (clearing ``dependency_overrides`` and closing any
+    ``TestClient`` attributes) is registered as a cleanup so it runs even
+    when subclasses override ``setUp``/``tearDown`` without calling
+    ``super()``.
+    """
 
     test_app: fastapi.FastAPI
 
@@ -31,9 +57,9 @@ class SharedAppTestCase(unittest.TestCase):
         super().setUpClass()
         cls.test_app = shared_app()
 
-    def tearDown(self) -> None:
-        self.test_app.dependency_overrides.clear()
-        super().tearDown()
+    def run(self, result=None):  # type: ignore[no-untyped-def]
+        self.addCleanup(_reset, self, self.test_app)
+        return super().run(result)
 
 
 class SharedAppAsyncTestCase(unittest.IsolatedAsyncioTestCase):
@@ -46,6 +72,6 @@ class SharedAppAsyncTestCase(unittest.IsolatedAsyncioTestCase):
         super().setUpClass()
         cls.test_app = shared_app()
 
-    def tearDown(self) -> None:
-        self.test_app.dependency_overrides.clear()
-        super().tearDown()
+    def run(self, result=None):  # type: ignore[no-untyped-def]
+        self.addCleanup(_reset, self, self.test_app)
+        return super().run(result)
