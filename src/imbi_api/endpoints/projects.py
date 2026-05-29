@@ -2451,6 +2451,22 @@ async def preview_lifecycle(
     broken plugin must not block the rest of the preview.
     """
     del auth  # read-only preview; authorization handled by the dependency.
+    exists_query: typing.LiteralString = (
+        'MATCH (p:Project {{id: {project_id}}}) '
+        '-[:OWNED_BY]->(:Team) '
+        '-[:BELONGS_TO]->(:Organization {{slug: {org_slug}}}) '
+        'RETURN p.id AS id'
+    )
+    exists = await db.execute(
+        exists_query,
+        {'project_id': project_id, 'org_slug': org_slug},
+        ['id'],
+    )
+    if not exists:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Project {project_id!r} not found',
+        )
     bundle = await build_lifecycle_context_bundle(db, project_id)
     resolved = await resolve_all_plugins(db, project_id, 'lifecycle')
     if not resolved:

@@ -1655,6 +1655,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
             entry=mock.MagicMock(handler_cls=lambda: plugin_b_handler),
         )
 
+        self.mock_db.execute.side_effect = [[{'id': PROJECT_ID}]]
         with (
             mock.patch(
                 'imbi_api.endpoints.projects.build_lifecycle_context_bundle',
@@ -1687,6 +1688,7 @@ class ProjectEndpointsTestCase(unittest.TestCase):
     def test_preview_returns_empty_when_no_lifecycle_plugins(self) -> None:
         """No assigned lifecycle plugins → empty previews list."""
         self._bundle_patcher.stop()
+        self.mock_db.execute.side_effect = [[{'id': PROJECT_ID}]]
         with (
             mock.patch(
                 'imbi_api.endpoints.projects.build_lifecycle_context_bundle',
@@ -1711,6 +1713,29 @@ class ProjectEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'previews': []})
+
+    def test_preview_returns_404_when_project_missing(self) -> None:
+        """Missing project → 404 instead of silently empty previews."""
+        self._bundle_patcher.stop()
+        self.mock_db.execute.side_effect = [[]]
+        with (
+            mock.patch(
+                'imbi_api.endpoints.projects.build_lifecycle_context_bundle',
+                new=mock.AsyncMock(),
+            ) as mock_bundle,
+            mock.patch(
+                'imbi_api.endpoints.projects.resolve_all_plugins',
+                new=mock.AsyncMock(return_value=[]),
+            ) as mock_resolve,
+        ):
+            response = self.client.get(
+                f'/organizations/engineering/projects/{PROJECT_ID}'
+                '/lifecycle/preview?project_type_slugs=worker',
+            )
+
+        self.assertEqual(response.status_code, 404)
+        mock_bundle.assert_not_awaited()
+        mock_resolve.assert_not_awaited()
 
 
 class _RelationshipsTestBase(unittest.TestCase):
