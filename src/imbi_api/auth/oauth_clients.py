@@ -28,6 +28,8 @@ def is_valid_redirect_uri(uri: str) -> bool:
     if not uri or any(c.isspace() for c in uri):
         return False
     parsed = urlparse.urlparse(uri)
+    if parsed.fragment:
+        return False
     if parsed.scheme == 'https' and parsed.netloc:
         return True
     if parsed.scheme == 'http':

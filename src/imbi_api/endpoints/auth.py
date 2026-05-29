@@ -659,6 +659,17 @@ async def register_oauth_client(
             raise fastapi.HTTPException(
                 status_code=400, detail=f'Invalid redirect_uri: {uri}'
             )
+    if set(body.grant_types) != {'authorization_code', 'refresh_token'}:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Only authorization_code and refresh_token grants '
+            'are supported',
+        )
+    if body.response_types != ['code']:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="Only response_types=['code'] is supported",
+        )
     if body.token_endpoint_auth_method != 'none':
         raise fastapi.HTTPException(
             status_code=400,

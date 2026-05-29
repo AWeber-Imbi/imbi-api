@@ -81,6 +81,10 @@ def verify_pkce(code_verifier: str, code_challenge: str) -> bool:
     """Return whether *code_verifier* matches *code_challenge* (S256)."""
     if not code_verifier or not code_challenge:
         return False
-    digest = hashlib.sha256(code_verifier.encode('ascii')).digest()
+    try:
+        verifier_bytes = code_verifier.encode('ascii')
+    except UnicodeEncodeError:
+        return False
+    digest = hashlib.sha256(verifier_bytes).digest()
     expected = base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
     return secrets.compare_digest(expected, code_challenge)

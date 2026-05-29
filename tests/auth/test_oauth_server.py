@@ -15,6 +15,7 @@ from imbi_common import graph
 from imbi_common.auth import core
 
 from imbi_api import models, scoring, settings
+from imbi_api.auth import authorization_codes
 from tests import support
 
 _VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
@@ -112,6 +113,36 @@ class OAuthServerTestCase(support.SharedAppTestCase):
             json={'redirect_uris': ['https://app.example/cb']},
         )
         self.assertEqual(resp.status_code, 403)
+
+    def test_register_rejects_fragment_redirect(self) -> None:
+        resp = self.client.post(
+            '/auth/register',
+            json={'redirect_uris': ['https://app.example/cb#frag']},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.mock_db.create.assert_not_called()
+
+    def test_register_rejects_unsupported_grant_types(self) -> None:
+        resp = self.client.post(
+            '/auth/register',
+            json={
+                'redirect_uris': ['https://app.example/cb'],
+                'grant_types': ['client_credentials'],
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.mock_db.create.assert_not_called()
+
+    def test_register_rejects_unsupported_response_types(self) -> None:
+        resp = self.client.post(
+            '/auth/register',
+            json={
+                'redirect_uris': ['https://app.example/cb'],
+                'response_types': ['token'],
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.mock_db.create.assert_not_called()
 
     # -- authorize --------------------------------------------------------
 
@@ -235,3 +266,9 @@ class OAuthServerTestCase(support.SharedAppTestCase):
     def test_token_unsupported_grant(self) -> None:
         resp = self.client.post('/auth/token', data={'grant_type': 'password'})
         self.assertEqual(resp.status_code, 400)
+
+    def test_verify_pkce_non_ascii_verifier(self) -> None:
+        """A non-ASCII verifier is a mismatch, not a 500."""
+        self.assertFalse(
+            authorization_codes.verify_pkce('verifiér', _challenge(_VERIFIER))
+        )
