@@ -57,7 +57,9 @@ class SharedAppTestCase(unittest.TestCase):
         super().setUpClass()
         cls.test_app = shared_app()
 
-    def run(self, result=None):  # type: ignore[no-untyped-def]
+    def run(
+        self, result: unittest.result.TestResult | None = None
+    ) -> unittest.result.TestResult | None:
         self.addCleanup(_reset, self, self.test_app)
         return super().run(result)
 
@@ -72,6 +74,8 @@ class SharedAppAsyncTestCase(unittest.IsolatedAsyncioTestCase):
         super().setUpClass()
         cls.test_app = shared_app()
 
-    def run(self, result=None):  # type: ignore[no-untyped-def]
+    def run(
+        self, result: unittest.result.TestResult | None = None
+    ) -> unittest.result.TestResult | None:
         self.addCleanup(_reset, self, self.test_app)
         return super().run(result)
