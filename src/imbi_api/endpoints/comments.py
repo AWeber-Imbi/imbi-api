@@ -99,7 +99,7 @@ class CommentThreadListResponse(pydantic.BaseModel):
 
 
 class CommentThreadCreate(pydantic.BaseModel):
-    kind: typing.Literal['page', 'inline'] = 'page'
+    kind: typing.Literal['page'] = 'page'
     body: str = pydantic.Field(min_length=1)
     anchor: AnchorModel | None = None
     mentions: list[str] = []
@@ -373,7 +373,7 @@ async def create_comment_thread(
             'project_id': project_id,
             'org_slug': org_slug,
             'thread_id': thread_id,
-            'kind': data.kind,
+            'kind': 'page',
             'resolved': False,
             'resolved_by': None,
             'resolved_at': None,
