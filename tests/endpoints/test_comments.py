@@ -189,6 +189,51 @@ class CommentEndpointsTestCase(support.SharedAppTestCase):
         self.assertEqual(create_call.args[1]['anchor_quote'], '')
         self.assertEqual(create_call.args[1]['anchor_start'], 0)
 
+    def test_create_thread_persists_mentions(self) -> None:
+        self.mock_db.execute.side_effect = [
+            [{'id': 'doc-1'}],
+            [{'id': 'thread-1'}],
+            [
+                self._thread_row(
+                    comments=[self._comment(mentions=['a@x.com', 'b@x.com'])]
+                )
+            ],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.post(
+                _BASE,
+                json={
+                    'body': 'First!',
+                    'mentions': ['a@x.com', 'b@x.com'],
+                },
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json()['comments'][0]['mentions'],
+            ['a@x.com', 'b@x.com'],
+        )
+        create_call = self.mock_db.execute.await_args_list[1]
+        self.assertEqual(
+            create_call.args[1]['mentions'], ['a@x.com', 'b@x.com']
+        )
+
+    def test_create_thread_defaults_mentions_empty(self) -> None:
+        self.mock_db.execute.side_effect = [
+            [{'id': 'doc-1'}],
+            [{'id': 'thread-1'}],
+            [self._thread_row()],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.post(_BASE, json={'body': 'First!'})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['comments'][0]['mentions'], [])
+        create_call = self.mock_db.execute.await_args_list[1]
+        self.assertEqual(create_call.args[1]['mentions'], [])
+
     def test_create_thread_document_not_found(self) -> None:
         self.mock_db.execute.return_value = []
         with mock.patch(
@@ -338,6 +383,43 @@ class CommentEndpointsTestCase(support.SharedAppTestCase):
         self.assertEqual(response.json()['body'], 'reply')
         self.assertEqual(response.json()['id'], 'c2')
 
+    def test_create_reply_persists_mentions(self) -> None:
+        self.mock_db.execute.return_value = [
+            {
+                'c': self._comment(
+                    id='c2',
+                    body='reply',
+                    mentions=['c@x.com'],
+                )
+            }
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.post(
+                f'{_BASE}/thread-1/comments',
+                json={'body': 'reply', 'mentions': ['c@x.com']},
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['mentions'], ['c@x.com'])
+        create_call = self.mock_db.execute.await_args_list[0]
+        self.assertEqual(create_call.args[1]['mentions'], ['c@x.com'])
+
+    def test_create_reply_defaults_mentions_empty(self) -> None:
+        self.mock_db.execute.return_value = [
+            {'c': self._comment(id='c2', body='reply')}
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.post(
+                f'{_BASE}/thread-1/comments', json={'body': 'reply'}
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['mentions'], [])
+        create_call = self.mock_db.execute.await_args_list[0]
+        self.assertEqual(create_call.args[1]['mentions'], [])
+
     def test_create_reply_thread_not_found(self) -> None:
         self.mock_db.execute.return_value = []
         with mock.patch(
@@ -462,6 +544,76 @@ class CommentEndpointsTestCase(support.SharedAppTestCase):
         set_call = self.mock_db.execute.await_args_list[1]
         self.assertEqual(set_call.args[1]['body'], 'edited')
         self.assertTrue(set_call.args[1]['edited'])
+
+    def test_edit_comment_replaces_mentions(self) -> None:
+        # 1: _fetch_comment, 2: SET
+        self.mock_db.execute.side_effect = [
+            [{'c': self._comment(mentions=['old@x.com'])}],
+            [{'c': self._comment(mentions=['new@x.com'], edited=True)}],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                f'{_BASE}/thread-1/comments/comment-1',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/mentions',
+                        'value': ['new@x.com'],
+                    }
+                ],
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['mentions'], ['new@x.com'])
+        self.assertTrue(response.json()['edited'])
+        set_call = self.mock_db.execute.await_args_list[1]
+        self.assertEqual(set_call.args[1]['mentions'], ['new@x.com'])
+        self.assertTrue(set_call.args[1]['edited'])
+
+    def test_edit_comment_mentions_non_author_forbidden(self) -> None:
+        self.mock_db.execute.return_value = [
+            {'c': self._comment(author='bob@example.com')}
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                f'{_BASE}/thread-1/comments/comment-1',
+                json=[
+                    {
+                        'op': 'replace',
+                        'path': '/mentions',
+                        'value': ['new@x.com'],
+                    }
+                ],
+            )
+        self.assertEqual(response.status_code, 403)
+
+    def test_edit_comment_body_keeps_mentions(self) -> None:
+        # Regression: editing only /body preserves existing mentions.
+        self.mock_db.execute.side_effect = [
+            [{'c': self._comment(mentions=['keep@x.com'])}],
+            [
+                {
+                    'c': self._comment(
+                        body='edited',
+                        mentions=['keep@x.com'],
+                        edited=True,
+                    )
+                }
+            ],
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype', side_effect=lambda x: x
+        ):
+            response = self.client.patch(
+                f'{_BASE}/thread-1/comments/comment-1',
+                json=[{'op': 'replace', 'path': '/body', 'value': 'edited'}],
+            )
+        self.assertEqual(response.status_code, 200)
+        set_call = self.mock_db.execute.await_args_list[1]
+        self.assertEqual(set_call.args[1]['mentions'], ['keep@x.com'])
 
     def test_edit_comment_non_author_forbidden(self) -> None:
         self.mock_db.execute.return_value = [

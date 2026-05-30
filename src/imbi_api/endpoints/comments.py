@@ -46,13 +46,13 @@ _THREAD_READONLY_PATHS: frozenset[str] = frozenset(
     ]
 )
 
-# Every comment field except ``/body`` is read-only over the PATCH API.
+# Every comment field except ``/body`` and ``/mentions`` is read-only over
+# the PATCH API.
 _COMMENT_READONLY_PATHS: frozenset[str] = frozenset(
     [
         '/id',
         '/thread_id',
         '/author',
-        '/mentions',
         '/acknowledged_by',
         '/edited',
         '/created_at',
@@ -577,7 +577,10 @@ async def patch_comment(
         fastapi.Depends(permissions.require_permission('comment:write')),
     ],
 ) -> dict[str, typing.Any]:
-    """Edit a comment body via JSON Patch (only ``/body``). Author-only."""
+    """Edit a comment via JSON Patch (only ``/body`` and ``/mentions``).
+
+    Author-only.
+    """
     existing = await _fetch_comment(
         db, org_slug, project_id, document_id, thread_id, comment_id
     )
@@ -591,12 +594,18 @@ async def patch_comment(
             detail='Only the comment author may edit it',
         )
 
-    current = {'body': existing['body']}
+    current = {
+        'body': existing['body'],
+        'mentions': list(existing['mentions']),
+    }
     patched = json_patch.apply_patch(
         current, operations, _COMMENT_READONLY_PATHS
     )
     try:
-        update = CommentBodyCreate(body=patched.get('body'))  # type: ignore[arg-type]
+        update = CommentBodyCreate(
+            body=patched.get('body'),  # type: ignore[arg-type]
+            mentions=patched.get('mentions'),  # type: ignore[arg-type]
+        )
     except pydantic.ValidationError as e:
         raise fastapi.HTTPException(
             status_code=400,
@@ -611,6 +620,7 @@ async def patch_comment(
           -[:IN_THREAD]->(:CommentThread {{id: {thread_id}}})
           -[:ON_DOCUMENT]->(d)
     SET c.body = {body},
+        c.mentions = {mentions},
         c.edited = {edited},
         c.updated_at = {updated_at}
     RETURN c
@@ -625,6 +635,7 @@ async def patch_comment(
             'thread_id': thread_id,
             'comment_id': comment_id,
             'body': update.body,
+            'mentions': list(update.mentions),
             'edited': True,
             'updated_at': now.isoformat(),
         },
