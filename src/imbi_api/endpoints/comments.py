@@ -38,6 +38,7 @@ _COMMENT_EVENT_TYPE: typing.LiteralString = 'document-comment'
 
 
 async def _emit_comment_event(
+    *,
     project_id: str,
     document_id: str,
     thread_id: str,
@@ -491,14 +492,14 @@ async def create_comment_thread(
             detail='Thread created but could not be read back',
         )
     await _emit_comment_event(
-        project_id,
-        document_id,
-        thread_id,
-        comment_id,
-        data.kind,
-        'created',
-        auth.principal_name,
-        data.body,
+        project_id=project_id,
+        document_id=document_id,
+        thread_id=thread_id,
+        comment_id=comment_id,
+        kind=data.kind,
+        action='created',
+        principal=auth.principal_name,
+        body=data.body,
     )
     return thread
 
@@ -566,14 +567,14 @@ async def create_reply(
             detail=f'Thread {thread_id!r} not found',
         )
     await _emit_comment_event(
-        project_id,
-        document_id,
-        thread_id,
-        comment_id,
-        '',
-        'replied',
-        auth.principal_name,
-        data.body,
+        project_id=project_id,
+        document_id=document_id,
+        thread_id=thread_id,
+        comment_id=comment_id,
+        kind='',
+        action='replied',
+        principal=auth.principal_name,
+        body=data.body,
     )
     return _parse_comment(records[0]['c'])
 
