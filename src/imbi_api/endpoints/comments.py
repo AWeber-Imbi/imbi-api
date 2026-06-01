@@ -184,10 +184,22 @@ def _parse_thread_row(record: dict[str, typing.Any]) -> dict[str, typing.Any]:
 
 # Tail fragment that collects a thread's comments oldest-first. Runs with
 # ``t, d`` in scope and emits ``t, d, comments``.
+#
+# Comments are collected as **map projections** (``c{.id, ...}``), never as
+# raw vertices: ``graph.parse_agtype`` only strips a trailing ``::vertex``
+# suffix, so a ``collect()`` of raw vertices yields a list-string with inner
+# ``::vertex`` suffixes that ``json.loads`` rejects -- it falls back to the
+# raw string, which then iterates character-by-character into an empty list.
+# Map projections serialize as plain JSON maps and round-trip cleanly. This
+# mirrors ``documents.py`` ``_TAGS_TAIL``.
 _COMMENTS_TAIL: typing.LiteralString = """
     OPTIONAL MATCH (c:Comment)-[:IN_THREAD]->(t)
     WITH t, d, c ORDER BY c.created_at ASC, c.id ASC
-    WITH t, d, collect(CASE WHEN c IS NOT NULL THEN c END) AS raw_comments
+    WITH t, d, collect(CASE WHEN c IS NOT NULL
+                            THEN c{{.id, .thread_id, .author, .body,
+                                    .mentions, .acknowledged_by, .edited,
+                                    .created_at, .updated_at}}
+                            END) AS raw_comments
     WITH t, d, [x IN raw_comments WHERE x IS NOT NULL] AS comments
     RETURN t, d, comments
 """

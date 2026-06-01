@@ -832,5 +832,58 @@ class CommentEndpointsTestCase(support.SharedAppTestCase):
         self.assertEqual(response.status_code, 403)
 
 
+class ThreadRowParsingTestCase(unittest.TestCase):
+    """Parse a thread row from the **raw agtype strings** AGE returns.
+
+    The endpoint tests mock ``graph.execute`` and hand back pre-parsed
+    dicts, so they never exercise ``graph.parse_agtype``. This case feeds
+    ``_parse_thread_row`` the wire form -- vertex strings for ``t``/``d``
+    and a JSON array of map projections for ``comments`` -- which is what
+    ``_COMMENTS_TAIL`` actually emits. It guards the regression where the
+    tail collected raw vertices: ``parse_agtype`` could not decode the
+    resulting ``::vertex``-suffixed list-string, fell back to the raw
+    string, and the comment list came back empty.
+    """
+
+    def test_comments_round_trip_from_agtype(self) -> None:
+        from imbi_api.endpoints import comments
+
+        thread_vertex = (
+            '{"id": 0, "label": "CommentThread", "properties": '
+            '{"id": "thread-1", "kind": "page", "resolved": false, '
+            '"resolved_by": null, "resolved_at": null, '
+            '"anchor_quote": "", "anchor_prefix": "", '
+            '"anchor_suffix": "", "anchor_start": 0, '
+            '"created_by": "alice@example.com", '
+            '"created_at": "2026-03-17T12:00:00Z", '
+            '"updated_at": null}}::vertex'
+        )
+        document_vertex = (
+            '{"id": 1, "label": "Document", "properties": '
+            '{"id": "doc-1", "slug": "runbook"}}::vertex'
+        )
+        # Map projections serialize as plain JSON maps (no ::vertex).
+        comments_column = (
+            '[{"id": "c1", "thread_id": "thread-1", '
+            '"author": "alice@example.com", "body": "First!", '
+            '"mentions": [], "acknowledged_by": [], "edited": false, '
+            '"created_at": "2026-03-17T12:00:00Z", "updated_at": null}]'
+        )
+
+        row = comments._parse_thread_row(
+            {
+                't': thread_vertex,
+                'd': document_vertex,
+                'comments': comments_column,
+            }
+        )
+
+        self.assertEqual(row['id'], 'thread-1')
+        self.assertEqual(row['document_id'], 'doc-1')
+        self.assertEqual(len(row['comments']), 1)
+        self.assertEqual(row['comments'][0]['id'], 'c1')
+        self.assertEqual(row['comments'][0]['body'], 'First!')
+
+
 if __name__ == '__main__':
     unittest.main()
