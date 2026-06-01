@@ -231,12 +231,23 @@ To enable a separate public login host:
 1. Add the public origin to `IMBI_API_CORS_ALLOWED_ORIGINS`
    (e.g. `https://imbi-public.example.com`). `IMBI_API_URL` stays pointed
    at the internal host, so internal SPA traffic is unaffected.
-2. Route `/mcp`, `/.well-known/oauth-*`, and `/api/auth/*` (plus the SPA
-   login shell) to the service on that public host.
+2. Route `/mcp`, `/.well-known/oauth-*`, and `/api/auth/*` to the service
+   on that public host. If the public host should support browser-based
+   login (not just MCP), also serve the SPA's login UI assets — the SPA
+   entry document (`index.html`) served at `/` and `/login`, plus its
+   static assets (`*.js`, `*.css`, images) — so the login page renders on
+   that host.
 3. If login uses an upstream IdP (Google/GitHub/OIDC), register the public
    host's callback — `https://<public-host>/api/auth/oauth/<slug>/callback`
    — with that provider in addition to the internal one, since the
    callback now names whichever host the user logged in from.
+
+!!! note "Known limitation"
+    Standard OAuth provider logins (Google/GitHub/OIDC) and MCP OAuth
+    client flows are fully per-host aware. The identity-plugin *connect*
+    flow (linking an additional identity from the account settings UI) is
+    not yet derived per host and continues to use `IMBI_API_URL`, so its
+    callback must remain registered against the `IMBI_API_URL` origin.
 
 ## Other Settings
 
