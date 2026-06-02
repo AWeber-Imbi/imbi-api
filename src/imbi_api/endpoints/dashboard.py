@@ -118,7 +118,12 @@ async def _check_postgres(db: graph.Graph) -> DatastoreStatus:
             detail=str(err),
         )
     latency = _ms(start)
-    size = await asyncio.wait_for(_postgres_size(db), _CHECK_TIMEOUT)
+    # Size is best-effort; a timeout must not fail the (already-ok) check.
+    try:
+        size = await asyncio.wait_for(_postgres_size(db), _CHECK_TIMEOUT)
+    except TimeoutError:
+        LOGGER.warning('PostgreSQL size probe timed out')
+        size = None
     return DatastoreStatus(
         name='PostgreSQL',
         role='Primary data',
