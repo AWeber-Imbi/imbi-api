@@ -829,12 +829,14 @@ async def create_project_service(
 
     # The dashboard URL is a human link, not edge state: persist it into
     # ``Project.links`` keyed by the service slug so the edge and its
-    # links entry stay a single coherent row.
-    if data.dashboard_url:
+    # links entry stay a single coherent row.  ``dashboard_url`` is an
+    # ``AnyUrl`` (validated at the boundary); store its string form.
+    dashboard_url = str(data.dashboard_url) if data.dashboard_url else None
+    if dashboard_url:
         await merge_project_links(
             db,
             project_id,
-            add={data.third_party_service_slug: data.dashboard_url},
+            add={data.third_party_service_slug: dashboard_url},
         )
 
     r = records[0]
@@ -849,7 +851,7 @@ async def create_project_service(
         canonical_url=graph.parse_agtype(
             r.get('canonical_url'),
         ),
-        dashboard_url=data.dashboard_url,
+        dashboard_url=dashboard_url,
     )
 
 
