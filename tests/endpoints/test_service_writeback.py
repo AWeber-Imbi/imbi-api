@@ -40,9 +40,7 @@ class LookupProjectExistsInTestCase(unittest.TestCase):
                 'canonical_url': None,
             },
         ]
-        result = asyncio.run(
-            _helpers.lookup_project_exists_in(db, 'proj-1')
-        )
+        result = asyncio.run(_helpers.lookup_project_exists_in(db, 'proj-1'))
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].service_slug, 'github-enterprise-cloud')
         # numeric-looking identifiers round-trip back to a string
@@ -57,9 +55,7 @@ class LookupProjectExistsInTestCase(unittest.TestCase):
     def test_empty_on_lookup_failure(self) -> None:
         db = mock.AsyncMock()
         db.execute.side_effect = RuntimeError('boom')
-        result = asyncio.run(
-            _helpers.lookup_project_exists_in(db, 'proj-1')
-        )
+        result = asyncio.run(_helpers.lookup_project_exists_in(db, 'proj-1'))
         self.assertEqual(result, [])
 
     def test_skips_rows_without_slug(self) -> None:
@@ -67,9 +63,7 @@ class LookupProjectExistsInTestCase(unittest.TestCase):
         db.execute.return_value = [
             {'service_slug': None, 'identifier': 'x', 'canonical_url': None}
         ]
-        result = asyncio.run(
-            _helpers.lookup_project_exists_in(db, 'proj-1')
-        )
+        result = asyncio.run(_helpers.lookup_project_exists_in(db, 'proj-1'))
         self.assertEqual(result, [])
 
 
