@@ -38,7 +38,7 @@ dependencies = [
   "pyotp>=2.9.0",
   "python-multipart>=0.0.26",
   "qrcode>=8.0",
-  "sentry-sdk>=2.48.0",
+  "sentry-sdk>=2.48.0,<3",  # 3.0 line abandoned upstream; stay on 2.x
   "slowapi==0.1.9",  # Pin: alpha quality, API may change
   "typer",
   "uvicorn",
@@ -64,7 +64,7 @@ plugins = [
   "imbi-plugin-oidc>=1.0.0",
   "imbi-plugin-sonarqube>=0.0.0",
 ]
-sentry = ["sentry-sdk"]
+sentry = ["sentry-sdk>=2.48.0,<3"]
 
 [dependency-groups]
 dev = [
