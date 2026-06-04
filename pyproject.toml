@@ -237,7 +237,7 @@ exclude-newer-package = { "clickhouse-connect" = false, "imbi-common" = false, "
 # ``==`` pin in the dependencies list once the next imbi-common
 # release is cut.
 [tool.uv.sources]
-imbi-common = { path = "../imbi-common", editable = true }
+imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", branch = "main" }
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
