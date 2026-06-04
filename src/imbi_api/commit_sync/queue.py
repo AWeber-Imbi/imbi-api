@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import socket
 import typing
 from collections import abc
 
@@ -48,8 +50,8 @@ async def enqueue_commit_sync(
     """
     if client is None:
         return False
+    key = f'{DEBOUNCE_PREFIX}:{project_id}'
     try:
-        key = f'{DEBOUNCE_PREFIX}:{project_id}'
         acquired = await client.set(key, b'1', ex=DEBOUNCE_SECONDS, nx=True)
         if not acquired:
             return False
@@ -62,6 +64,12 @@ async def enqueue_commit_sync(
             },
         )
     except Exception:
+        # Release the debounce key so a transient Valkey write failure
+        # doesn't block the user's immediate retry for DEBOUNCE_SECONDS.
+        try:
+            await client.delete(key)
+        except Exception:
+            LOGGER.exception('failed to clear debounce key for %s', project_id)
         LOGGER.exception('enqueue_commit_sync failed for %s', project_id)
         return False
     return True
@@ -70,9 +78,10 @@ async def enqueue_commit_sync(
 async def ensure_group(client: valkey.Valkey) -> None:
     try:
         await client.xgroup_create(STREAM, GROUP, id='$', mkstream=True)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         if 'BUSYGROUP' not in str(err):
-            LOGGER.warning('xgroup_create failed: %s', err)
+            LOGGER.exception('xgroup_create failed')
+            raise
 
 
 async def _process_message(db: graph.Graph, fields: dict[str, str]) -> None:
@@ -97,13 +106,16 @@ async def _process_message(db: graph.Graph, fields: dict[str, str]) -> None:
             error=str(exc),
         )
         return
-    except Exception as exc:
+    except Exception:
+        # Persist a generic, user-safe message; the polling endpoint
+        # exposes this status, so keep raw exception detail in logs only.
+        LOGGER.exception('commit-sync run failed for %s', project_id)
         await set_status(
             db,
             project_id,
             status='failed',
             requested_by=requested_by,
-            error=f'{type(exc).__name__}: {exc}',
+            error='Commit sync failed. See server logs for details.',
         )
         raise
     LOGGER.info(
@@ -212,16 +224,26 @@ async def _handle_entries(
 async def consume_commit_sync(
     client: valkey.Valkey,
     db: graph.Graph,
-    consumer: str = f'{CONSUMER_PREFIX}-0',
+    consumer: str | None = None,
     stop: asyncio.Event | None = None,
 ) -> None:
     """Run the commit-sync consumer loop until *stop* is set."""
+    # Derive a per-process consumer name so concurrent workers don't share
+    # a Pending Entries List and stale-claim each other's in-flight jobs.
+    consumer = (
+        consumer or f'{CONSUMER_PREFIX}-{socket.gethostname()}-{os.getpid()}'
+    )
     await ensure_group(client)
     LOGGER.info('Commit-sync consumer loop running (consumer=%s)', consumer)
     while stop is None or not stop.is_set():
         stale = await _claim_stale(client, consumer)
         if stale:
-            await _handle_entries(client, stale, db, check_dlq=True)
+            try:
+                await _handle_entries(client, stale, db, check_dlq=True)
+            except Exception:
+                LOGGER.exception('commit-sync stale-entry handling failed')
+                await asyncio.sleep(1)
+                continue
         try:
             response = await client.xreadgroup(
                 GROUP,
@@ -239,4 +261,9 @@ async def consume_commit_sync(
         for _stream, entries in typing.cast(
             'list[tuple[object, list[typing.Any]]]', response
         ):
-            await _handle_entries(client, entries, db)
+            try:
+                await _handle_entries(client, entries, db)
+            except Exception:
+                LOGGER.exception('commit-sync entry handling failed')
+                await asyncio.sleep(1)
+                break
