@@ -96,10 +96,10 @@ async def resolve_plugin(
     query: typing.LiteralString = """
     MATCH (proj:Project {{id: {project_id}}})
     OPTIONAL MATCH (proj)-[pe:USES_PLUGIN]->(p:Plugin)
-    WHERE pe.plugin_type = {plugin_type}
+    WHERE coalesce(pe.plugin_type, pe.tab) = {plugin_type}
     OPTIONAL MATCH (proj)-[:TYPE]->(pt:ProjectType)
       -[pte:USES_PLUGIN]->(p2:Plugin)
-    WHERE pte.plugin_type = {plugin_type}
+    WHERE coalesce(pte.plugin_type, pte.tab) = {plugin_type}
     WITH
       collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
                          edge_options: pe.options,
@@ -290,11 +290,11 @@ async def resolve_all_plugins(
     query: typing.LiteralString = """
     MATCH (proj:Project {{id: {project_id}}})
     OPTIONAL MATCH (proj)-[pe:USES_PLUGIN]->(p:Plugin)
-    WHERE pe.plugin_type = {plugin_type}
+    WHERE coalesce(pe.plugin_type, pe.tab) = {plugin_type}
     OPTIONAL MATCH (tps1:ThirdPartyService)-[:HAS_PLUGIN]->(p)
     OPTIONAL MATCH (proj)-[:TYPE]->(pt:ProjectType)
       -[pte:USES_PLUGIN]->(p2:Plugin)
-    WHERE pte.plugin_type = {plugin_type}
+    WHERE coalesce(pte.plugin_type, pte.tab) = {plugin_type}
     OPTIONAL MATCH (tps2:ThirdPartyService)-[:HAS_PLUGIN]->(p2)
     WITH
       collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
@@ -480,10 +480,10 @@ async def resolve_analysis_plugins(
     query: typing.LiteralString = """
     MATCH (proj:Project {{id: {project_id}}})
     OPTIONAL MATCH (proj)-[pe:USES_PLUGIN]->(p:Plugin)
-    WHERE pe.plugin_type = 'analysis'
+    WHERE coalesce(pe.plugin_type, pe.tab) = 'analysis'
     OPTIONAL MATCH (proj)-[:TYPE]->(pt:ProjectType)
       -[pte:USES_PLUGIN]->(p2:Plugin)
-    WHERE pte.plugin_type = 'analysis'
+    WHERE coalesce(pte.plugin_type, pte.tab) = 'analysis'
     OPTIONAL MATCH (proj)-[:EXISTS_IN]->(tps:ThirdPartyService)
       -[:HAS_PLUGIN]->(p3:Plugin)
     WHERE p3.plugin_type = 'analysis'

@@ -492,11 +492,11 @@ async def _projects_using_tps_for_deployment(
     MATCH (tps)-[:HAS_PLUGIN]->(plugin:Plugin)
     OPTIONAL MATCH (p:Project)-[upe:USES_PLUGIN]->(plugin),
                    (p)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
-    WHERE upe.plugin_type = 'deployment'
+    WHERE coalesce(upe.plugin_type, upe.tab) = 'deployment'
     OPTIONAL MATCH (p2:Project)-[:TYPE]
         ->(:ProjectType)-[upte:USES_PLUGIN]->(plugin),
                    (p2)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
-    WHERE upte.plugin_type = 'deployment'
+    WHERE coalesce(upte.plugin_type, upte.tab) = 'deployment'
     WITH collect(DISTINCT p.id) AS direct_ids,
          collect(DISTINCT p2.id) AS typed_ids
     RETURN direct_ids + typed_ids AS project_ids

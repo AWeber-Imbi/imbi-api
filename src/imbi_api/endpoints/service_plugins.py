@@ -904,7 +904,8 @@ async def replace_plugin_assignments(
         ' WHERE mine.default = true'
         ' MATCH (mpt)-[sibling:USES_PLUGIN]->(other:Plugin)'
         ' WHERE other.id <> {plugin_id}'
-        ' AND sibling.plugin_type = mine.plugin_type'
+        ' AND coalesce(sibling.plugin_type, sibling.tab) ='
+        ' coalesce(mine.plugin_type, mine.tab)'
         ' AND sibling.default = true'
         ' SET sibling.default = false'
     )
