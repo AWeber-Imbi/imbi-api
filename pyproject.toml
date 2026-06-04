@@ -38,7 +38,7 @@ dependencies = [
   "pyotp>=2.9.0",
   "python-multipart>=0.0.26",
   "qrcode>=8.0",
-  "sentry-sdk>=2.48.0",
+  "sentry-sdk>=2.48.0,<3",  # 3.0 line abandoned upstream; stay on 2.x
   "slowapi==0.1.9",  # Pin: alpha quality, API may change
   "typer",
   "uvicorn",
@@ -231,6 +231,13 @@ max-complexity = 15
 [tool.uv]
 exclude-newer = "7 days"
 exclude-newer-package = { "clickhouse-connect" = false, "imbi-common" = false, "imbi-plugin-aws" = false, "imbi-plugin-github" = false, "imbi-plugin-logzio" = false, "imbi-plugin-oidc" = false, "imbi-plugin-pagerduty" = false, "imbi-plugin-sentry" = false, "imbi-plugin-sonarqube" = false }
+
+# Interim: track imbi-common main for the unreleased ``PluginType``
+# export (used by the plugin-assignment models). Replace with a
+# ``==`` pin in the dependencies list once the next imbi-common
+# release is cut.
+[tool.uv.sources]
+imbi-common = { path = "../imbi-common", editable = true }
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"

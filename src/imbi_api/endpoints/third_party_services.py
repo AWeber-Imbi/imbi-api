@@ -469,7 +469,7 @@ async def _projects_using_tps_for_deployment(
     """Return project ids whose deployment plugin is owned by this TPS.
 
     Walks both project-level and project-type-level ``USES_PLUGIN``
-    edges with ``tab='deployment'`` whose target ``Plugin`` is owned
+    edges with ``plugin_type='deployment'`` whose target ``Plugin`` is owned
     (via ``HAS_PLUGIN``) by the named ThirdPartyService.  Returns a
     de-duplicated, deterministic list so the resync fan-out is stable
     across calls.
@@ -492,11 +492,11 @@ async def _projects_using_tps_for_deployment(
     MATCH (tps)-[:HAS_PLUGIN]->(plugin:Plugin)
     OPTIONAL MATCH (p:Project)-[upe:USES_PLUGIN]->(plugin),
                    (p)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
-    WHERE upe.tab = 'deployment'
+    WHERE upe.plugin_type = 'deployment'
     OPTIONAL MATCH (p2:Project)-[:TYPE]
         ->(:ProjectType)-[upte:USES_PLUGIN]->(plugin),
                    (p2)-[:OWNED_BY]->(:Team)-[:BELONGS_TO]->(o)
-    WHERE upte.tab = 'deployment'
+    WHERE upte.plugin_type = 'deployment'
     WITH collect(DISTINCT p.id) AS direct_ids,
          collect(DISTINCT p2.id) AS typed_ids
     RETURN direct_ids + typed_ids AS project_ids
