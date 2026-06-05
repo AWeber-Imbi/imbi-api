@@ -1604,19 +1604,11 @@ async def get_project_schema(
             return None
         props: dict[str, BlueprintSectionProperty] = {}
         for prop_name, prop_schema in schema.properties.items():
-            raw_x_ui = (
-                prop_schema.model_extra.get('x-ui')
-                if prop_schema.model_extra
-                else None
-            )
-            x_ui = dict(raw_x_ui or {})
+            extra = prop_schema.model_extra or {}
+            x_ui = dict(extra.get('x-ui') or {})
             if x_ui.get('editable') is None:
                 x_ui['editable'] = True
-            raw_x_display = (
-                prop_schema.model_extra.get('x-display')
-                if prop_schema.model_extra
-                else None
-            )
+            raw_x_display = extra.get('x-display')
             props[prop_name] = BlueprintSectionProperty(
                 type=getattr(prop_schema, 'type', None),
                 format=getattr(prop_schema, 'format', None),
