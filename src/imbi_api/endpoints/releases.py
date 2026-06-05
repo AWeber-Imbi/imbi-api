@@ -165,6 +165,10 @@ class CurrentReleaseEnvironment(pydantic.BaseModel):
     last_event_at: datetime.datetime | None = None
     external_run_url: str | None = None
     ci_status: CheckStatus | None = None
+    #: Deployer of the latest event when observed from a remote (e.g. the
+    #: GitHub ``deployment.creator.login``). ``None`` for in-product deploys,
+    #: where the operator is captured in the operations log instead.
+    performed_by: str | None = None
 
 
 # -- Helpers ------------------------------------------------------------
@@ -729,6 +733,7 @@ async def list_current_releases(
             last_event_at=event.timestamp if event else None,
             external_run_url=event.external_run_url if event else None,
             ci_status=ci_status_by_slug.get(env['slug']),
+            performed_by=event.performed_by if event else None,
         )
         sortable.append((env.get('sort_order') or 0, env['name'], item))
 

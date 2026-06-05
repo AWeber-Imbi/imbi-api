@@ -1499,6 +1499,14 @@ class BlueprintSectionProperty(pydantic.BaseModel):
         alias='x-ui',
         serialization_alias='x-ui',
     )
+    #: Optional value-display transforms (e.g. ``{'format': 'humanize'}``)
+    #: applied to the rendered value, independent of ``x-ui`` color/icon
+    #: resolution (which keys off the raw value).
+    x_display: dict[str, typing.Any] = pydantic.Field(
+        default_factory=dict,
+        alias='x-display',
+        serialization_alias='x-display',
+    )
 
 
 class BlueprintSection(pydantic.BaseModel):
@@ -1507,6 +1515,11 @@ class BlueprintSection(pydantic.BaseModel):
     name: str
     slug: str
     description: str | None = None
+    #: ``project`` for node blueprints (project-level attributes);
+    #: ``environment`` for relationship blueprints on the
+    #: ``Project -[:DEPLOYED_IN]-> Environment`` edge (per-environment
+    #: edge attributes rendered in the Environments card).
+    scope: typing.Literal['project', 'environment'] = 'project'
     properties: dict[str, BlueprintSectionProperty]
 
 
@@ -1568,30 +1581,27 @@ async def get_project_schema(
         graph.parse_agtype(records[0]['env_slugs']) or []
     )
 
-    # Fetch all enabled node blueprints for Project
-    all_blueprints = await db.match(
-        models.Blueprint,
-        {'type': 'Project', 'enabled': True},
-        order_by='priority',
-    )
+    def _build_section(
+        bp: models.Blueprint,
+        scope: typing.Literal['project', 'environment'],
+    ) -> BlueprintSection | None:
+        """Build a schema section from a blueprint, or ``None`` to skip.
 
-    # Match blueprints whose filters intersect the project's own
-    # types/envs. A blueprint with no filter matches everything.
-    # A blueprint with a project_type filter matches if any of
-    # the project's types appear in that list (same for environment).
-    sections: list[BlueprintSection] = []
-    for bp in all_blueprints:
+        A blueprint is skipped when its filter doesn't intersect the
+        project's own types/envs, or when it declares no properties. A
+        blueprint with no filter matches everything; a ``project_type``
+        filter matches if any of the project's types appear in it (same
+        for ``environment``).
+        """
         f = bp.filter
         if f is not None:
             if f.project_type and not type_slugs.intersection(f.project_type):
-                continue
+                return None
             if f.environment and not env_slugs.intersection(f.environment):
-                continue
-
+                return None
         schema = bp.json_schema
         if not schema.properties:
-            continue
-
+            return None
         props: dict[str, BlueprintSectionProperty] = {}
         for prop_name, prop_schema in schema.properties.items():
             raw_x_ui = (
@@ -1602,6 +1612,11 @@ async def get_project_schema(
             x_ui = dict(raw_x_ui or {})
             if x_ui.get('editable') is None:
                 x_ui['editable'] = True
+            raw_x_display = (
+                prop_schema.model_extra.get('x-display')
+                if prop_schema.model_extra
+                else None
+            )
             props[prop_name] = BlueprintSectionProperty(
                 type=getattr(prop_schema, 'type', None),
                 format=getattr(prop_schema, 'format', None),
@@ -1611,19 +1626,136 @@ async def get_project_schema(
                 default=getattr(prop_schema, 'default', None),
                 minimum=getattr(prop_schema, 'minimum', None),
                 maximum=getattr(prop_schema, 'maximum', None),
-                **{'x-ui': x_ui},
+                **{'x-ui': x_ui, 'x-display': dict(raw_x_display or {})},
             )
-
-        sections.append(
-            BlueprintSection(
-                name=bp.name,
-                slug=bp.slug or '',
-                description=bp.description,
-                properties=props,
-            )
+        return BlueprintSection(
+            name=bp.name,
+            slug=bp.slug or '',
+            description=bp.description,
+            scope=scope,
+            properties=props,
         )
 
+    # Node blueprints (project-level attributes) ...
+    node_blueprints = await db.match(
+        models.Blueprint,
+        {'type': 'Project', 'enabled': True},
+        order_by='priority',
+    )
+    # ... and relationship blueprints on the
+    # ``Project -[:DEPLOYED_IN]-> Environment`` edge (per-environment edge
+    # attributes), which carry the same JSON-Schema + ``x-ui`` metadata so
+    # the UI renders them with the shared attribute-display logic.
+    rel_blueprints = await db.match(
+        models.Blueprint,
+        {'kind': 'relationship', 'enabled': True},
+        order_by='priority',
+    )
+
+    sections: list[BlueprintSection] = []
+    for bp in node_blueprints:
+        section = _build_section(bp, 'project')
+        if section is not None:
+            sections.append(section)
+    for bp in rel_blueprints:
+        if (
+            bp.source != 'Project'
+            or bp.target != 'Environment'
+            or bp.edge != 'DEPLOYED_IN'
+        ):
+            continue
+        section = _build_section(bp, 'environment')
+        if section is not None:
+            sections.append(section)
+
     return ProjectSchemaResponse(sections=sections)
+
+
+class EnvironmentEdgeUpdate(pydantic.BaseModel):
+    """Edge-property updates for a project's ``DEPLOYED_IN`` edge.
+
+    Keys are blueprint-defined edge attributes (accepted via
+    ``extra='allow'``). A non-null value sets the property; a ``null``
+    value removes it.
+    """
+
+    model_config = pydantic.ConfigDict(extra='allow')
+
+
+@projects_router.patch('/{project_id}/environments/{env_slug}')
+async def patch_project_environment(
+    org_slug: str,
+    project_id: str,
+    env_slug: str,
+    updates: EnvironmentEdgeUpdate,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('project:write')),
+    ],
+) -> dict[str, typing.Any]:
+    """Update ``DEPLOYED_IN`` edge properties for a single environment.
+
+    Performs targeted per-key ``SET`` / ``REMOVE`` on the one
+    ``(project)-[:DEPLOYED_IN]->(environment)`` edge, so it neither
+    rewrites the other environments' edges nor relies on edge deletion
+    (both of which behave unreliably on some Apache AGE builds). Protected
+    structural keys are rejected. Returns the updated edge properties.
+    """
+    props = {
+        k: v
+        for k, v in (updates.model_extra or {}).items()
+        if k not in _PROTECTED_ENV_KEYS
+    }
+    if not props:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='No editable edge properties provided',
+        )
+
+    params: dict[str, typing.Any] = {
+        'project_id': project_id,
+        'org_slug': org_slug,
+        'env_slug': env_slug,
+    }
+    set_parts: list[str] = []
+    remove_parts: list[str] = []
+    for i, (key, value) in enumerate(props.items()):
+        if value is None:
+            remove_parts.append(f'r.{escape_prop(key)}')
+        else:
+            param = f'edge_{i}'
+            set_parts.append(f'r.{escape_prop(key)} = {{{param}}}')
+            params[param] = value
+
+    mutations = ''
+    if set_parts:
+        mutations += ' SET ' + ', '.join(set_parts)
+    if remove_parts:
+        mutations += ' REMOVE ' + ', '.join(remove_parts)
+
+    query: str = (
+        'MATCH (p:Project {{id: {project_id}}})'
+        '-[:OWNED_BY]->(:Team)'
+        '-[:BELONGS_TO]->(o:Organization {{slug: {org_slug}}})'
+        ' MATCH (p)-[r:DEPLOYED_IN]->'
+        '(e:Environment {{slug: {env_slug}}})-[:BELONGS_TO]->(o)'
+        + mutations
+        + ' RETURN properties(r) AS props'
+    )
+    records = await db.execute(query, params, ['props'])
+    if not records:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=(
+                f'Project {project_id!r} is not deployed in '
+                f'environment {env_slug!r}'
+            ),
+        )
+    edge_props = graph.parse_agtype(records[0]['props']) or {}
+    return {
+        k: v for k, v in edge_props.items() if k not in _PROTECTED_ENV_KEYS
+    }
 
 
 @projects_router.get('/{project_id}', name='get_project')
@@ -2035,9 +2167,16 @@ def _build_update_clauses(
     new_edge_props_tpl = _edge_props_map(new_env_entries)
 
     if data.environments is not None:
-        # MERGE (not CREATE) so the retry loop in
-        # _execute_project_update cannot accumulate duplicate edges
-        # if AGE rolls back the SET phase but not the edge write.
+        # Replace the project's DEPLOYED_IN edges wholesale: delete the
+        # existing ones, then re-create them with inline edge properties
+        # (mirroring ``create_project``). We deliberately avoid
+        # ``MERGE (p)-[r]->(e) SET r = {map}``: some Apache AGE builds
+        # silently no-op a full-property ``SET r = {map}`` on a
+        # relationship, dropping every edge attribute, whereas inline
+        # ``CREATE ... {props}`` persists reliably. The DELETE and CREATE
+        # run in the same transaction as one ``execute`` call, so a
+        # retried attempt (see _execute_project_update) rolls back wholly
+        # and cannot accumulate duplicate edges.
         rel_clauses += (
             ' WITH DISTINCT p, o'
             ' OPTIONAL MATCH'
@@ -2045,15 +2184,12 @@ def _build_update_clauses(
             ' DELETE old_env'
         )
         if new_env_entries:
-            merge_set = (
-                ' SET r =' + new_edge_props_tpl if new_edge_props_tpl else ''
-            )
             rel_clauses += (
                 ' WITH DISTINCT p, o'
                 f' UNWIND {new_env_tpl} AS entry'
                 ' MATCH (e:Environment'
                 ' {{slug: entry.slug}})-[:BELONGS_TO]->(o)'
-                ' MERGE (p)-[r:DEPLOYED_IN]->(e)' + merge_set
+                ' CREATE (p)-[:DEPLOYED_IN' + new_edge_props_tpl + ']->(e)'
             )
 
     return rel_clauses, new_env_params
