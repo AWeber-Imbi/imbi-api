@@ -82,7 +82,7 @@ def _parse_node(raw: dict[str, typing.Any]) -> dict[str, typing.Any]:
         if isinstance(val, str):
             try:
                 out[key] = json.loads(val)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 out[key] = None
     return out
 
