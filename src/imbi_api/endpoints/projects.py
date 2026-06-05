@@ -603,7 +603,7 @@ def _latest_deployment_event(
     return latest_ts, latest_by
 
 
-async def _lookup_ops_log_performed_by(
+async def lookup_ops_log_performed_by(
     targets: list[tuple[str, str, str]],
 ) -> dict[tuple[str, str, str], str]:
     """Map ``(project_id, environment_slug, version)`` → ``performed_by``.
@@ -737,7 +737,7 @@ async def _fetch_current_releases(
         ) in latest.items()
         if performed_by is None and (tag or committish)
     ]
-    performed_by_by_key = await _lookup_ops_log_performed_by(enrich_targets)
+    performed_by_by_key = await lookup_ops_log_performed_by(enrich_targets)
     if performed_by_by_key:
         for key, (tag, committish, ts, performed_by) in list(latest.items()):
             if performed_by is not None:
@@ -1694,11 +1694,17 @@ async def patch_project_environment(
     (both of which behave unreliably on some Apache AGE builds). Protected
     structural keys are rejected. Returns the updated edge properties.
     """
-    props = {
-        k: v
-        for k, v in (updates.model_extra or {}).items()
-        if k not in _PROTECTED_ENV_KEYS
-    }
+    extra = updates.model_extra or {}
+    protected_keys = sorted(k for k in extra if k in _PROTECTED_ENV_KEYS)
+    if protected_keys:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=(
+                'Protected environment fields are not editable via this '
+                f'endpoint: {protected_keys!r}'
+            ),
+        )
+    props = dict(extra)
     if not props:
         raise fastapi.HTTPException(
             status_code=400,
@@ -1744,7 +1750,9 @@ async def patch_project_environment(
                 f'environment {env_slug!r}'
             ),
         )
-    edge_props = graph.parse_agtype(records[0]['props']) or {}
+    edge_props: dict[str, typing.Any] = (
+        graph.parse_agtype(records[0]['props']) or {}
+    )
     return {
         k: v for k, v in edge_props.items() if k not in _PROTECTED_ENV_KEYS
     }
