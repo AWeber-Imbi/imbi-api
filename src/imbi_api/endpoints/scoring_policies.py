@@ -31,6 +31,7 @@ PolicyType = (
     | scoring_common.LinkPresencePolicy
     | scoring_common.AgePolicy
     | scoring_common.AnalysisResultPolicy
+    | scoring_common.DeploymentStatusPolicy
 )
 
 
@@ -58,6 +59,7 @@ _NODE_PROPERTY_KEYS: frozenset[str] = frozenset(
         'attribute_name',
         'link_slug',
         'result_slug',
+        'environment_slug',
         'present_score',
         'missing_score',
         'value_score_map',
@@ -80,7 +82,7 @@ def _parse_node(raw: dict[str, typing.Any]) -> dict[str, typing.Any]:
         if isinstance(val, str):
             try:
                 out[key] = json.loads(val)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 out[key] = None
     return out
 
