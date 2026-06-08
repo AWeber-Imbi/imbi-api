@@ -80,6 +80,11 @@ async def list_incidents(
         start_dt = start_dt.replace(tzinfo=datetime.UTC)
     if end_dt.tzinfo is None:
         end_dt = end_dt.replace(tzinfo=datetime.UTC)
+    if start_dt > end_dt:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='start_time must be less than or equal to end_time',
+        )
 
     project_slug, team_slug = await lookup_project_slugs(db, project_id)
     ctx = PluginContext(
