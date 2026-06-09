@@ -59,7 +59,7 @@ class EventsPage(pydantic.BaseModel):
 _SELECT_COLUMNS: str = (
     'id, project_id, recorded_at, type, third_party_service, '
     'attributed_to, toJSONString(metadata) AS metadata, '
-    'toJSONString(payload) AS payload, version'
+    'toJSONString(payload) AS payload'
 )
 
 
