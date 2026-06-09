@@ -2261,7 +2261,11 @@ async def get_release_drift(
     latest = _latest_release_tag(tag_rows)
     latest_tag = str(latest['name']) if latest else None
     latest_tag_sha = str(latest['sha']) if latest else None
-    latest_tag_at = latest.get('tagged_at') if latest else None
+    latest_tag_at = (
+        (latest.get('tagged_at') or latest.get('recorded_at'))
+        if latest
+        else None
+    )
 
     head_rows = await clickhouse.query(
         'SELECT sha FROM commits FINAL '
@@ -2347,11 +2351,14 @@ async def get_release_history(
 ) -> list[ReleaseHistoryEntry]:
     """Release history: ClickHouse tags joined to their ``Release`` nodes."""
     capped = max(1, min(limit, 100))
+    # Fetch all tags (not a timestamp-limited window) so the semver sort
+    # below ranks the full candidate set: a high-semver tag with an old or
+    # late-synced timestamp must still be able to reach the head of the list,
+    # consistent with the drift base selection.
     tag_rows = await clickhouse.query(
         'SELECT name, sha, tagged_at, tagger_name, url, recorded_at '
-        'FROM tags FINAL WHERE project_id = {project_id:String} '
-        'ORDER BY coalesce(tagged_at, recorded_at) DESC LIMIT {limit:UInt32}',
-        {'project_id': project_id, 'limit': capped},
+        'FROM tags FINAL WHERE project_id = {project_id:String}',
+        {'project_id': project_id},
     )
     nodes = await _release_nodes_by_tag(db, org_slug, project_id)
     ci_by_sha = await _ci_status_by_sha(
@@ -2386,7 +2393,7 @@ async def get_release_history(
         key=lambda e: _release_tag_order_key(e.tag, e.published_at),
         reverse=True,
     )
-    return entries
+    return entries[:capped]
 
 
 @project_deployments_router.post('/releases/cut', status_code=201)
