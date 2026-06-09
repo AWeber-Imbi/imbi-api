@@ -1765,6 +1765,43 @@ class ReleasesTabEndpointsTestCase(ProjectDeploymentsTestCase):
         self.assertEqual(data['commits'], [])
         self.assertEqual(data['suggested_tag'], 'v2.0.1')
 
+    def test_release_drift_picks_highest_semver_not_newest(self) -> None:
+        """A late-synced lower version must not out-rank the latest release."""
+        older = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+        newer = datetime.datetime(2026, 6, 1, tzinfo=datetime.UTC)
+        self._patch_query(
+            [
+                [
+                    # v4.1.3 (a backport) was tagged most recently, but
+                    # v7.1.0 is the highest version -> the real base.
+                    {
+                        'name': 'v4.1.3',
+                        'sha': 'sha413',
+                        'tagged_at': newer,
+                        'recorded_at': newer,
+                    },
+                    {
+                        'name': 'v7.1.0',
+                        'sha': 'sha710',
+                        'tagged_at': older,
+                        'recorded_at': older,
+                    },
+                ],
+                [{'sha': 'headsha'}],
+                [{'authored_at': older}],
+                [self._commit_row('feat1', message='feat: new thing')],
+                [{'c': 2}],
+            ]
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get(f'{self._BASE}/release-drift')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['latest_tag'], 'v7.1.0')
+        self.assertEqual(data['latest_tag_sha'], 'sha710')
+        # A feat commit bumps the minor off v7.1.0, not off v4.1.3.
+        self.assertEqual(data['suggested_tag'], 'v7.2.0')
+
     def test_release_history_joins_tags_and_nodes(self) -> None:
         when = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
         self._patch_query(
