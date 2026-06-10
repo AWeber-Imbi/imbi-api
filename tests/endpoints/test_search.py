@@ -129,10 +129,13 @@ class SearchEndpointTestCase(support.SharedAppTestCase):
         self.client.get(f'{_BASE_URL}?q=test')
         queries = [c.args[0] for c in self.mock_db.execute.call_args_list]
         archived_clause = 'coalesce(p.archived, false) = false'
-        filtered = [q for q in queries if archived_clause in q]
-        self.assertEqual(len(filtered), 5)
-        # The org lookup (first call) never filters by project.
+        # The org lookup and the direct BELONGS_TO query do not traverse a
+        # Project, so they must not carry the filter.
         self.assertNotIn(archived_clause, queries[0])
+        self.assertNotIn(archived_clause, queries[1])
+        # Every subsequent project-traversing query must carry the filter.
+        for query in queries[2:]:
+            self.assertIn(archived_clause, query)
 
     def test_org_not_found_returns_404(self) -> None:
         self._setup_org_not_found()
