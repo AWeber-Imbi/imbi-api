@@ -410,6 +410,14 @@ class DocumentEndpointsTestCase(support.SharedAppTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_list_mutually_exclusive_filters(self) -> None:
+        response = self.client.get(
+            '/organizations/engineering/documents/'
+            '?project_id=proj-abc&project_type=http-api'
+        )
+        self.assertEqual(response.status_code, 400)
+        self.mock_db.execute.assert_not_called()
+
     def test_list_invalid_cursor(self) -> None:
         response = self.client.get(
             '/organizations/engineering/documents/?cursor=!!not-base64!!'

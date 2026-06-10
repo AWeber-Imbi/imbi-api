@@ -464,6 +464,17 @@ async def _list_documents_impl(
             detail=f'limit must be 1..{MAX_LIMIT}',
         )
 
+    attachment_filters = sum(
+        value is not None
+        for value in (project_id, project_type_slug, user_email)
+    )
+    if attachment_filters > 1:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail='Only one attachment filter (project, project_type, '
+            'user) may be specified at a time',
+        )
+
     params: dict[str, typing.Any] = {
         'org_slug': org_slug,
         'row_limit': limit + 1,
