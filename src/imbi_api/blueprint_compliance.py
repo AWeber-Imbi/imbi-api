@@ -128,12 +128,42 @@ def _check_property(
                 description=(
                     f'`{prop_name}` has no value. '
                     f'The blueprint default is `{default!r}`. '
-                    f'Use **Apply Blueprint Defaults** to set it.'
+                    f'Use **Apply Blueprint Fixes** to set it.'
                 ),
                 status='warn',
             )
 
     return None
+
+
+def _stale_blueprint_properties(
+    all_blueprints: list[models.Blueprint],
+    applicable: list[models.Blueprint],
+    current_props: dict[str, typing.Any],
+) -> list[str]:
+    """Return property names set on the project with no applicable blueprint.
+
+    A property is "stale" when it was set by a blueprint that no longer
+    applies to this project's type(s). Only considers properties defined in
+    *some* blueprint (so core model fields like ``id`` or ``name`` are never
+    flagged).
+    """
+    all_bp_props: set[str] = set()
+    for bp in all_blueprints:
+        if bp.kind != 'node':
+            continue
+        for prop_name in bp.json_schema.properties or {}:
+            all_bp_props.add(prop_name)
+
+    applicable_props: set[str] = set()
+    for bp in applicable:
+        for prop_name in bp.json_schema.properties or {}:
+            applicable_props.add(prop_name)
+
+    stale = all_bp_props - applicable_props
+    return [
+        p for p in stale if not _is_missing(current_props.get(p, _SENTINEL))
+    ]
 
 
 def _applicable_blueprints(
@@ -185,17 +215,6 @@ async def check_blueprint_compliance(
 
     type_slug_set = set(type_slugs)
     applicable = _applicable_blueprints(all_blueprints, type_slug_set)
-    if not applicable:
-        return [
-            AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:no-applicable',
-                title='No blueprints apply to this project type',
-                description=(
-                    "No enabled blueprints match this project's type(s)."
-                ),
-                status='pass',
-            )
-        ]
 
     props = await _fetch_project_props(db, project_id)
     findings: list[AnalysisResultItem] = []
@@ -217,7 +236,35 @@ async def check_blueprint_compliance(
             if finding is not None:
                 findings.append(finding)
 
+    # Detect blueprint-managed properties no longer in any applicable
+    # blueprint.
+    stale = _stale_blueprint_properties(all_blueprints, applicable, props)
+    for prop_name in sorted(stale):
+        findings.append(
+            AnalysisResultItem(
+                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:stale:{prop_name}',
+                title=f'Property not in any applicable blueprint: {prop_name}',
+                description=(
+                    f'`{prop_name}` is set on this project but is not defined '
+                    f'in any currently applicable blueprint. '
+                    f'Use **Apply Blueprint Fixes** to remove it.'
+                ),
+                status='warn',
+            )
+        )
+
     if not findings:
+        if not applicable:
+            return [
+                AnalysisResultItem(
+                    slug=f'{_BLUEPRINT_PLUGIN_SLUG}:no-applicable',
+                    title='No blueprints apply to this project type',
+                    description=(
+                        "No enabled blueprints match this project's type(s)."
+                    ),
+                    status='pass',
+                )
+            ]
         return [
             AnalysisResultItem(
                 slug=f'{_BLUEPRINT_PLUGIN_SLUG}:all-pass',
@@ -297,3 +344,50 @@ async def apply_blueprint_defaults(
         list(defaults.keys()),
     )
     return len(defaults)
+
+
+async def remove_stale_blueprint_properties(
+    db: graph.Graph,
+    project_id: str,
+    type_slugs: list[str],
+) -> int:
+    """Remove blueprint-managed properties no longer in any applicable
+    blueprint.
+
+    Only removes properties defined in *some* blueprint, so core model
+    fields (``id``, ``name``, etc.) are never touched. Stale properties are
+    removed by setting them to ``null`` in a single Cypher ``SET`` clause.
+
+    Returns the number of properties removed.
+    """
+    all_blueprints = await project_blueprints(db)
+    if not all_blueprints:
+        return 0
+
+    type_slug_set = set(type_slugs)
+    applicable = _applicable_blueprints(all_blueprints, type_slug_set)
+    props = await _fetch_project_props(db, project_id)
+
+    stale = [
+        p
+        for p in _stale_blueprint_properties(all_blueprints, applicable, props)
+        if _SAFE_PROP_RE.match(p)
+    ]
+    if not stale:
+        return 0
+
+    # Setting a property to null removes it from the AGE node.
+    set_parts = [f'p.{k} = null' for k in stale]
+    cypher = (
+        'MATCH (p:Project {{id: {project_id}}}) SET '
+        + ', '.join(set_parts)
+        + ' RETURN p.id AS id'
+    )
+    await db.execute(cypher, {'project_id': project_id}, ['id'])
+    LOGGER.info(
+        'Removed %d stale blueprint property/ies from project %s: %s',
+        len(stale),
+        project_id,
+        stale,
+    )
+    return len(stale)

@@ -34,6 +34,7 @@ from imbi_api.blueprint_compliance import (
     _BLUEPRINT_PLUGIN_SLUG,
     apply_blueprint_defaults,
     check_blueprint_compliance,
+    remove_stale_blueprint_properties,
 )
 from imbi_api.endpoints._helpers import (
     lookup_project_exists_in,
@@ -388,9 +389,10 @@ async def get_project_analysis(
 
 
 class ApplyDefaultsResponse(pydantic.BaseModel):
-    """Result of applying blueprint defaults to a project."""
+    """Result of syncing blueprint properties on a project."""
 
     properties_updated: int
+    properties_removed: int = 0
 
 
 @project_analysis_router.post('/run', response_model=AnalysisReport)
@@ -460,11 +462,17 @@ async def apply_project_blueprint_defaults(
     del org_slug
     type_slugs = await lookup_project_type_slugs(db, project_id)
     count = await apply_blueprint_defaults(db, project_id, type_slugs)
+    removed = await remove_stale_blueprint_properties(
+        db, project_id, type_slugs
+    )
     if auth.user:
         LOGGER.info(
-            'User %s applied %d blueprint default(s) to project %s',
+            'User %s applied %d default(s), removed %d stale on project %s',
             auth.user.id,
             count,
+            removed,
             project_id,
         )
-    return ApplyDefaultsResponse(properties_updated=count)
+    return ApplyDefaultsResponse(
+        properties_updated=count, properties_removed=removed
+    )
