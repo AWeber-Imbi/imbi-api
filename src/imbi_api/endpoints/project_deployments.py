@@ -697,10 +697,13 @@ async def resync_for_project(
     recent ``limit`` deployments per environment, upserts ``Release``
     nodes for any observed versions that are missing, appends
     ``DeploymentEvent`` rows on the ``DEPLOYED_TO`` edge (dedup'd by
-    ``external_run_id``), and writes a single audit row per
-    environment.  Returns counts + a per-environment error list so the
-    host can surface partial results rather than failing the whole call
-    on one bad env.
+    ``external_run_id``).  Returns counts + a per-environment error list
+    so the host can surface partial results rather than failing the
+    whole call on one bad env.
+
+    No ``operations_log`` audit row is written: resync backfills
+    historical remote activity, so attributing it to the resync operator
+    would poison ``performed_by`` attribution.
 
     ``limit`` controls how many recent deployments per environment the
     plugin returns.  The default (1) keeps webhook-lapse catch-up cheap;
@@ -1096,8 +1099,9 @@ async def resync_project_deployments(
     Asks the project's deployment plugin for the most recent ``limit``
     deployments per environment, upserts any missing ``Release`` nodes,
     and dedup-appends ``DeploymentEvent`` rows so the badges advance
-    even when the gateway webhook flow has lapsed.  Records one
-    audit row per environment with ``action='resync'``.
+    even when the gateway webhook flow has lapsed.  No ``operations_log``
+    audit row is written -- the ``DEPLOYED_TO`` edge already carries the
+    original creator via ``DeploymentEvent.performed_by``.
 
     ``limit`` defaults to 1 (cheap webhook-lapse catch-up).  Raise it
     (up to 100, the GitHub per-page ceiling) for a deeper backfill that
