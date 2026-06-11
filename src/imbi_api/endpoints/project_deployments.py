@@ -750,7 +750,7 @@ async def resync_for_project(
     # deploys and the user_activity queries that key on the email. Built
     # once and reused across every observed deployment.
     service_plugins = await attribution.load_service_plugins(
-        db, project_id=project_id, plugin_slug=resolved.plugin_slug
+        db, project_id=project_id, plugin_id=resolved.plugin_id
     )
     resolve_user = attribution.make_user_resolver(db, service_plugins)
     # Track identities we've already touched so ``releases_created`` /

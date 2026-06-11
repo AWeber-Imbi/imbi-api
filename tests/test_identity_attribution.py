@@ -121,3 +121,38 @@ class MakeUserResolverTests(unittest.IsolatedAsyncioTestCase):
             assert resolver is not None
             with self.assertLogs(attribution.LOGGER, level='ERROR'):
                 self.assertIsNone(await resolver('1'))
+
+
+class LoadServicePluginsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_anchors_lookup_to_resolved_plugin_id(self) -> None:
+        """The sibling lookup must bind the resolved plugin's ``id`` (not
+        its slug) so two services sharing a deployment slug can't leak
+        siblings from the wrong ``ThirdPartyService``."""
+        db = mock.AsyncMock()
+        db.execute.return_value = [
+            {'siblings': [{'slug': 'github', 'options': None}]}
+        ]
+        with mock.patch.object(
+            attribution.graph,
+            'parse_agtype',
+            return_value=[{'slug': 'github', 'options': None}],
+        ):
+            plugins = await attribution.load_service_plugins(
+                db, project_id='proj-1', plugin_id='plugin-abc'
+            )
+        self.assertEqual(['github'], [p.slug for p in plugins])
+        query, params, _columns = db.execute.await_args.args
+        # Anchored on the Plugin node id, never the slug.
+        self.assertIn('{id: {plugin_id}}', query)
+        self.assertNotIn('plugin_slug: {slug}', query)
+        self.assertEqual(
+            {'project_id': 'proj-1', 'plugin_id': 'plugin-abc'}, params
+        )
+
+    async def test_returns_empty_when_no_service(self) -> None:
+        db = mock.AsyncMock()
+        db.execute.return_value = []
+        plugins = await attribution.load_service_plugins(
+            db, project_id='proj-1', plugin_id='plugin-abc'
+        )
+        self.assertEqual([], plugins)

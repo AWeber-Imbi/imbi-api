@@ -83,20 +83,23 @@ def make_user_resolver(
 
 
 async def load_service_plugins(
-    db: graph.Graph, *, project_id: str, plugin_slug: str
+    db: graph.Graph, *, project_id: str, plugin_id: str
 ) -> list[ServicePlugin]:
-    """Gather the plugins on the ``ThirdPartyService`` whose plugin
-    ``plugin_slug`` the project ``EXISTS_IN``.
+    """Gather the plugins on the ``ThirdPartyService`` that exposes the
+    resolved ``Plugin`` (by ``plugin_id``) and that the project
+    ``EXISTS_IN``.
 
     Used to discover the identity plugins that sit alongside a deployment
     (or commit-sync) plugin on the same service, so their connections can
-    resolve an external actor to an Imbi user. Returns an empty list when
-    the project has no such service.
+    resolve an external actor to an Imbi user. Anchoring on the resolved
+    plugin's ``id`` (rather than its slug) keeps the lookup pinned to the
+    correct service even when two services expose the same deployment
+    slug. Returns an empty list when the project has no such service.
     """
     query: typing.LiteralString = """
     MATCH (proj:Project {{id: {project_id}}})
       -[:EXISTS_IN]->(tps:ThirdPartyService)
-      -[:HAS_PLUGIN]->(:Plugin {{plugin_slug: {slug}}})
+      -[:HAS_PLUGIN]->(:Plugin {{id: {plugin_id}}})
     MATCH (tps)-[:HAS_PLUGIN]->(sib:Plugin)
     RETURN collect(DISTINCT {{slug: sib.plugin_slug,
                               options: sib.options}}) AS siblings
@@ -104,7 +107,7 @@ async def load_service_plugins(
     """
     records = await db.execute(
         query,
-        {'project_id': project_id, 'slug': plugin_slug},
+        {'project_id': project_id, 'plugin_id': plugin_id},
         ['siblings'],
     )
     if not records:
