@@ -17,7 +17,6 @@ import asyncio
 import datetime
 import logging
 import typing
-from collections import abc
 
 import pydantic
 from imbi_common import graph
@@ -59,6 +58,15 @@ class _ResolvedPRSync(typing.NamedTuple):
     tps_slug: str
     service_endpoint: str | None
     service_plugins: list[ServicePlugin]
+
+
+class _SyncAllHistoryHandler(typing.Protocol):
+    async def sync_all_history(
+        self,
+        *,
+        ctx: PluginContext,
+        credentials: dict[str, typing.Any],
+    ) -> int: ...
 
 
 async def _resolve_plugin(db: graph.Graph, project_id: str) -> _ResolvedPRSync:
@@ -191,8 +199,8 @@ async def run_sync(db: graph.Graph, org_slug: str, project_id: str) -> int:
             'github-pr-sync plugin does not implement sync_all_history; '
             'upgrade imbi-plugin-github'
         )
-    sync_fn = typing.cast('abc.Callable[..., abc.Awaitable[int]]', sync)
-    return await sync_fn(ctx=ctx, credentials=credentials)
+    sync_fn = typing.cast('_SyncAllHistoryHandler', handler)
+    return await sync_fn.sync_all_history(ctx=ctx, credentials=credentials)
 
 
 def _now_iso() -> str:
