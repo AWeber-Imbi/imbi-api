@@ -29,6 +29,12 @@ from imbi_common.plugins.base import (
 from imbi_common.plugins.errors import PluginCredentialsMissing
 
 from imbi_api.auth import permissions
+from imbi_api.blueprint_compliance import (
+    _BLUEPRINT_PLUGIN_ID,
+    _BLUEPRINT_PLUGIN_SLUG,
+    apply_blueprint_defaults,
+    check_blueprint_compliance,
+)
 from imbi_api.endpoints._helpers import (
     lookup_project_exists_in,
     lookup_project_links,
@@ -381,6 +387,12 @@ async def get_project_analysis(
     return report
 
 
+class ApplyDefaultsResponse(pydantic.BaseModel):
+    """Result of applying blueprint defaults to a project."""
+
+    properties_updated: int
+
+
 @project_analysis_router.post('/run', response_model=AnalysisReport)
 async def run_project_analysis(
     org_slug: str,
@@ -391,20 +403,27 @@ async def run_project_analysis(
         fastapi.Depends(permissions.require_permission('project:write')),
     ],
 ) -> AnalysisReport:
-    plugins = await resolve_analysis_plugins(db, project_id)
-    if not plugins:
-        report = await _persist_report(
-            db,
-            project_id=project_id,
-            overall_status='pass',
-            triggered_by_user_id=(auth.user.id if auth.user else None),
-            results=[],
+    type_slugs = await lookup_project_type_slugs(db, project_id)
+    compliance_items = await check_blueprint_compliance(
+        db, project_id, type_slugs
+    )
+    compliance_results = [
+        AnalysisResult(
+            slug=item.slug,
+            title=item.title,
+            description=item.description,
+            status=item.status,
+            plugin_slug=_BLUEPRINT_PLUGIN_SLUG,
+            plugin_id=_BLUEPRINT_PLUGIN_ID,
         )
-        return report
+        for item in compliance_items
+    ]
+
+    plugins = await resolve_analysis_plugins(db, project_id)
     per_plugin = await asyncio.gather(
         *(_run_one(db, org_slug, project_id, rp) for rp in plugins)
     )
-    results: list[AnalysisResult] = []
+    results: list[AnalysisResult] = list(compliance_results)
     for batch in per_plugin:
         results.extend(batch)
     results.sort(key=lambda r: (-_STATUS_RANK.get(r.status, 0), r.title))
@@ -417,3 +436,35 @@ async def run_project_analysis(
         triggered_by_user_id=triggered,
         results=results,
     )
+
+
+@project_analysis_router.post(
+    '/apply-blueprint-defaults',
+    response_model=ApplyDefaultsResponse,
+)
+async def apply_project_blueprint_defaults(
+    org_slug: str,
+    project_id: str,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('project:write')),
+    ],
+) -> ApplyDefaultsResponse:
+    """Apply blueprint default values to any unset project properties.
+
+    Only sets properties that are currently absent or ``null`` and that
+    have a ``default`` defined in the applicable blueprint schema.
+    Existing values are never overwritten.
+    """
+    del org_slug
+    type_slugs = await lookup_project_type_slugs(db, project_id)
+    count = await apply_blueprint_defaults(db, project_id, type_slugs)
+    if auth.user:
+        LOGGER.info(
+            'User %s applied %d blueprint default(s) to project %s',
+            auth.user.id,
+            count,
+            project_id,
+        )
+    return ApplyDefaultsResponse(properties_updated=count)
