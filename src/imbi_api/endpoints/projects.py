@@ -70,21 +70,29 @@ def _pick_latest_tag(
     Mirrors ``_latest_release_tag`` in ``project_deployments`` but is
     local to avoid a circular import (project_deployments → releases →
     projects).
+
+    Only semver tags are considered; non-semver rows are ignored so an
+    ad-hoc tag (e.g. ``deploy-20240101``) never wins over a real release.
     """
-    if not rows:
+    semver_rows = [
+        row
+        for row in rows
+        if _release_semver_key(str(row.get('name', ''))) is not None
+    ]
+    if not semver_rows:
         return None
 
     def _key(
         r: dict[str, typing.Any],
-    ) -> tuple[bool, tuple[int, int, int], str]:
+    ) -> tuple[tuple[int, int, int], str]:
         sv = _release_semver_key(str(r.get('name', '')))
         when = r.get('tagged_at') or r.get('recorded_at')
         when_key = (
             when.isoformat() if isinstance(when, datetime.datetime) else ''
         )
-        return (sv is not None, sv or (0, 0, 0), when_key)
+        return (sv or (0, 0, 0), when_key)
 
-    return max(rows, key=_key)
+    return max(semver_rows, key=_key)
 
 
 projects_router = fastapi.APIRouter(tags=['Projects'])
@@ -868,11 +876,71 @@ async def _fetch_release_summaries(
         if row.get('project_id') and row.get('sha')
     }
 
-    release_result: dict[str, ReleaseSummary] = {}
+    # Resolve each project's latest semver tag and its timestamp so we
+    # can query commit counts after that point.
     all_pids = set(tags_by_project.keys()) | set(head_by_project.keys())
+    latest_by_pid: dict[str, dict[str, typing.Any] | None] = {
+        pid: _pick_latest_tag(tags_by_project.get(pid, [])) for pid in all_pids
+    }
+
+    # Batch-fetch commit counts since each project's latest tag.
+    # Build a list of (project_id, tag_authored_at) tuples so a single
+    # ClickHouse query can count unreleased commits per project.
+    # Projects with no prior tag get a cutoff of epoch-start (count all).
+    tagged_pids = [
+        pid for pid, tag in latest_by_pid.items() if tag is not None
+    ]
+    counts_since_tag: dict[str, int] = {}
+    if tagged_pids:
+        try:
+            # For each project, count commits authored after the tag's
+            # recorded_at/tagged_at (the closest proxy we have to when
+            # the tag commit landed without a separate sha→authored_at
+            # look-up).  This mirrors what the per-project drift endpoint
+            # does via a base-commit authored_at lookup.
+            tag_times = [
+                (latest_by_pid[pid] or {}).get('tagged_at')
+                or (latest_by_pid[pid] or {}).get('recorded_at')
+                for pid in tagged_pids
+            ]
+            # Build per-project WHERE via countIf for a single scan.
+            # Rows without a valid tag timestamp are excluded from the
+            # list, so we can safely cast to datetime.
+            pid_cutoff: list[tuple[str, datetime.datetime]] = [
+                (pid, t)
+                for pid, t in zip(tagged_pids, tag_times, strict=True)
+                if isinstance(t, datetime.datetime)
+            ]
+            if pid_cutoff:
+                cutoff_map = dict(pid_cutoff)
+                count_rows = await clickhouse.query(
+                    'SELECT project_id,'
+                    ' countIf(authored_at'
+                    ' > {cutoffs:Map(String,DateTime64(3))}'
+                    '[project_id]) AS c'
+                    ' FROM commits FINAL'
+                    ' WHERE project_id'
+                    ' IN {project_ids:Array(String)}'
+                    ' GROUP BY project_id',
+                    {
+                        'project_ids': list(cutoff_map.keys()),
+                        'cutoffs': cutoff_map,
+                    },
+                )
+                counts_since_tag = {
+                    str(row['project_id']): int(row['c'])
+                    for row in count_rows
+                    if row.get('project_id') is not None
+                }
+        except Exception:  # noqa: BLE001
+            LOGGER.warning(
+                'Failed to fetch commit counts since tag',
+                exc_info=True,
+            )
+
+    release_result: dict[str, ReleaseSummary] = {}
     for pid in all_pids:
-        tags = tags_by_project.get(pid, [])
-        latest = _pick_latest_tag(tags)
+        latest = latest_by_pid.get(pid)
         head_row = head_by_project.get(pid)
         head_sha = str(head_row['sha']) if head_row else None
         short_sha = (
@@ -900,9 +968,6 @@ async def _fetch_release_summaries(
         )
         tagger = latest.get('tagger_name') if latest else None
         latest_tag_author = str(tagger) if tagger else None
-        drifted = bool(
-            head_sha and latest_tag_sha and head_sha != latest_tag_sha
-        )
         release_result[pid] = ReleaseSummary(
             head_sha=head_sha,
             head_short_sha=short_sha,
@@ -913,7 +978,7 @@ async def _fetch_release_summaries(
             latest_tag_sha=latest_tag_sha,
             latest_tag_at=latest_tag_at,
             latest_tag_author=latest_tag_author,
-            commits_since_tag=1 if drifted else 0,
+            commits_since_tag=counts_since_tag.get(pid, 0),
         )
     return release_result
 
