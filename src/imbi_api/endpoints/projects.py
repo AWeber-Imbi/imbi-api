@@ -1620,7 +1620,13 @@ async def list_projects(
         str(p.get('id', ''))
         for p in project_data_list
         if p.get('id')
-        and any(pt.get('releasable') for pt in (p.get('project_types') or []))
+        and any(
+            pt.get('releasable')
+            for pt in typing.cast(
+                list[dict[str, typing.Any]],
+                p.get('project_types') or [],
+            )
+        )
     ]
     viewer = auth.identity_for('github-enterprise-cloud')
     pr_counts, releases, release_summaries = await asyncio.gather(
