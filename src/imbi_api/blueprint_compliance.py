@@ -24,8 +24,8 @@ from imbi_api.blueprint_attributes import project_blueprints
 
 LOGGER = logging.getLogger(__name__)
 
-_BLUEPRINT_PLUGIN_SLUG = 'blueprint-compliance'
-_BLUEPRINT_PLUGIN_ID = 'built-in'
+BLUEPRINT_PLUGIN_SLUG = 'blueprint-compliance'
+BLUEPRINT_PLUGIN_ID = 'built-in'
 
 _SENTINEL = object()  # distinguishes "not present" from explicit None
 
@@ -70,7 +70,7 @@ def _check_property(
 
     if required and missing:
         return AnalysisResultItem(
-            slug=f'{_BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:missing',
+            slug=f'{BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:missing',
             title=f'Required property not set: {display}',
             description=(
                 f'`{prop_name}` is required by the **{section_slug}** '
@@ -84,7 +84,7 @@ def _check_property(
         if enum is not None and current_value not in enum:
             choices = ', '.join(f'`{v}`' for v in enum)
             return AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:invalid-enum',
+                slug=f'{BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:invalid-enum',
                 title=f'Property value not in allowed set: {display}',
                 description=(
                     f'`{prop_name}` is `{current_value!r}` but the '
@@ -99,7 +99,7 @@ def _check_property(
         if isinstance(current_value, (int, float)):
             if minimum is not None and current_value < minimum:
                 return AnalysisResultItem(
-                    slug=f'{_BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:below-minimum',
+                    slug=f'{BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:below-minimum',
                     title=f'Property below minimum: {display}',
                     description=(
                         f'`{prop_name}` is `{current_value}` but '
@@ -109,7 +109,7 @@ def _check_property(
                 )
             if maximum is not None and current_value > maximum:
                 return AnalysisResultItem(
-                    slug=f'{_BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:above-maximum',
+                    slug=f'{BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:above-maximum',
                     title=f'Property above maximum: {display}',
                     description=(
                         f'`{prop_name}` is `{current_value}` but '
@@ -123,7 +123,7 @@ def _check_property(
         default = getattr(prop_schema, 'default', None)
         if default is not None:
             return AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:use-default',
+                slug=f'{BLUEPRINT_PLUGIN_SLUG}:{section_slug}:{prop_name}:use-default',
                 title=f'Property not set — default available: {display}',
                 description=(
                     f'`{prop_name}` has no value. '
@@ -203,7 +203,7 @@ async def check_blueprint_compliance(
     if not all_blueprints:
         return [
             AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:no-blueprints',
+                slug=f'{BLUEPRINT_PLUGIN_SLUG}:no-blueprints',
                 title='No Project blueprints configured',
                 description=(
                     'No enabled Project blueprints are defined. '
@@ -242,7 +242,7 @@ async def check_blueprint_compliance(
     for prop_name in sorted(stale):
         findings.append(
             AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:stale:{prop_name}',
+                slug=f'{BLUEPRINT_PLUGIN_SLUG}:stale:{prop_name}',
                 title=f'Property not in any applicable blueprint: {prop_name}',
                 description=(
                     f'`{prop_name}` is set on this project but is not defined '
@@ -257,7 +257,7 @@ async def check_blueprint_compliance(
         if not applicable:
             return [
                 AnalysisResultItem(
-                    slug=f'{_BLUEPRINT_PLUGIN_SLUG}:no-applicable',
+                    slug=f'{BLUEPRINT_PLUGIN_SLUG}:no-applicable',
                     title='No blueprints apply to this project type',
                     description=(
                         "No enabled blueprints match this project's type(s)."
@@ -267,7 +267,7 @@ async def check_blueprint_compliance(
             ]
         return [
             AnalysisResultItem(
-                slug=f'{_BLUEPRINT_PLUGIN_SLUG}:all-pass',
+                slug=f'{BLUEPRINT_PLUGIN_SLUG}:all-pass',
                 title='All blueprint properties are correctly set',
                 description=(
                     'Every required and recommended blueprint property '

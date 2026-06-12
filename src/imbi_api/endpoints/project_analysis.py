@@ -30,8 +30,8 @@ from imbi_common.plugins.errors import PluginCredentialsMissing
 
 from imbi_api.auth import permissions
 from imbi_api.blueprint_compliance import (
-    _BLUEPRINT_PLUGIN_ID,
-    _BLUEPRINT_PLUGIN_SLUG,
+    BLUEPRINT_PLUGIN_ID,
+    BLUEPRINT_PLUGIN_SLUG,
     apply_blueprint_defaults,
     check_blueprint_compliance,
     remove_stale_blueprint_properties,
@@ -415,8 +415,8 @@ async def run_project_analysis(
             title=item.title,
             description=item.description,
             status=item.status,
-            plugin_slug=_BLUEPRINT_PLUGIN_SLUG,
-            plugin_id=_BLUEPRINT_PLUGIN_ID,
+            plugin_slug=BLUEPRINT_PLUGIN_SLUG,
+            plugin_id=BLUEPRINT_PLUGIN_ID,
         )
         for item in compliance_items
     ]

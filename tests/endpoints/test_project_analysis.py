@@ -145,6 +145,12 @@ class ProjectAnalysisTestCase(unittest.TestCase):
                 return_value={},
             )
         )
+        self.mocks['check_blueprint_compliance'] = self._start(
+            mock.patch(
+                f'{_MODULE}.check_blueprint_compliance',
+                return_value=[],
+            )
+        )
 
     def _start(self, patcher: typing.Any) -> mock.MagicMock:
         m = patcher.start()
