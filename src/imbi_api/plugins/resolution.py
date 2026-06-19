@@ -55,6 +55,13 @@ async def resolve_service_plugins(
     ]
 
 
+def _registry_plugin_type(slug: str) -> str | None:
+    try:
+        return get_plugin(slug).manifest.plugin_type
+    except PluginNotFoundError:
+        return None
+
+
 class ResolvedPlugin(typing.NamedTuple):
     plugin_id: str
     plugin_slug: str
@@ -522,7 +529,6 @@ async def resolve_analysis_plugins(
     WHERE coalesce(pte.plugin_type, pte.tab) = 'analysis'
     OPTIONAL MATCH (proj)-[:EXISTS_IN]->(tps:ThirdPartyService)
       -[:HAS_PLUGIN]->(p3:Plugin)
-    WHERE p3.plugin_type = 'analysis'
     WITH
       collect(DISTINCT {{id: p.id, slug: p.plugin_slug,
                          edge_options: pe.options,
@@ -569,9 +575,13 @@ async def resolve_analysis_plugins(
     pt_plugins: list[dict[str, typing.Any]] = (
         graph.parse_agtype(records[0]['pt_plugins']) or []
     )
-    tps_plugins: list[dict[str, typing.Any]] = (
-        graph.parse_agtype(records[0]['tps_plugins']) or []
-    )
+    tps_plugins: list[dict[str, typing.Any]] = [
+        p
+        for p in (graph.parse_agtype(records[0]['tps_plugins']) or [])
+        if p.get('id')
+        and p.get('slug')
+        and _registry_plugin_type(p['slug']) == 'analysis'
+    ]
 
     pt_by_id: dict[str, dict[str, typing.Any]] = {
         p['id']: p for p in pt_plugins if p.get('id')
