@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import typing
 
@@ -24,24 +25,35 @@ from imbi_common.graph import cypher as graph_cypher
 from imbi_common.plugins.base import (
     AnalysisPlugin,
     AnalysisResultItem,
+    LinkWriteback,
     PluginContext,
+    RemediationOffer,
+    RemediationResult,
+    ServiceWriteback,
 )
-from imbi_common.plugins.errors import PluginCredentialsMissing
+from imbi_common.plugins.errors import (
+    PluginCredentialsMissing,
+    PluginRemediationNotSupported,
+)
 
 from imbi_api.auth import permissions
 from imbi_api.blueprint_compliance import (
     BLUEPRINT_PLUGIN_ID,
     BLUEPRINT_PLUGIN_SLUG,
-    apply_blueprint_defaults,
     check_blueprint_compliance,
-    remove_stale_blueprint_properties,
+    remediate_blueprint,
 )
 from imbi_api.endpoints._helpers import (
     lookup_project_exists_in,
     lookup_project_links,
     lookup_project_slugs,
     lookup_project_type_slugs,
+    persist_link_writeback,
+    persist_service_writeback,
 )
+from imbi_api.identity import errors as identity_errors
+from imbi_api.identity import resolution as identity_resolution
+from imbi_api.identity.host_integration import call_with_identity_retry
 from imbi_api.plugins import call_with_timeout
 from imbi_api.plugins.credentials import get_plugin_credentials
 from imbi_api.plugins.resolution import (
@@ -70,6 +82,9 @@ class AnalysisResult(pydantic.BaseModel):
     status: AnalysisResultStatus
     plugin_slug: str
     plugin_id: str
+    #: Present when the finding is fixable; drives the Doctor panel's
+    #: per-finding "Fix" button.
+    remediation: RemediationOffer | None = None
 
 
 class AnalysisReport(pydantic.BaseModel):
@@ -129,11 +144,53 @@ async def _credentials_for(
         return {}
 
 
+async def _hydrate_identity_optional(
+    db: graph.Graph,
+    resolved: ResolvedPlugin,
+    ctx: PluginContext,
+    auth: permissions.AuthContext,
+) -> PluginContext:
+    """Stamp the actor and best-effort hydrate the user's identity.
+
+    Analysis plugins discovered via a third-party service carry the
+    service's sibling identity plugin id, letting the doctor act as the
+    connecting user. When the user has not connected that identity we
+    silently fall back to the plugin's static credentials rather than
+    forcing a hard ``identity_required`` — diagnosis must not depend on
+    every user having linked their account.
+    """
+    actor_user_id = auth.user.id if auth.user else None
+    ctx = ctx.model_copy(update={'actor_user_id': actor_user_id})
+    if resolved.identity_plugin_id and auth.user:
+        try:
+            ctx = await identity_resolution.hydrate_identity(
+                db, ctx, resolved.identity_plugin_id
+            )
+        except identity_errors.IdentityRequiredError:
+            LOGGER.info(
+                'No identity connection for plugin %s / user %s; '
+                'falling back to static credentials',
+                resolved.identity_plugin_id,
+                auth.user.id,
+            )
+    return ctx
+
+
+async def _resolve_credentials(
+    db: graph.Graph, resolved: ResolvedPlugin, ctx: PluginContext
+) -> dict[str, str]:
+    """Prefer the acting user's identity token; fall back to static."""
+    if ctx.identity and ctx.identity.access_token:
+        return {'access_token': ctx.identity.access_token}
+    return await _credentials_for(db, resolved)
+
+
 async def _run_one(
     db: graph.Graph,
     org_slug: str,
     project_id: str,
     resolved: ResolvedPlugin,
+    auth: permissions.AuthContext,
 ) -> list[AnalysisResult]:
     """Invoke a single plugin's ``analyze`` and shape the response.
 
@@ -142,7 +199,8 @@ async def _run_one(
     """
     try:
         ctx = await _build_context(db, org_slug, project_id, resolved)
-        credentials = await _credentials_for(db, resolved)
+        ctx = await _hydrate_identity_optional(db, resolved, ctx, auth)
+        credentials = await _resolve_credentials(db, resolved, ctx)
         handler = _handler(resolved)
         items: list[AnalysisResultItem] = await call_with_timeout(
             handler.analyze(ctx, credentials)
@@ -180,6 +238,7 @@ async def _run_one(
             status=item.status,
             plugin_slug=resolved.plugin_slug,
             plugin_id=resolved.plugin_id,
+            remediation=item.remediation,
         )
         for item in items
     ]
@@ -223,7 +282,8 @@ CREATE (r)-[:HAS_RESULT]->(res:AnalysisResult {{
   description: {description},
   status: {status},
   plugin_slug: {plugin_slug},
-  plugin_id: {plugin_id}
+  plugin_id: {plugin_id},
+  remediation: {remediation}
 }})
 """
 
@@ -274,6 +334,11 @@ async def _persist_report(
                     'status': result.status,
                     'plugin_slug': result.plugin_slug,
                     'plugin_id': result.plugin_id,
+                    'remediation': (
+                        json.dumps(result.remediation.model_dump())
+                        if result.remediation
+                        else ''
+                    ),
                 },
             )
             for result in results
@@ -334,8 +399,22 @@ async def _fetch_report(
     for entry in raw_results:
         if not isinstance(entry, dict):
             continue
+        entry_dict: dict[str, typing.Any] = typing.cast(
+            'dict[str, typing.Any]', entry
+        )
+        # ``remediation`` is persisted as a JSON string (or '' when the
+        # finding is not fixable); decode it back to a dict the model can
+        # validate into a RemediationOffer.
+        rem_raw = entry_dict.get('remediation')
+        if isinstance(rem_raw, str) and rem_raw:
+            try:
+                entry_dict['remediation'] = json.loads(rem_raw)
+            except json.JSONDecodeError:
+                entry_dict['remediation'] = None
+        else:
+            entry_dict['remediation'] = None
         try:
-            results.append(AnalysisResult.model_validate(entry))
+            results.append(AnalysisResult.model_validate(entry_dict))
         except pydantic.ValidationError:
             LOGGER.warning(
                 'Skipping malformed AnalysisResult node for project %s',
@@ -388,11 +467,54 @@ async def get_project_analysis(
     return report
 
 
-class ApplyDefaultsResponse(pydantic.BaseModel):
-    """Result of syncing blueprint properties on a project."""
+async def _collect_results(
+    db: graph.Graph,
+    org_slug: str,
+    project_id: str,
+    auth: permissions.AuthContext,
+) -> list[AnalysisResult]:
+    """Run blueprint compliance + every analysis plugin, sorted."""
+    type_slugs = await lookup_project_type_slugs(db, project_id)
+    compliance_items = await check_blueprint_compliance(
+        db, project_id, type_slugs
+    )
+    results: list[AnalysisResult] = [
+        AnalysisResult(
+            slug=item.slug,
+            title=item.title,
+            description=item.description,
+            status=item.status,
+            plugin_slug=BLUEPRINT_PLUGIN_SLUG,
+            plugin_id=BLUEPRINT_PLUGIN_ID,
+            remediation=item.remediation,
+        )
+        for item in compliance_items
+    ]
+    plugins = await resolve_analysis_plugins(db, project_id)
+    per_plugin = await asyncio.gather(
+        *(_run_one(db, org_slug, project_id, rp, auth) for rp in plugins)
+    )
+    for batch in per_plugin:
+        results.extend(batch)
+    results.sort(key=lambda r: (-_STATUS_RANK.get(r.status, 0), r.title))
+    return results
 
-    properties_updated: int
-    properties_removed: int = 0
+
+async def _run_and_persist(
+    db: graph.Graph,
+    org_slug: str,
+    project_id: str,
+    auth: permissions.AuthContext,
+) -> AnalysisReport:
+    results = await _collect_results(db, org_slug, project_id, auth)
+    triggered = auth.user.id if auth.user else None
+    return await _persist_report(
+        db,
+        project_id=project_id,
+        overall_status=_overall_status(results),
+        triggered_by_user_id=triggered,
+        results=results,
+    )
 
 
 @project_analysis_router.post('/run', response_model=AnalysisReport)
@@ -405,46 +527,135 @@ async def run_project_analysis(
         fastapi.Depends(permissions.require_permission('project:write')),
     ],
 ) -> AnalysisReport:
-    type_slugs = await lookup_project_type_slugs(db, project_id)
-    compliance_items = await check_blueprint_compliance(
-        db, project_id, type_slugs
-    )
-    compliance_results = [
-        AnalysisResult(
-            slug=item.slug,
-            title=item.title,
-            description=item.description,
-            status=item.status,
-            plugin_slug=BLUEPRINT_PLUGIN_SLUG,
-            plugin_id=BLUEPRINT_PLUGIN_ID,
+    return await _run_and_persist(db, org_slug, project_id, auth)
+
+
+class RemediateRequest(pydantic.BaseModel):
+    """Identify the finding to fix.
+
+    ``remediation_id`` is the offer id the plugin emitted; ``plugin_id``
+    routes to the emitting plugin (or ``'built-in'`` for the blueprint
+    compliance check). ``finding_slug`` is carried for audit/logging.
+    """
+
+    plugin_id: str
+    finding_slug: str
+    remediation_id: str
+
+
+class RemediateResponse(pydantic.BaseModel):
+    result: RemediationResult
+    report: AnalysisReport
+
+
+class RemediateOutcome(pydantic.BaseModel):
+    slug: str
+    plugin_id: str
+    result: RemediationResult
+
+
+class RemediateAllResponse(pydantic.BaseModel):
+    outcomes: list[RemediateOutcome]
+    report: AnalysisReport
+
+
+async def _remediate_one(
+    db: graph.Graph,
+    org_slug: str,
+    project_id: str,
+    plugin_id: str,
+    remediation_id: str,
+    auth: permissions.AuthContext,
+) -> RemediationResult:
+    """Apply a single finding's remediation, persisting any write-back.
+
+    Routes the built-in blueprint check to its host-side handler;
+    everything else calls back into the emitting analysis plugin and
+    persists whatever ``ServiceWriteback`` / ``LinkWriteback`` it
+    reported, mirroring the lifecycle dispatch write-back capture.
+    """
+    if plugin_id == BLUEPRINT_PLUGIN_ID:
+        type_slugs = await lookup_project_type_slugs(db, project_id)
+        return await remediate_blueprint(
+            db, project_id, type_slugs, remediation_id
         )
-        for item in compliance_items
-    ]
 
     plugins = await resolve_analysis_plugins(db, project_id)
-    per_plugin = await asyncio.gather(
-        *(_run_one(db, org_slug, project_id, rp) for rp in plugins)
+    resolved = next((p for p in plugins if p.plugin_id == plugin_id), None)
+    if resolved is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Analysis plugin {plugin_id!r} is not assigned',
+        )
+
+    ctx = await _build_context(db, org_slug, project_id, resolved)
+    ctx = await _hydrate_identity_optional(db, resolved, ctx, auth)
+    handler = _handler(resolved)
+    captured_service: list[ServiceWriteback] = []
+    captured_link: list[LinkWriteback] = []
+
+    async def _do(c: PluginContext) -> RemediationResult:
+        creds = await _resolve_credentials(db, resolved, c)
+        res = await call_with_timeout(
+            handler.remediate(c, creds, remediation_id)
+        )
+        if c.service_writeback is not None:
+            captured_service.append(c.service_writeback)
+        if c.link_writeback is not None:
+            captured_link.append(c.link_writeback)
+        return res
+
+    try:
+        if resolved.identity_plugin_id and ctx.identity:
+            result = await call_with_identity_retry(
+                db, ctx, resolved, auth, fn=_do, attached=True
+            )
+        else:
+            result = await _do(ctx)
+    except PluginRemediationNotSupported as exc:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=(
+                f'Plugin {resolved.plugin_slug!r} does not support '
+                f'remediation {remediation_id!r}'
+            ),
+        ) from exc
+
+    if captured_service:
+        await persist_service_writeback(
+            db,
+            ctx.model_copy(update={'service_writeback': captured_service[-1]}),
+        )
+    if captured_link:
+        await persist_link_writeback(
+            db, ctx.model_copy(update={'link_writeback': captured_link[-1]})
+        )
+    return result
+
+
+@project_analysis_router.post('/remediate', response_model=RemediateResponse)
+async def remediate_project_finding(
+    org_slug: str,
+    project_id: str,
+    body: RemediateRequest,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(permissions.require_permission('project:write')),
+    ],
+) -> RemediateResponse:
+    """Apply one finding's fix, then return the refreshed report."""
+    result = await _remediate_one(
+        db, org_slug, project_id, body.plugin_id, body.remediation_id, auth
     )
-    results: list[AnalysisResult] = list(compliance_results)
-    for batch in per_plugin:
-        results.extend(batch)
-    results.sort(key=lambda r: (-_STATUS_RANK.get(r.status, 0), r.title))
-    overall = _overall_status(results)
-    triggered = auth.user.id if auth.user else None
-    return await _persist_report(
-        db,
-        project_id=project_id,
-        overall_status=overall,
-        triggered_by_user_id=triggered,
-        results=results,
-    )
+    report = await _run_and_persist(db, org_slug, project_id, auth)
+    return RemediateResponse(result=result, report=report)
 
 
 @project_analysis_router.post(
-    '/apply-blueprint-defaults',
-    response_model=ApplyDefaultsResponse,
+    '/remediate-all', response_model=RemediateAllResponse
 )
-async def apply_project_blueprint_defaults(
+async def remediate_all_project_findings(
     org_slug: str,
     project_id: str,
     db: graph.Pool,
@@ -452,27 +663,42 @@ async def apply_project_blueprint_defaults(
         permissions.AuthContext,
         fastapi.Depends(permissions.require_permission('project:write')),
     ],
-) -> ApplyDefaultsResponse:
-    """Apply blueprint default values to any unset project properties.
+) -> RemediateAllResponse:
+    """Apply every fixable finding in the current report (best-effort).
 
-    Only sets properties that are currently absent or ``null`` and that
-    have a ``default`` defined in the applicable blueprint schema.
-    Existing values are never overwritten.
+    Each finding is remediated independently; a failure on one is
+    captured in its outcome rather than aborting the rest. Analysis is
+    re-run once at the end so the returned report reflects every fix.
     """
-    del org_slug
-    type_slugs = await lookup_project_type_slugs(db, project_id)
-    count = await apply_blueprint_defaults(db, project_id, type_slugs)
-    removed = await remove_stale_blueprint_properties(
-        db, project_id, type_slugs
-    )
-    if auth.user:
-        LOGGER.info(
-            'User %s applied %d default(s), removed %d stale on project %s',
-            auth.user.id,
-            count,
-            removed,
-            project_id,
+    report = await _fetch_report(db, project_id)
+    if report is None:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail='No analysis report exists for this project',
         )
-    return ApplyDefaultsResponse(
-        properties_updated=count, properties_removed=removed
-    )
+    outcomes: list[RemediateOutcome] = []
+    for finding in report.results:
+        if finding.remediation is None:
+            continue
+        try:
+            result = await _remediate_one(
+                db,
+                org_slug,
+                project_id,
+                finding.plugin_id,
+                finding.remediation.id,
+                auth,
+            )
+        except fastapi.HTTPException as exc:
+            result = RemediationResult(
+                status='failed', message=str(exc.detail)
+            )
+        outcomes.append(
+            RemediateOutcome(
+                slug=finding.slug,
+                plugin_id=finding.plugin_id,
+                result=result,
+            )
+        )
+    fresh = await _run_and_persist(db, org_slug, project_id, auth)
+    return RemediateAllResponse(outcomes=outcomes, report=fresh)

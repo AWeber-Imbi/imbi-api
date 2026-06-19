@@ -14,6 +14,9 @@ from imbi_common.plugins.base import (
     AnalysisPlugin,
     AnalysisResultItem,
     PluginManifest,
+    RemediationOffer,
+    RemediationResult,
+    ServiceWriteback,
 )
 from imbi_common.plugins.registry import RegistryEntry
 
@@ -69,6 +72,32 @@ class _BoomPlugin(AnalysisPlugin):
 
     async def analyze(self, ctx, credentials) -> list[AnalysisResultItem]:  # type: ignore[override]
         raise RuntimeError('boom')
+
+
+class _RemediablePlugin(AnalysisPlugin):
+    manifest = PluginManifest(
+        slug='fix-plugin', name='Fix', plugin_type='analysis'
+    )
+
+    async def analyze(self, ctx, credentials) -> list[AnalysisResultItem]:  # type: ignore[override]
+        return [
+            AnalysisResultItem(
+                slug='fix-plugin:drift',
+                title='Edge drift',
+                description='out of sync',
+                status='fail',
+                remediation=RemediationOffer(id='fix-it', label='Fix it'),
+            )
+        ]
+
+    async def remediate(self, ctx, credentials, remediation_id):  # type: ignore[override]
+        ctx.service_writeback = ServiceWriteback(
+            identifier='42',
+            canonical_url='https://api.github.com/repositories/42',
+        )
+        return RemediationResult(
+            status='fixed', message=f'fixed {remediation_id}'
+        )
 
 
 def _registry_entry(cls: type[AnalysisPlugin]) -> RegistryEntry:
@@ -150,6 +179,20 @@ class ProjectAnalysisTestCase(unittest.TestCase):
                 f'{_MODULE}.check_blueprint_compliance',
                 return_value=[],
             )
+        )
+        self.mocks['lookup_project_exists_in'] = self._start(
+            mock.patch(
+                f'{_MODULE}.lookup_project_exists_in',
+                return_value=[],
+            )
+        )
+        # Remediation write-back persistence hits the graph; stub it so
+        # the endpoint tests stay DB-free.
+        self.mocks['persist_service_writeback'] = self._start(
+            mock.patch(f'{_MODULE}.persist_service_writeback')
+        )
+        self.mocks['persist_link_writeback'] = self._start(
+            mock.patch(f'{_MODULE}.persist_link_writeback')
         )
 
     def _start(self, patcher: typing.Any) -> mock.MagicMock:
@@ -281,38 +324,75 @@ class ProjectAnalysisTestCase(unittest.TestCase):
                 )
         self.assertEqual(403, resp.status_code, resp.text)
 
-    def test_apply_blueprint_defaults_returns_counts(self) -> None:
-        with (
-            mock.patch(
-                f'{_MODULE}.apply_blueprint_defaults',
-                return_value=3,
-            ),
-            mock.patch(
-                f'{_MODULE}.remove_stale_blueprint_properties',
-                return_value=1,
-            ),
+    def test_remediate_calls_plugin_and_persists_writeback(self) -> None:
+        with mock.patch(
+            f'{_MODULE}.resolve_analysis_plugins',
+            return_value=[_resolved('p1', _RemediablePlugin)],
         ):
             with testclient.TestClient(self.test_app) as client:
                 resp = client.post(
-                    '/organizations/acme/projects/proj-1/analysis'
-                    '/apply-blueprint-defaults'
+                    '/organizations/acme/projects/proj-1/analysis/remediate',
+                    json={
+                        'plugin_id': 'p1',
+                        'finding_slug': 'fix-plugin:drift',
+                        'remediation_id': 'fix-it',
+                    },
                 )
         self.assertEqual(200, resp.status_code, resp.text)
         body = resp.json()
-        self.assertEqual(3, body['properties_updated'])
-        self.assertEqual(1, body['properties_removed'])
+        self.assertEqual('fixed', body['result']['status'])
+        self.assertEqual('fixed fix-it', body['result']['message'])
+        self.assertIn('report', body)
+        self.mocks['persist_service_writeback'].assert_awaited()
 
-    def test_apply_blueprint_defaults_requires_project_write_permission(
-        self,
-    ) -> None:
+    def test_remediate_unknown_plugin_returns_404(self) -> None:
+        with mock.patch(
+            f'{_MODULE}.resolve_analysis_plugins',
+            return_value=[],
+        ):
+            with testclient.TestClient(self.test_app) as client:
+                resp = client.post(
+                    '/organizations/acme/projects/proj-1/analysis/remediate',
+                    json={
+                        'plugin_id': 'nope',
+                        'finding_slug': 'x',
+                        'remediation_id': 'fix-it',
+                    },
+                )
+        self.assertEqual(404, resp.status_code, resp.text)
+
+    def test_remediate_builtin_routes_to_blueprint(self) -> None:
+        with (
+            mock.patch(
+                f'{_MODULE}.remediate_blueprint',
+                return_value=RemediationResult(
+                    status='fixed', message='set default'
+                ),
+            ) as rb,
+            mock.patch(f'{_MODULE}.resolve_analysis_plugins', return_value=[]),
+        ):
+            with testclient.TestClient(self.test_app) as client:
+                resp = client.post(
+                    '/organizations/acme/projects/proj-1/analysis/remediate',
+                    json={
+                        'plugin_id': 'built-in',
+                        'finding_slug': 'blueprint-compliance:x:y:use-default',
+                        'remediation_id': 'set-default:foo',
+                    },
+                )
+        self.assertEqual(200, resp.status_code, resp.text)
+        self.assertEqual('fixed', resp.json()['result']['status'])
+        rb.assert_awaited_once()
+
+    def test_remediate_requires_project_write_permission(self) -> None:
+        self.auth_context.user = self.test_user.model_copy(
+            update={'is_admin': False}
+        )
         self.auth_context = permissions.AuthContext(
-            user=self.test_user,
+            user=self.auth_context.user,
             session_id='test-session',
             auth_method='jwt',
             permissions={'project:read'},
-        )
-        self.auth_context.user = self.test_user.model_copy(
-            update={'is_admin': False}
         )
 
         async def mock_get_current_user() -> permissions.AuthContext:
@@ -323,7 +403,63 @@ class ProjectAnalysisTestCase(unittest.TestCase):
         )
         with testclient.TestClient(self.test_app) as client:
             resp = client.post(
-                '/organizations/acme/projects/proj-1/analysis'
-                '/apply-blueprint-defaults'
+                '/organizations/acme/projects/proj-1/analysis/remediate',
+                json={
+                    'plugin_id': 'p1',
+                    'finding_slug': 'x',
+                    'remediation_id': 'fix-it',
+                },
             )
         self.assertEqual(403, resp.status_code, resp.text)
+
+    def test_remediate_all_best_effort(self) -> None:
+        from imbi_api.endpoints.project_analysis import (
+            AnalysisReport,
+            AnalysisResult,
+        )
+
+        report = AnalysisReport(
+            id='r1',
+            project_id='proj-1',
+            created_at=datetime.datetime.now(datetime.UTC),
+            overall_status='warn',
+            results=[
+                AnalysisResult(
+                    slug='blueprint-compliance:s:p:use-default',
+                    title='t',
+                    description='d',
+                    status='warn',
+                    plugin_slug='blueprint-compliance',
+                    plugin_id='built-in',
+                    remediation=RemediationOffer(
+                        id='set-default:foo', label='Fix'
+                    ),
+                ),
+                AnalysisResult(
+                    slug='no-fix',
+                    title='t2',
+                    description='d2',
+                    status='pass',
+                    plugin_slug='p',
+                    plugin_id='p9',
+                ),
+            ],
+        )
+        with (
+            mock.patch(f'{_MODULE}._fetch_report', return_value=report),
+            mock.patch(
+                f'{_MODULE}.remediate_blueprint',
+                return_value=RemediationResult(status='fixed', message='ok'),
+            ),
+            mock.patch(f'{_MODULE}.resolve_analysis_plugins', return_value=[]),
+        ):
+            with testclient.TestClient(self.test_app) as client:
+                resp = client.post(
+                    '/organizations/acme/projects/proj-1/analysis'
+                    '/remediate-all'
+                )
+        self.assertEqual(200, resp.status_code, resp.text)
+        body = resp.json()
+        # Only the fixable finding produces an outcome.
+        self.assertEqual(1, len(body['outcomes']))
+        self.assertEqual('fixed', body['outcomes'][0]['result']['status'])

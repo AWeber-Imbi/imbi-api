@@ -62,6 +62,28 @@ def _registry_plugin_type(slug: str) -> str | None:
         return None
 
 
+def _tps_identity_plugin_ids(
+    tps_raw: list[dict[str, typing.Any]],
+) -> dict[str, str]:
+    """Map each third-party service slug to its identity plugin id.
+
+    Plugin nodes don't carry ``plugin_type``, so the type is resolved
+    from the registry. When a service has more than one identity plugin
+    the one flagged ``used_as_login`` wins.
+    """
+    out: dict[str, str] = {}
+    for p in tps_raw:
+        slug = p.get('tps_slug')
+        pid = p.get('id')
+        if not slug or not pid or not p.get('slug'):
+            continue
+        if _registry_plugin_type(p['slug']) != 'identity':
+            continue
+        if slug not in out or p.get('used_as_login'):
+            out[slug] = pid
+    return out
+
+
 class ResolvedPlugin(typing.NamedTuple):
     plugin_id: str
     plugin_slug: str
@@ -545,6 +567,7 @@ async def resolve_analysis_plugins(
       collect(DISTINCT {{id: p3.id, slug: p3.plugin_slug,
                          plugin_options: p3.options,
                          tps_slug: tps.slug,
+                         used_as_login: p3.used_as_login,
                          src: 'third_party_service'}})
        AS tps_plugins
     RETURN proj_plugins, pt_plugins, tps_plugins
@@ -575,13 +598,20 @@ async def resolve_analysis_plugins(
     pt_plugins: list[dict[str, typing.Any]] = (
         graph.parse_agtype(records[0]['pt_plugins']) or []
     )
+    tps_raw: list[dict[str, typing.Any]] = (
+        graph.parse_agtype(records[0]['tps_plugins']) or []
+    )
     tps_plugins: list[dict[str, typing.Any]] = [
         p
-        for p in (graph.parse_agtype(records[0]['tps_plugins']) or [])
+        for p in tps_raw
         if p.get('id')
         and p.get('slug')
         and _registry_plugin_type(p['slug']) == 'analysis'
     ]
+    # Map each third-party service to the identity plugin attached to it,
+    # so a doctor (analysis) plugin discovered via that service can run as
+    # the acting user instead of a static token.
+    tps_identity_plugin_id = _tps_identity_plugin_ids(tps_raw)
 
     pt_by_id: dict[str, dict[str, typing.Any]] = {
         p['id']: p for p in pt_plugins if p.get('id')
@@ -644,17 +674,21 @@ async def resolve_analysis_plugins(
             )
             continue
         tps_slug = chosen.get('tps_slug')
+        tps_slug_str = (
+            tps_slug if isinstance(tps_slug, str) and tps_slug else None
+        )
         resolved.append(
             ResolvedPlugin(
                 plugin_id=plugin_id,
                 plugin_slug=plugin_slug,
                 entry=entry,
                 options=options,
-                third_party_service_slug=(
-                    tps_slug
-                    if isinstance(tps_slug, str) and tps_slug
+                identity_plugin_id=(
+                    tps_identity_plugin_id.get(tps_slug_str)
+                    if tps_slug_str
                     else None
                 ),
+                third_party_service_slug=tps_slug_str,
             )
         )
     return resolved
