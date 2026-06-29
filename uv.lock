@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-12T16:32:45.620488Z"
+exclude-newer = "2026-06-22T20:58:50.688587Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -1106,7 +1106,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main" },
+    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], editable = "../imbi-common" },
     { name = "imbi-plugin-aws", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
     { name = "imbi-plugin-github", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
     { name = "imbi-plugin-logzio", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
@@ -1160,8 +1160,8 @@ docs = [
 
 [[package]]
 name = "imbi-common"
-version = "2.11.5"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main#4b3ce9584a4f949d77f012e4e8d52f81000fb9db" }
+version = "2.11.6"
+source = { editable = "../imbi-common" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },

@@ -241,13 +241,12 @@ exclude-newer-package = { "clickhouse-connect" = false, "imbi-common" = false, "
 override-dependencies = ["imbi-common[databases,llm,sentry,server]==2.11.6"]
 
 [tool.uv.sources]
+# TEMP (doctor-remediation): consume the local imbi-common work tree
+# (feature/doctor-remediation), which carries both the unreleased
+# tag-format symbols (PR #175) and the remediation contract. Restore the
+# published ==<version> pin and remove this block once imbi-common is
+# released to PyPI.
 imbi-common = { path = "../imbi-common", editable = true }
-
-[tool.uv.sources]
-# Temporary: point at imbi-common main for the unreleased configurable
-# tag-format symbols (PR #175, merged). Revert to the published ==<version>
-# pin once imbi-common is released to PyPI.
-imbi-common = { git = "https://github.com/AWeber-Imbi/imbi-common.git", branch = "main" }
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"

@@ -186,6 +186,12 @@ class ProjectAnalysisTestCase(unittest.TestCase):
                 return_value=[],
             )
         )
+        self.mocks['resolve_service_plugins'] = self._start(
+            mock.patch(
+                f'{_MODULE}.resolve_service_plugins',
+                return_value=[],
+            )
+        )
         # Remediation write-back persistence hits the graph; stub it so
         # the endpoint tests stay DB-free.
         self.mocks['persist_service_writeback'] = self._start(

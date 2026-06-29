@@ -59,6 +59,7 @@ from imbi_api.plugins.credentials import get_plugin_credentials
 from imbi_api.plugins.resolution import (
     ResolvedPlugin,
     resolve_analysis_plugins,
+    resolve_service_plugins,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ async def _build_context(
     project_links = await lookup_project_links(db, project_id)
     project_type_slugs = await lookup_project_type_slugs(db, project_id)
     service_connections = await lookup_project_exists_in(db, project_id)
+    service_plugins = await resolve_service_plugins(db, project_id)
     return PluginContext(
         project_id=project_id,
         project_slug=project_slug,
@@ -123,6 +125,7 @@ async def _build_context(
         project_type_slugs=project_type_slugs,
         third_party_service_slug=resolved.third_party_service_slug,
         service_connections=service_connections,
+        service_plugins=service_plugins,
     )
 
 
