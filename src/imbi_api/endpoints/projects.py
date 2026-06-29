@@ -2309,9 +2309,10 @@ async def create_project_relationship(
     # The source project gained a dependency, which can change a
     # condition-policy score that reads its neighbours. No-op unless a
     # condition policy exists.
-    await score_queue.enqueue_recompute(
-        valkey_client, project_id, 'dependency_change'
-    )
+    if await score_queue.condition_policies_exist(db):
+        await score_queue.enqueue_recompute(
+            valkey_client, project_id, 'dependency_change'
+        )
 
 
 @projects_router.delete(
@@ -2367,9 +2368,10 @@ async def delete_project_relationship(
     # The source project lost a dependency; re-score it so a condition
     # policy reading its neighbours reflects the change. No-op unless a
     # condition policy exists.
-    await score_queue.enqueue_recompute(
-        valkey_client, project_id, 'dependency_change'
-    )
+    if await score_queue.condition_policies_exist(db):
+        await score_queue.enqueue_recompute(
+            valkey_client, project_id, 'dependency_change'
+        )
 
 
 async def _validate_update_refs(

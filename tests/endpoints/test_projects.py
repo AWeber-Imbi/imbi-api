@@ -2122,9 +2122,16 @@ class CreateProjectRelationshipTestCase(_RelationshipsTestBase):
         """Creates a DEPENDS_ON edge and returns 204."""
         self.mock_db.execute.return_value = [{'source_id': PROJECT_ID}]
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=False),
+            ),
         ):
             response = self.client.post(self._target_url('target1'))
 
@@ -2138,9 +2145,16 @@ class CreateProjectRelationshipTestCase(_RelationshipsTestBase):
         """MERGE makes repeated calls safe; still returns 204."""
         self.mock_db.execute.return_value = [{'source_id': PROJECT_ID}]
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=False),
+            ),
         ):
             first = self.client.post(self._target_url('target1'))
             second = self.client.post(self._target_url('target1'))
@@ -2203,6 +2217,11 @@ class CreateProjectRelationshipTestCase(_RelationshipsTestBase):
                 side_effect=lambda x: x,
             ),
             mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=True),
+            ),
+            mock.patch(
                 'imbi_api.endpoints.projects.score_queue.enqueue_recompute',
                 mock.AsyncMock(return_value=True),
             ) as enqueue,
@@ -2213,6 +2232,30 @@ class CreateProjectRelationshipTestCase(_RelationshipsTestBase):
         enqueue.assert_awaited_once()
         self.assertEqual(enqueue.await_args.args[1], PROJECT_ID)
         self.assertEqual(enqueue.await_args.args[2], 'dependency_change')
+
+    def test_create_skips_recompute_without_condition_policy(self) -> None:
+        """No re-score is enqueued when no condition policy exists."""
+        self.mock_db.execute.return_value = [{'source_id': PROJECT_ID}]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=False),
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue.enqueue_recompute',
+                mock.AsyncMock(return_value=True),
+            ) as enqueue,
+        ):
+            response = self.client.post(self._target_url('target1'))
+
+        self.assertEqual(response.status_code, 204)
+        enqueue.assert_not_awaited()
 
 
 class DeleteProjectRelationshipTestCase(_RelationshipsTestBase):
@@ -2230,9 +2273,16 @@ class DeleteProjectRelationshipTestCase(_RelationshipsTestBase):
         """Removes a DEPENDS_ON edge and returns 204."""
         self.mock_db.execute.return_value = [{'source_id': PROJECT_ID}]
 
-        with mock.patch(
-            'imbi_common.graph.parse_agtype',
-            side_effect=lambda x: x,
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=False),
+            ),
         ):
             response = self.client.delete(self._target_url('target1'))
 
@@ -2251,6 +2301,11 @@ class DeleteProjectRelationshipTestCase(_RelationshipsTestBase):
                 side_effect=lambda x: x,
             ),
             mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=True),
+            ),
+            mock.patch(
                 'imbi_api.endpoints.projects.score_queue.enqueue_recompute',
                 mock.AsyncMock(return_value=True),
             ) as enqueue,
@@ -2261,6 +2316,30 @@ class DeleteProjectRelationshipTestCase(_RelationshipsTestBase):
         enqueue.assert_awaited_once()
         self.assertEqual(enqueue.await_args.args[1], PROJECT_ID)
         self.assertEqual(enqueue.await_args.args[2], 'dependency_change')
+
+    def test_delete_skips_recompute_without_condition_policy(self) -> None:
+        """No re-score is enqueued when no condition policy exists."""
+        self.mock_db.execute.return_value = [{'source_id': PROJECT_ID}]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue'
+                '.condition_policies_exist',
+                mock.AsyncMock(return_value=False),
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.score_queue.enqueue_recompute',
+                mock.AsyncMock(return_value=True),
+            ) as enqueue,
+        ):
+            response = self.client.delete(self._target_url('target1'))
+
+        self.assertEqual(response.status_code, 204)
+        enqueue.assert_not_awaited()
 
     def test_edge_missing(self) -> None:
         """Returns 404 when the edge does not exist."""
