@@ -469,3 +469,63 @@ class ProjectAnalysisTestCase(unittest.TestCase):
         # Only the fixable finding produces an outcome.
         self.assertEqual(1, len(body['outcomes']))
         self.assertEqual('fixed', body['outcomes'][0]['result']['status'])
+
+
+class FetchReportParsingTestCase(unittest.IsolatedAsyncioTestCase):
+    """Regression: ``_fetch_report`` must decode collected result rows.
+
+    ``collect(res)`` serialised each finding as a ``::vertex`` agtype that
+    ``parse_agtype`` could not turn into a list, so persisted reports read
+    back empty and "Fix all" became a no-op even with fixable findings.
+    The query returns ``collect(properties(res))`` — plain property maps —
+    which parse into findings with their remediation offers intact.
+    """
+
+    _REPORT_VERTEX = (
+        '{"id": 1, "label": "AnalysisReport", "properties": '
+        '{"id": "rep1", "created_at": "2026-07-02T21:05:25.264906+00:00", '
+        '"project_id": "proj1", "overall_status": "warn", '
+        '"triggered_by_user_id": "user1"}}::vertex'
+    )
+    # Shape of ``collect(properties(res))``: a JSON array of plain property
+    # maps, with ``remediation`` stored as a JSON string ('' when none).
+    _RESULTS = (
+        '[{"slug": "dashboard-url-match", "title": "Dashboard URL match", '
+        '"status": "warn", "plugin_id": "pid1", "report_id": "rep1", '
+        '"description": "mismatch", "plugin_slug": "github-doctor", '
+        '"remediation": "{\\"id\\": \\"repair-edge\\", \\"label\\": '
+        '\\"Repair\\", \\"confirm\\": null, \\"destructive\\": false}"}, '
+        '{"slug": "canonical-url-shape", "title": "Canonical URL shape", '
+        '"status": "warn", "plugin_id": "pid1", "report_id": "rep1", '
+        '"description": "no url", "plugin_slug": "github-doctor", '
+        '"remediation": ""}]'
+    )
+
+    async def test_parses_findings_and_decodes_remediation(self) -> None:
+        from imbi_api.endpoints import project_analysis as pa
+
+        db = mock.AsyncMock(spec=graph.Graph)
+        db.execute.return_value = [
+            {'r': self._REPORT_VERTEX, 'results': self._RESULTS}
+        ]
+        report = await pa._fetch_report(db, 'proj1')
+        self.assertIsNotNone(report)
+        assert report is not None
+        self.assertEqual('warn', report.overall_status)
+        self.assertEqual(2, len(report.results))
+        by_slug = {r.slug: r for r in report.results}
+        # Fixable finding keeps its decoded remediation offer.
+        offer = by_slug['dashboard-url-match'].remediation
+        self.assertIsNotNone(offer)
+        assert offer is not None
+        self.assertEqual('repair-edge', offer.id)
+        # Non-fixable finding ('' remediation) decodes to None.
+        self.assertIsNone(by_slug['canonical-url-shape'].remediation)
+
+    def test_query_returns_property_maps_not_raw_vertices(self) -> None:
+        from imbi_api.endpoints import project_analysis as pa
+
+        # A bare ``collect(res)`` serialises ::vertex agtype that
+        # parse_agtype cannot decode into a list; property maps are
+        # required for the persisted report to round-trip on read.
+        self.assertIn('collect(properties(res))', pa._FETCH_REPORT_QUERY)

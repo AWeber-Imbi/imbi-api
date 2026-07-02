@@ -363,11 +363,17 @@ async def _persist_report(
     )
 
 
+# ``collect(properties(res))`` returns each result as a plain property
+# map, not a ``::vertex``-annotated agtype vertex. A ``collect(res)`` of
+# raw vertices serialises to an array that ``parse_agtype`` cannot decode
+# into a list (it falls back to a string), which silently dropped every
+# finding on read — leaving persisted reports looking empty and making
+# "Fix all" a no-op even when fixable findings existed.
 _FETCH_REPORT_QUERY: typing.LiteralString = """
 MATCH (p:Project {{id: {project_id}}})
       -[:HAS_ANALYSIS_REPORT]->(r:AnalysisReport)
 OPTIONAL MATCH (r)-[:HAS_RESULT]->(res:AnalysisResult)
-RETURN r, collect(res) AS results
+RETURN r, collect(properties(res)) AS results
 """
 
 
