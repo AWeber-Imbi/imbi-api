@@ -39,13 +39,13 @@ async def _connection_service_plugins(
     attached. The sibling is matched by ``plugin_slug`` (the node does
     not persist ``plugin_type``); see ``connection_plugin_slugs``.
     """
-    query: typing.LiteralString = """
-    MATCH (p:Plugin {{id: {plugin_id}}})<-[:HAS_PLUGIN]-
-      (:ThirdPartyService)-[:HAS_PLUGIN]->(conn:Plugin)
-    WHERE conn.plugin_slug IN {connection_slugs}
-    RETURN conn.plugin_slug AS slug, conn.options AS options
-    LIMIT 1
-    """
+    # Shares the connection-sibling MATCH/WHERE with credentials.py so the
+    # slug filter can't drift between the two lookups (see
+    # ``CONNECTION_SIBLING_MATCH``); only the RETURN differs.
+    query: typing.LiteralString = (
+        plugin_credentials.CONNECTION_SIBLING_MATCH
+        + 'RETURN conn.plugin_slug AS slug, conn.options AS options\nLIMIT 1\n'
+    )
     rows = await db.execute(
         query,
         {

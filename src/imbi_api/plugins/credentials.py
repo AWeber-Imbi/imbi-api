@@ -78,19 +78,27 @@ RETURN p.plugin_configuration AS creds
 LIMIT 1
 """
 
-# The shared connection plugin on the same ThirdPartyService holds the
-# service-account credentials when the invoked plugin carries none of
-# its own (the GitHub consolidation: deployment/lifecycle read the
-# App/PAT off the github-connection sibling). The sibling is matched by
+# Single source for the connection-sibling traversal: locate the
+# ``connection`` plugin on the invoked plugin's ThirdPartyService by
 # ``plugin_slug`` (see ``connection_plugin_slugs``) because the node does
-# not persist ``plugin_type``.
-_CONNECTION_BLOB: typing.LiteralString = """
+# not persist ``plugin_type``. Reused by both the credential fallback
+# here (``_CONNECTION_BLOB``) and identity host resolution in
+# ``identity/flows.py``, so the filter can't drift between the two — the
+# ``plugin_type = 'connection'`` bug this replaced lived in both copies
+# and had to be patched twice. Callers append only their ``RETURN``.
+CONNECTION_SIBLING_MATCH: typing.LiteralString = """
 MATCH (p:Plugin {{id: {plugin_id}}})<-[:HAS_PLUGIN]-(:ThirdPartyService)
   -[:HAS_PLUGIN]->(conn:Plugin)
 WHERE conn.plugin_slug IN {connection_slugs}
-RETURN conn.plugin_configuration AS creds
-LIMIT 1
 """
+
+# The shared connection plugin holds the service-account credentials when
+# the invoked plugin carries none of its own (deployment/lifecycle read
+# the App/PAT off the github-connection sibling).
+_CONNECTION_BLOB: typing.LiteralString = (
+    CONNECTION_SIBLING_MATCH
+    + 'RETURN conn.plugin_configuration AS creds\nLIMIT 1\n'
+)
 
 
 async def _read_blob(
