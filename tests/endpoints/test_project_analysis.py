@@ -470,6 +470,51 @@ class ProjectAnalysisTestCase(unittest.TestCase):
         self.assertEqual(1, len(body['outcomes']))
         self.assertEqual('fixed', body['outcomes'][0]['result']['status'])
 
+    def test_remediate_all_captures_non_http_error(self) -> None:
+        # A non-HTTPException from one finding must be captured as a failed
+        # outcome, not abort the whole request (best-effort contract).
+        from imbi_api.endpoints.project_analysis import (
+            AnalysisReport,
+            AnalysisResult,
+        )
+
+        report = AnalysisReport(
+            id='r1',
+            project_id='proj-1',
+            created_at=datetime.datetime.now(datetime.UTC),
+            overall_status='warn',
+            results=[
+                AnalysisResult(
+                    slug='blueprint-compliance:s:p:use-default',
+                    title='t',
+                    description='d',
+                    status='warn',
+                    plugin_slug='blueprint-compliance',
+                    plugin_id='built-in',
+                    remediation=RemediationOffer(
+                        id='set-default:foo', label='Fix'
+                    ),
+                ),
+            ],
+        )
+        with (
+            mock.patch(f'{_MODULE}._fetch_report', return_value=report),
+            mock.patch(
+                f'{_MODULE}.remediate_blueprint',
+                side_effect=RuntimeError('boom'),
+            ),
+            mock.patch(f'{_MODULE}.resolve_analysis_plugins', return_value=[]),
+        ):
+            with testclient.TestClient(self.test_app) as client:
+                resp = client.post(
+                    '/organizations/acme/projects/proj-1/analysis'
+                    '/remediate-all'
+                )
+        self.assertEqual(200, resp.status_code, resp.text)
+        body = resp.json()
+        self.assertEqual(1, len(body['outcomes']))
+        self.assertEqual('failed', body['outcomes'][0]['result']['status'])
+
 
 class FetchReportParsingTestCase(unittest.IsolatedAsyncioTestCase):
     """Regression: ``_fetch_report`` must decode collected result rows.

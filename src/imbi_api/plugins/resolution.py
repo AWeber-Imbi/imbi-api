@@ -556,12 +556,16 @@ async def resolve_analysis_plugins(
                          edge_options: pe.options,
                          plugin_options: p.options,
                          default: pe.default,
+                         identity_plugin_id: pe.identity_plugin_id,
+                         plugin_identity_plugin_id: p.identity_plugin_id,
                          src: 'project'}})
        AS proj_plugins,
       collect(DISTINCT {{id: p2.id, slug: p2.plugin_slug,
                          edge_options: pte.options,
                          plugin_options: p2.options,
                          default: pte.default,
+                         identity_plugin_id: pte.identity_plugin_id,
+                         plugin_identity_plugin_id: p2.identity_plugin_id,
                          src: 'project_type'}})
        AS pt_plugins,
       collect(DISTINCT {{id: p3.id, slug: p3.plugin_slug,
@@ -632,6 +636,11 @@ async def resolve_analysis_plugins(
             merged[pid] = {
                 **p,
                 'pt_edge_options': pt_by_id[pid].get('edge_options'),
+                'pt_identity_plugin_id': pt_by_id[pid].get(
+                    'identity_plugin_id'
+                ),
+                'plugin_identity_plugin_id': p.get('plugin_identity_plugin_id')
+                or pt_by_id[pid].get('plugin_identity_plugin_id'),
             }
         else:
             merged[pid] = p
@@ -684,9 +693,12 @@ async def resolve_analysis_plugins(
                 entry=entry,
                 options=options,
                 identity_plugin_id=(
-                    tps_identity_plugin_id.get(tps_slug_str)
-                    if tps_slug_str
-                    else None
+                    _select_identity_plugin_id(chosen)
+                    or (
+                        tps_identity_plugin_id.get(tps_slug_str)
+                        if tps_slug_str
+                        else None
+                    )
                 ),
                 third_party_service_slug=tps_slug_str,
             )

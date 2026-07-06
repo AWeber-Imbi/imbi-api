@@ -575,6 +575,9 @@ async def _remediate_one(
     plugin_id: str,
     remediation_id: str,
     auth: permissions.AuthContext,
+    *,
+    plugins: list[ResolvedPlugin] | None = None,
+    type_slugs: list[str] | None = None,
 ) -> RemediationResult:
     """Apply a single finding's remediation, persisting any write-back.
 
@@ -582,14 +585,21 @@ async def _remediate_one(
     everything else calls back into the emitting analysis plugin and
     persists whatever ``ServiceWriteback`` / ``LinkWriteback`` it
     reported, mirroring the lifecycle dispatch write-back capture.
+
+    ``plugins`` / ``type_slugs`` let a batch caller (remediate-all) resolve
+    these once and reuse them across findings rather than re-running the
+    same graph queries per finding; both are resolved on demand when not
+    supplied.
     """
     if plugin_id == BLUEPRINT_PLUGIN_ID:
-        type_slugs = await lookup_project_type_slugs(db, project_id)
+        if type_slugs is None:
+            type_slugs = await lookup_project_type_slugs(db, project_id)
         return await remediate_blueprint(
             db, project_id, type_slugs, remediation_id
         )
 
-    plugins = await resolve_analysis_plugins(db, project_id)
+    if plugins is None:
+        plugins = await resolve_analysis_plugins(db, project_id)
     resolved = next((p for p in plugins if p.plugin_id == plugin_id), None)
     if resolved is None:
         raise fastapi.HTTPException(
@@ -685,6 +695,11 @@ async def remediate_all_project_findings(
             status_code=404,
             detail='No analysis report exists for this project',
         )
+    # Resolve plugins and project-type slugs once and reuse them across
+    # every finding, rather than re-running these graph queries per
+    # finding inside _remediate_one.
+    plugins = await resolve_analysis_plugins(db, project_id)
+    type_slugs = await lookup_project_type_slugs(db, project_id)
     outcomes: list[RemediateOutcome] = []
     for finding in report.results:
         if finding.remediation is None:
@@ -697,10 +712,22 @@ async def remediate_all_project_findings(
                 finding.plugin_id,
                 finding.remediation.id,
                 auth,
+                plugins=plugins,
+                type_slugs=type_slugs,
             )
         except fastapi.HTTPException as exc:
             result = RemediationResult(
                 status='failed', message=str(exc.detail)
+            )
+        except Exception:
+            LOGGER.exception(
+                'Remediation failed for finding %r (plugin=%s)',
+                finding.slug,
+                finding.plugin_id,
+            )
+            result = RemediationResult(
+                status='failed',
+                message='Remediation failed; see server logs for details.',
             )
         outcomes.append(
             RemediateOutcome(

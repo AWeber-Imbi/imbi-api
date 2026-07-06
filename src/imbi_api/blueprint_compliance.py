@@ -354,6 +354,16 @@ async def remediate_blueprint(
             return RemediationResult(
                 status='noop', message=f'`{prop_name}` is already unset.'
             )
+        all_blueprints = await project_blueprints(db)
+        applicable = _applicable_blueprints(all_blueprints, set(type_slugs))
+        stale = _stale_blueprint_properties(all_blueprints, applicable, props)
+        if prop_name not in stale:
+            return RemediationResult(
+                status='failed',
+                message=(
+                    f'`{prop_name}` is no longer stale; refusing to remove it.'
+                ),
+            )
         await db.execute(
             'MATCH (p:Project {{id: {project_id}}}) '
             f'SET p.{prop_name} = null RETURN p.id AS id',
