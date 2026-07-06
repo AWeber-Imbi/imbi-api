@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-22T20:58:50.688587Z"
+exclude-newer = "2026-06-24T13:36:20.51977Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -20,9 +20,6 @@ imbi-plugin-sonarqube = false
 clickhouse-connect = false
 imbi-plugin-sentry = false
 imbi-plugin-oidc = false
-
-[manifest]
-overrides = [{ name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], editable = "../imbi-common" }]
 
 [[package]]
 name = "aioboto3"
@@ -1106,7 +1103,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], editable = "../imbi-common" },
+    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], specifier = "==2.11.5" },
     { name = "imbi-plugin-aws", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
     { name = "imbi-plugin-github", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
     { name = "imbi-plugin-logzio", marker = "extra == 'plugins'", specifier = ">=2.1.0" },
@@ -1160,8 +1157,8 @@ docs = [
 
 [[package]]
 name = "imbi-common"
-version = "2.11.6"
-source = { editable = "../imbi-common" }
+version = "2.11.5"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
@@ -1175,6 +1172,10 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-slugify" },
     { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8a/46/bdf7e04755239b46f003327d7474ca93083c2b083591929f8fb3b15a1ab6/imbi_common-2.11.5.tar.gz", hash = "sha256:09b453fefe9916cfb7292a0e43a2997b6aeec2663478e217841c79d114415582", size = 349523, upload-time = "2026-06-12T18:03:17.891Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/cf/e449133065933322bb8c7970f2905e66cb7680d6bd322f76caa816511979/imbi_common-2.11.5-py3-none-any.whl", hash = "sha256:df895c9698bd00ead82dc457cddcfb71bbf12872b04e87420e663f4e16955fba", size = 113174, upload-time = "2026-06-12T18:03:16.341Z" },
 ]
 
 [package.optional-dependencies]
@@ -1196,79 +1197,13 @@ server = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", marker = "extra == 'llm'", specifier = ">=0.40" },
-    { name = "clickhouse-connect", extras = ["async"], marker = "extra == 'databases'", specifier = "==1.0.0" },
-    { name = "cryptography", specifier = ">=42.0.4" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
-    { name = "fastembed", marker = "extra == 'databases'", specifier = ">=0.6" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3,<4" },
-    { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "jsonpointer", specifier = ">=3.1.1" },
-    { name = "jsonschema-models" },
-    { name = "markdown-it-py", specifier = ">=3.0" },
-    { name = "nanoid", specifier = ">=2.0.0" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = "==1.41.1" },
-    { name = "opentelemetry-distro", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = "==1.41.1" },
-    { name = "opentelemetry-instrumentation-aiohttp-client", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-instrumentation-mcp", marker = "extra == 'otel'", specifier = "==0.60.0" },
-    { name = "opentelemetry-instrumentation-psycopg", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-instrumentation-redis", marker = "extra == 'otel'", specifier = "==0.62b1" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = "==1.41.1" },
-    { name = "orjson" },
-    { name = "pgvector", marker = "extra == 'databases'", specifier = ">=0.3" },
-    { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'databases'", specifier = ">=3.3" },
-    { name = "pydantic", extras = ["email"], specifier = ">=2.0" },
-    { name = "pydantic-settings" },
-    { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "python-slugify" },
-    { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.48.0" },
-    { name = "typer", specifier = ">=0.21.1" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.40.0" },
-    { name = "valkey", marker = "extra == 'databases'", specifier = ">=6" },
-]
-provides-extras = ["databases", "llm", "mcp", "otel", "sentry", "server"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "basedpyright" },
-    { name = "build" },
-    { name = "click", specifier = "~=8.2.1" },
-    { name = "coverage", extras = ["toml"] },
-    { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "mypy", specifier = "~=1.19.1" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "ruff", specifier = "~=0.14.6" },
-    { name = "sentry-sdk", specifier = ">=2.48.0" },
-    { name = "tomli-w", specifier = "~=1.2" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.40.0" },
-]
-dist = [
-    { name = "build" },
-    { name = "twine" },
-    { name = "wheel" },
-]
-docs = [
-    { name = "griffe-pydantic" },
-    { name = "mkdocs", specifier = ">=1.5,<2" },
-    { name = "mkdocs-material", specifier = ">9.5,<10" },
-    { name = "mkdocstrings", extras = ["python"] },
-    { name = "mkdocstrings-python-xref", specifier = ">=1.6,<2" },
-]
-
 [[package]]
 name = "imbi-plugin-aws"
 version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common" },
     { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b0/72/6ec9c0cb7ab5d65ff1b3ed39db04b297ddf8ed3b9f0c9e5d91382c4d3e44/imbi_plugin_aws-2.11.5.tar.gz", hash = "sha256:a863ac4030c4375f62da1761ce14c9fe52747e05b361e00e869ae67d0ef58f50", size = 153372, upload-time = "2026-06-12T18:08:13.328Z" }
@@ -1282,7 +1217,7 @@ version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common", extra = ["databases"] },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
 ]
@@ -1297,7 +1232,7 @@ version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common" },
     { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/1d/d64e6da0400033554faa5ae51df26a7006713ec08922e472a75b03fe06a9/imbi_plugin_logzio-2.11.5.tar.gz", hash = "sha256:ac594235834b63381e35febb0d693ee7c8ac95b9a6d631354c1d4f950c30ea8f", size = 110380, upload-time = "2026-06-12T18:08:16.275Z" }
@@ -1311,7 +1246,7 @@ version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common" },
     { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/55/83/c39be8dcb1836d2f4f112f4d21378bdd10a0f8e1299f26e31d3aabad130a/imbi_plugin_oidc-2.11.5.tar.gz", hash = "sha256:02cb608231aa37e6ab157029f038c7a8c89f3ef69326005b2193654178353cff", size = 99570, upload-time = "2026-06-12T18:08:18.453Z" }
@@ -1325,7 +1260,7 @@ version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common", extra = ["databases"] },
     { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/56/cf/212c618709ac7b2bc51fbe36eabe38639406baaeadfc52b2935ed5b5e30f/imbi_plugin_pagerduty-2.11.5.tar.gz", hash = "sha256:e5a4b07083f2d0a6e3f3ef2e7e4df0f3e518bcf74a24cbada5a4f0179a7888bf", size = 113113, upload-time = "2026-06-12T18:08:36.331Z" }
@@ -1339,7 +1274,7 @@ version = "2.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "imbi-common", extra = ["databases", "llm", "sentry", "server"] },
+    { name = "imbi-common" },
     { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/44/52/a6aea1000719c7f44843e93bbb74f452cdbdcde10b80154db279462a9f54/imbi_plugin_sonarqube-2.11.5.tar.gz", hash = "sha256:c73233fadd6d408549852bfcb826fa12753a7fc37867045e357fd92cc64d3ec3", size = 93467, upload-time = "2026-06-12T18:08:25.465Z" }

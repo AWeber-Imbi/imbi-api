@@ -232,21 +232,6 @@ max-complexity = 15
 [tool.uv]
 exclude-newer = "7 days"
 exclude-newer-package = { "clickhouse-connect" = false, "imbi-common" = false, "imbi-plugin-aws" = false, "imbi-plugin-github" = false, "imbi-plugin-logzio" = false, "imbi-plugin-oidc" = false, "imbi-plugin-pagerduty" = false, "imbi-plugin-sentry" = false, "imbi-plugin-sonarqube" = false }
-# TEMP (doctor-remediation): consume the local imbi-common 2.11.6 work
-# until it is published. The override forces the transitive imbi-plugin-*
-# pins (which still require ==2.11.5) up to 2.11.6 in the dev resolve.
-# Remove this block and the override before the PR — the version pin
-# above already requires 2.11.6 and the plugins bump in lockstep on
-# release.
-override-dependencies = ["imbi-common[databases,llm,sentry,server]==2.11.6"]
-
-[tool.uv.sources]
-# TEMP (doctor-remediation): consume the local imbi-common work tree
-# (feature/doctor-remediation), which carries both the unreleased
-# tag-format symbols (PR #175) and the remediation contract. Restore the
-# published ==<version> pin and remove this block once imbi-common is
-# released to PyPI.
-imbi-common = { path = "../imbi-common", editable = true }
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
