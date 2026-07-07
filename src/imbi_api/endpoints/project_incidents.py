@@ -90,6 +90,8 @@ async def list_incidents(
         org_slug=org_slug,
         team_slug=team_slug,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
         # The plugin resolves its remote service from a project link
         # (e.g. ``pagerduty-service``), so populate the link map.
         project_links=await lookup_project_links(db, project_id),

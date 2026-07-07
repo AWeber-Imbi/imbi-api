@@ -350,6 +350,8 @@ async def _resolve_and_context(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
         environment_config=environment_config,
         project_links=project_links,
         project_type_slugs=project_type_slugs,

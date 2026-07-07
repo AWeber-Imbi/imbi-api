@@ -116,6 +116,8 @@ async def _build_context(
         org_slug=org_slug,
         team_slug=team_slug,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
         project_links=project_links,
         project_type_slugs=project_type_slugs,
         integration_slug=resolved.integration_slug,

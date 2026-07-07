@@ -106,6 +106,8 @@ async def get_configuration(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     credentials = decrypt_integration_credentials(
         resolved.encrypted_credentials
@@ -192,6 +194,8 @@ async def fetch_values(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     credentials = decrypt_integration_credentials(
         resolved.encrypted_credentials
@@ -254,6 +258,8 @@ async def set_configuration_value(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     credentials = decrypt_integration_credentials(
         resolved.encrypted_credentials
@@ -323,6 +329,8 @@ async def delete_configuration_key(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     credentials = decrypt_integration_credentials(
         resolved.encrypted_credentials

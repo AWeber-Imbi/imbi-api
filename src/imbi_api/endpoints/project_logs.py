@@ -197,6 +197,8 @@ async def search_logs(
         org_slug=org_slug,
         team_slug=team_slug,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     # Plugin credentials are env-independent so resolve them once.
     # Identity must be hydrated per-env (handled inside _search_one_env)
@@ -394,6 +396,8 @@ async def get_log_histogram(
         org_slug=org_slug,
         team_slug=team_slug,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     identity_options = (
         await identity_resolution.load_plugin_options(
@@ -507,6 +511,8 @@ async def get_log_schema(
         team_slug=team_slug,
         environment=environment,
         assignment_options=resolved.capability_options,
+        integration_options=resolved.integration_options,
+        capability_options=resolved.capability_options,
     )
     ctx = await attach_identity(db, ctx, resolved, auth)
     credentials = decrypt_integration_credentials(
