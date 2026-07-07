@@ -22,7 +22,7 @@ from imbi_api.domain import models
 from imbi_api.endpoints._helpers import lookup_project_slugs
 from imbi_api.identity.host_integration import call_with_identity_retry
 from imbi_api.plugins import call_with_timeout
-from imbi_api.plugins.resolution import resolve_capability
+from imbi_api.plugins.resolution import ResolvedCapability, resolve_capability
 
 LOGGER = logging.getLogger(__name__)
 
@@ -80,21 +80,19 @@ async def _lookup_project_slug(
     return slug
 
 
-@project_configuration_router.get('/')
-async def get_configuration(
+async def _resolve_and_prepare(
+    db: graph.Graph,
     org_slug: str,
     project_id: str,
-    db: graph.Pool,
-    auth: typing.Annotated[
-        permissions.AuthContext,
-        fastapi.Depends(
-            permissions.require_permission('project:configuration:read'),
-        ),
-    ],
-    source: str | None = fastapi.Query(default=None),
-    environment: str | None = fastapi.Query(default=None),
-) -> list[models.ConfigKeyResponse]:
-    """List configuration keys for a project via the assigned plugin."""
+    source: str | None,
+    environment: str | None,
+) -> tuple[ResolvedCapability, PluginContext, dict[str, str]]:
+    """Resolve the configuration capability and prepare the call context.
+
+    Runs the resolve -> context -> credential sequence shared by every
+    configuration endpoint, raising 503 when the integration has no
+    credentials configured.
+    """
     resolved = await resolve_capability(
         db, project_id, 'configuration', source
     )
@@ -117,6 +115,27 @@ async def get_configuration(
             status_code=503,
             detail='No credentials configured for this integration',
         )
+    return resolved, ctx, credentials
+
+
+@project_configuration_router.get('/')
+async def get_configuration(
+    org_slug: str,
+    project_id: str,
+    db: graph.Pool,
+    auth: typing.Annotated[
+        permissions.AuthContext,
+        fastapi.Depends(
+            permissions.require_permission('project:configuration:read'),
+        ),
+    ],
+    source: str | None = fastapi.Query(default=None),
+    environment: str | None = fastapi.Query(default=None),
+) -> list[models.ConfigKeyResponse]:
+    """List configuration keys for a project via the assigned plugin."""
+    resolved, ctx, credentials = await _resolve_and_prepare(
+        db, org_slug, project_id, source, environment
+    )
 
     cache_key = _cache_key(
         resolved.integration_id, project_id, source, environment
@@ -183,28 +202,9 @@ async def fetch_values(
     environment: str | None = fastapi.Query(default=None),
 ) -> list[models.ConfigKeyValueResponse]:
     """Fetch values for specific configuration keys."""
-    resolved = await resolve_capability(
-        db, project_id, 'configuration', source
+    resolved, ctx, credentials = await _resolve_and_prepare(
+        db, org_slug, project_id, source, environment
     )
-    project_slug, team_slug = await lookup_project_slugs(db, project_id)
-    ctx = PluginContext(
-        project_id=project_id,
-        project_slug=project_slug,
-        org_slug=org_slug,
-        team_slug=team_slug,
-        environment=environment,
-        assignment_options=resolved.capability_options,
-        integration_options=resolved.integration_options,
-        capability_options=resolved.capability_options,
-    )
-    credentials = decrypt_integration_credentials(
-        resolved.encrypted_credentials
-    )
-    if not credentials:
-        raise fastapi.HTTPException(
-            status_code=503,
-            detail='No credentials configured for this integration',
-        )
 
     keys: list[str] | None = body.get('keys')
     handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
@@ -247,28 +247,9 @@ async def set_configuration_value(
     environment: str | None = fastapi.Query(default=None),
 ) -> models.ConfigKeyResponse:
     """Set a configuration value via the assigned plugin."""
-    resolved = await resolve_capability(
-        db, project_id, 'configuration', source
+    resolved, ctx, credentials = await _resolve_and_prepare(
+        db, org_slug, project_id, source, environment
     )
-    project_slug, team_slug = await lookup_project_slugs(db, project_id)
-    ctx = PluginContext(
-        project_id=project_id,
-        project_slug=project_slug,
-        org_slug=org_slug,
-        team_slug=team_slug,
-        environment=environment,
-        assignment_options=resolved.capability_options,
-        integration_options=resolved.integration_options,
-        capability_options=resolved.capability_options,
-    )
-    credentials = decrypt_integration_credentials(
-        resolved.encrypted_credentials
-    )
-    if not credentials:
-        raise fastapi.HTTPException(
-            status_code=503,
-            detail='No credentials configured for this integration',
-        )
 
     handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
@@ -318,28 +299,9 @@ async def delete_configuration_key(
     environment: str | None = fastapi.Query(default=None),
 ) -> None:
     """Delete a configuration key via the assigned plugin."""
-    resolved = await resolve_capability(
-        db, project_id, 'configuration', source
+    resolved, ctx, credentials = await _resolve_and_prepare(
+        db, org_slug, project_id, source, environment
     )
-    project_slug, team_slug = await lookup_project_slugs(db, project_id)
-    ctx = PluginContext(
-        project_id=project_id,
-        project_slug=project_slug,
-        org_slug=org_slug,
-        team_slug=team_slug,
-        environment=environment,
-        assignment_options=resolved.capability_options,
-        integration_options=resolved.integration_options,
-        capability_options=resolved.capability_options,
-    )
-    credentials = decrypt_integration_credentials(
-        resolved.encrypted_credentials
-    )
-    if not credentials:
-        raise fastapi.HTTPException(
-            status_code=503,
-            detail='No credentials configured for this integration',
-        )
 
     handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
