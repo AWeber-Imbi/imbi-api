@@ -978,9 +978,9 @@ class WebhookCreate(pydantic.BaseModel):
     identity_integration_slug: str | None = pydantic.Field(
         default=None,
         description=(
-            'Optional override for the identity plugin slug used to resolve '
-            'the Imbi user; falls back to identity plugins attached to the '
-            'third-party service when unset.'
+            'Optional override for the identity integration slug used to '
+            'resolve the Imbi user; falls back to identity integrations '
+            'attached to the integration when unset.'
         ),
     )
     event_type_selector: str | None = pydantic.Field(
@@ -1045,9 +1045,9 @@ class WebhookUpdate(pydantic.BaseModel):
     identity_integration_slug: str | None = pydantic.Field(
         default=None,
         description=(
-            'Optional override for the identity plugin slug used to resolve '
-            'the Imbi user; falls back to identity plugins attached to the '
-            'third-party service when unset.'
+            'Optional override for the identity integration slug used to '
+            'resolve the Imbi user; falls back to identity integrations '
+            'attached to the integration when unset.'
         ),
     )
     event_type_selector: str | None = pydantic.Field(
