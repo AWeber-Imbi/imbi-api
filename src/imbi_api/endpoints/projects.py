@@ -1142,11 +1142,11 @@ _RETURN_FRAGMENT: typing.LiteralString = """
     OPTIONAL MATCH (p)<-[:DEPENDS_ON]-(in_:Project)
     WITH p, o, t, pts, envs, outbound_count,
          count(in_) AS inbound_count
-    OPTIONAL MATCH (p)-[ei:EXISTS_IN]->(tps:Integration)
+    OPTIONAL MATCH (p)-[ei:EXISTS_IN]->(integration:Integration)
     WITH p, o, t, pts, envs, outbound_count, inbound_count,
-         collect(CASE WHEN tps IS NOT NULL
-                 THEN {{slug: tps.slug,
-                        name: tps.name,
+         collect(CASE WHEN integration IS NOT NULL
+                 THEN {{slug: integration.slug,
+                        name: integration.name,
                         identifier: ei.identifier,
                         canonical_url: ei.canonical_url}}
                  END) AS service_edges
@@ -1659,7 +1659,7 @@ async def list_projects(
         )
         service_filter = (
             'MATCH (p)-[ei:EXISTS_IN]->'
-            '(tps:Integration {{slug: {tps_slug}}})'
+            '(integration:Integration {{slug: {integration_slug}}})'
             '-[:BELONGS_TO]->(o)\n'
             + identifier_clause
             + 'WITH DISTINCT p, o\n'
@@ -1709,7 +1709,7 @@ async def list_projects(
         {
             'org_slug': org_slug,
             'project_type': project_type,
-            'tps_slug': integration_slug,
+            'integration_slug': integration_slug,
             'identifier': identifier,
             **attr_params,
         },

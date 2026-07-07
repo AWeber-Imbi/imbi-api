@@ -1332,10 +1332,10 @@ class ProjectEndpointsTestCase(support.SharedAppTestCase):
         query = self.mock_db.execute.call_args_list[0].args[0]
         params = self.mock_db.execute.call_args_list[0].args[1]
         self.assertIn('-[ei:EXISTS_IN]->', query)
-        self.assertIn('Integration {{slug: {tps_slug}}}', query)
+        self.assertIn('Integration {{slug: {integration_slug}}}', query)
         self.assertIn('-[:BELONGS_TO]->(o)', query)
         self.assertIn('WHERE ei.identifier = {identifier}', query)
-        self.assertEqual(params['tps_slug'], 'github')
+        self.assertEqual(params['integration_slug'], 'github')
         self.assertEqual(params['identifier'], 'octo/api')
 
     def test_list_by_service_slug_only_omits_identifier(self) -> None:
@@ -1356,7 +1356,7 @@ class ProjectEndpointsTestCase(support.SharedAppTestCase):
         params = self.mock_db.execute.call_args.args[1]
         self.assertIn('-[ei:EXISTS_IN]->', query)
         self.assertNotIn('WHERE ei.identifier', query)
-        self.assertEqual(params['tps_slug'], 'github')
+        self.assertEqual(params['integration_slug'], 'github')
         self.assertIsNone(params['identifier'])
 
     def test_list_identifier_without_service_rejected(self) -> None:
