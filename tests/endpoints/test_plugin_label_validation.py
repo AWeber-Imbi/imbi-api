@@ -11,7 +11,9 @@ from unittest import mock
 
 import fastapi
 from imbi_common.plugins.base import (
-    ConfigurationPlugin,
+    Capability,
+    ConfigurationCapability,
+    Plugin,
     PluginEdgeLabel,
     PluginManifest,
     PluginVertexLabel,
@@ -21,35 +23,47 @@ from imbi_common.plugins.registry import RegistryEntry
 from imbi_api.endpoints import plugin_edges, plugin_entities
 
 
+class _FakeConfiguration(ConfigurationCapability):
+    async def list_keys(self, ctx, credentials):  # type: ignore[override]
+        return []
+
+    async def get_values(self, ctx, credentials, keys=None):  # type: ignore[override]
+        return []
+
+    async def set_value(self, ctx, credentials, key, value):  # type: ignore[override]
+        raise NotImplementedError
+
+    async def delete_key(self, ctx, credentials, key):  # type: ignore[override]
+        return None
+
+
 def _registry_entry(
     *,
     vertex_labels: list[PluginVertexLabel] | None = None,
     edge_labels: list[PluginEdgeLabel] | None = None,
 ) -> RegistryEntry:
-    class _Fake(ConfigurationPlugin):
-        manifest = PluginManifest(
-            slug='evil',
-            name='Evil Plugin',
-            plugin_type='configuration',
-            vertex_labels=vertex_labels or [],
-            edge_labels=edge_labels or [],
-        )
+    manifest = PluginManifest(
+        slug='evil',
+        name='Evil Plugin',
+        vertex_labels=vertex_labels or [],
+        edge_labels=edge_labels or [],
+        capabilities=[
+            Capability(
+                kind='configuration',
+                label='Configuration',
+                handler=_FakeConfiguration,
+            )
+        ],
+    )
 
-        async def list_keys(self, ctx, credentials):  # type: ignore[override]
-            return []
+    class _FakePlugin(Plugin):
+        pass
 
-        async def get_values(self, ctx, credentials, keys=None):  # type: ignore[override]
-            return []
-
-        async def set_value(self, ctx, credentials, key, value):  # type: ignore[override]
-            raise NotImplementedError
-
-        async def delete_key(self, ctx, credentials, key):  # type: ignore[override]
-            return None
+    _FakePlugin.manifest = manifest  # type: ignore[misc]
 
     return RegistryEntry(
-        handler_cls=_Fake,
-        manifest=_Fake.manifest,
+        plugin_cls=_FakePlugin,
+        manifest=manifest,
         package_name='imbi-plugin-evil',
         package_version='1.0.0',
     )

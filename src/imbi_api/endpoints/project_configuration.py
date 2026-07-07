@@ -10,13 +10,11 @@ import fastapi
 import nanoid
 from imbi_common import clickhouse, graph, valkey
 from imbi_common import models as common_models
+from imbi_common.plugins import decrypt_integration_credentials
 from imbi_common.plugins.base import (
-    ConfigurationPlugin,
+    ConfigurationCapability,
     ConfigValue,
     PluginContext,
-)
-from imbi_common.plugins.errors import (
-    PluginCredentialsMissing,
 )
 
 from imbi_api.auth import permissions
@@ -24,8 +22,7 @@ from imbi_api.domain import models
 from imbi_api.endpoints._helpers import lookup_project_slugs
 from imbi_api.identity.host_integration import call_with_identity_retry
 from imbi_api.plugins import call_with_timeout
-from imbi_api.plugins.credentials import get_plugin_credentials
-from imbi_api.plugins.resolution import resolve_plugin
+from imbi_api.plugins.resolution import resolve_capability
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +34,7 @@ project_configuration_router = fastapi.APIRouter(
 
 
 def _cache_key(
-    plugin_id: str,
+    integration_id: str,
     project_id: str,
     source: str | None,
     environment: str | None,
@@ -50,11 +47,11 @@ def _cache_key(
     """
     src = source or '_'
     env = environment or '_'
-    return f'imbi:plugin-cache:{plugin_id}:{project_id}:{src}:{env}:list'
+    return f'imbi:plugin-cache:{integration_id}:{project_id}:{src}:{env}:list'
 
 
 async def _invalidate_cache(
-    plugin_id: str,
+    integration_id: str,
     project_id: str,
 ) -> None:
     """Drop every cached list response for a plugin/project pair.
@@ -66,7 +63,7 @@ async def _invalidate_cache(
     """
     try:
         client = valkey.get_client()
-        pattern = f'imbi:plugin-cache:{plugin_id}:{project_id}:*:list'
+        pattern = f'imbi:plugin-cache:{integration_id}:{project_id}:*:list'
         keys: list[bytes | str] = await client.keys(pattern)  # pyright: ignore[reportUnknownMemberType]
         if keys:
             await client.delete(*keys)
@@ -98,7 +95,9 @@ async def get_configuration(
     environment: str | None = fastapi.Query(default=None),
 ) -> list[models.ConfigKeyResponse]:
     """List configuration keys for a project via the assigned plugin."""
-    resolved = await resolve_plugin(db, project_id, 'configuration', source)
+    resolved = await resolve_capability(
+        db, project_id, 'configuration', source
+    )
     project_slug, team_slug = await lookup_project_slugs(db, project_id)
     ctx = PluginContext(
         project_id=project_id,
@@ -106,19 +105,20 @@ async def get_configuration(
         org_slug=org_slug,
         team_slug=team_slug,
         environment=environment,
-        assignment_options=resolved.options,
+        assignment_options=resolved.capability_options,
     )
-    try:
-        credentials = await get_plugin_credentials(
-            db, resolved.plugin_id, resolved.entry
-        )
-    except PluginCredentialsMissing as exc:
+    credentials = decrypt_integration_credentials(
+        resolved.encrypted_credentials
+    )
+    if not credentials:
         raise fastapi.HTTPException(
             status_code=503,
-            detail=str(exc),
-        ) from exc
+            detail='No credentials configured for this integration',
+        )
 
-    cache_key = _cache_key(resolved.plugin_id, project_id, source, environment)
+    cache_key = _cache_key(
+        resolved.integration_id, project_id, source, environment
+    )
     try:
         client = valkey.get_client()
     except Exception:  # noqa: BLE001
@@ -135,7 +135,7 @@ async def get_configuration(
         except Exception:  # noqa: BLE001
             LOGGER.debug('Cache read failed', exc_info=True)
 
-    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
+    handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
     async def _list_keys(c: PluginContext) -> typing.Any:
         return await call_with_timeout(handler.list_keys(c, credentials))
@@ -181,7 +181,9 @@ async def fetch_values(
     environment: str | None = fastapi.Query(default=None),
 ) -> list[models.ConfigKeyValueResponse]:
     """Fetch values for specific configuration keys."""
-    resolved = await resolve_plugin(db, project_id, 'configuration', source)
+    resolved = await resolve_capability(
+        db, project_id, 'configuration', source
+    )
     project_slug, team_slug = await lookup_project_slugs(db, project_id)
     ctx = PluginContext(
         project_id=project_id,
@@ -189,20 +191,19 @@ async def fetch_values(
         org_slug=org_slug,
         team_slug=team_slug,
         environment=environment,
-        assignment_options=resolved.options,
+        assignment_options=resolved.capability_options,
     )
-    try:
-        credentials = await get_plugin_credentials(
-            db, resolved.plugin_id, resolved.entry
-        )
-    except PluginCredentialsMissing as exc:
+    credentials = decrypt_integration_credentials(
+        resolved.encrypted_credentials
+    )
+    if not credentials:
         raise fastapi.HTTPException(
             status_code=503,
-            detail=str(exc),
-        ) from exc
+            detail='No credentials configured for this integration',
+        )
 
     keys: list[str] | None = body.get('keys')
-    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
+    handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
     async def _get_values(c: PluginContext) -> typing.Any:
         return await call_with_timeout(
@@ -242,7 +243,9 @@ async def set_configuration_value(
     environment: str | None = fastapi.Query(default=None),
 ) -> models.ConfigKeyResponse:
     """Set a configuration value via the assigned plugin."""
-    resolved = await resolve_plugin(db, project_id, 'configuration', source)
+    resolved = await resolve_capability(
+        db, project_id, 'configuration', source
+    )
     project_slug, team_slug = await lookup_project_slugs(db, project_id)
     ctx = PluginContext(
         project_id=project_id,
@@ -250,19 +253,18 @@ async def set_configuration_value(
         org_slug=org_slug,
         team_slug=team_slug,
         environment=environment,
-        assignment_options=resolved.options,
+        assignment_options=resolved.capability_options,
     )
-    try:
-        credentials = await get_plugin_credentials(
-            db, resolved.plugin_id, resolved.entry
-        )
-    except PluginCredentialsMissing as exc:
+    credentials = decrypt_integration_credentials(
+        resolved.encrypted_credentials
+    )
+    if not credentials:
         raise fastapi.HTTPException(
             status_code=503,
-            detail=str(exc),
-        ) from exc
+            detail='No credentials configured for this integration',
+        )
 
-    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
+    handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
     async def _set_value(c: PluginContext) -> typing.Any:
         return await call_with_timeout(
@@ -273,7 +275,7 @@ async def set_configuration_value(
         db, ctx, resolved, auth, fn=_set_value
     )
 
-    await _invalidate_cache(resolved.plugin_id, project_id)
+    await _invalidate_cache(resolved.integration_id, project_id)
     project_slug = await _lookup_project_slug(db, project_id)
     await _write_audit(
         project_id=project_id,
@@ -310,7 +312,9 @@ async def delete_configuration_key(
     environment: str | None = fastapi.Query(default=None),
 ) -> None:
     """Delete a configuration key via the assigned plugin."""
-    resolved = await resolve_plugin(db, project_id, 'configuration', source)
+    resolved = await resolve_capability(
+        db, project_id, 'configuration', source
+    )
     project_slug, team_slug = await lookup_project_slugs(db, project_id)
     ctx = PluginContext(
         project_id=project_id,
@@ -318,26 +322,25 @@ async def delete_configuration_key(
         org_slug=org_slug,
         team_slug=team_slug,
         environment=environment,
-        assignment_options=resolved.options,
+        assignment_options=resolved.capability_options,
     )
-    try:
-        credentials = await get_plugin_credentials(
-            db, resolved.plugin_id, resolved.entry
-        )
-    except PluginCredentialsMissing as exc:
+    credentials = decrypt_integration_credentials(
+        resolved.encrypted_credentials
+    )
+    if not credentials:
         raise fastapi.HTTPException(
             status_code=503,
-            detail=str(exc),
-        ) from exc
+            detail='No credentials configured for this integration',
+        )
 
-    handler = typing.cast(ConfigurationPlugin, resolved.entry.handler_cls())
+    handler = typing.cast(ConfigurationCapability, resolved.capability_cls())
 
     async def _delete_key(c: PluginContext) -> None:
         await call_with_timeout(handler.delete_key(c, credentials, key))
 
     await call_with_identity_retry(db, ctx, resolved, auth, fn=_delete_key)
 
-    await _invalidate_cache(resolved.plugin_id, project_id)
+    await _invalidate_cache(resolved.integration_id, project_id)
     project_slug = await _lookup_project_slug(db, project_id)
     await _write_audit(
         project_id=project_id,

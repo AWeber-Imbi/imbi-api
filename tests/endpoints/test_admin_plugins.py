@@ -50,17 +50,15 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
                 return_value=[],
             ),
             mock.patch(
-                'imbi_api.endpoints.admin_plugins.importlib.metadata.distributions',
-                return_value=[],
+                'imbi_api.endpoints.admin_plugins.get_enabled_map',
+                new_callable=mock.AsyncMock,
+                return_value={},
             ),
         ):
             with testclient.TestClient(self.test_app) as client:
                 response = client.get('/admin/plugins')
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('installed', data)
-        self.assertNotIn('unavailable', data)
-        self.assertEqual(data['installed'], [])
+        self.assertEqual(response.json(), [])
 
     def test_get_plugin_not_found(self) -> None:
         from imbi_common.plugins.errors import PluginNotFoundError
@@ -75,26 +73,15 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
 
     def _make_entry(self) -> object:
         from imbi_common.plugins.base import (
-            ConfigurationPlugin,
+            Capability,
+            ConfigurationCapability,
+            Plugin,
             PluginEdgeLabel,
             PluginManifest,
         )
         from imbi_common.plugins.registry import RegistryEntry
 
-        class _Fake(ConfigurationPlugin):
-            manifest = PluginManifest(
-                slug='ssm',
-                name='SSM',
-                plugin_type='configuration',
-                edge_labels=[
-                    PluginEdgeLabel(
-                        name='MAPS_TO',
-                        from_labels=['Environment'],
-                        to_labels=['AwsAccount'],
-                    )
-                ],
-            )
-
+        class _FakeConfiguration(ConfigurationCapability):
             async def list_keys(self, ctx, credentials):  # type: ignore[override]
                 return []
 
@@ -107,9 +94,33 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
             async def delete_key(self, ctx, credentials, key):  # type: ignore[override]
                 return None
 
+        manifest = PluginManifest(
+            slug='ssm',
+            name='SSM',
+            edge_labels=[
+                PluginEdgeLabel(
+                    name='MAPS_TO',
+                    from_labels=['Environment'],
+                    to_labels=['AwsAccount'],
+                )
+            ],
+            capabilities=[
+                Capability(
+                    kind='configuration',
+                    label='Configuration',
+                    handler=_FakeConfiguration,
+                )
+            ],
+        )
+
+        class _FakePlugin(Plugin):
+            pass
+
+        _FakePlugin.manifest = manifest  # type: ignore[misc]
+
         return RegistryEntry(
-            handler_cls=_Fake,
-            manifest=_Fake.manifest,
+            plugin_cls=_FakePlugin,
+            manifest=manifest,
             package_name='imbi-plugin-ssm',
             package_version='1.0.0',
         )
@@ -152,8 +163,8 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
             ),
         ):
             with testclient.TestClient(self.test_app) as client:
-                response = client.patch(
-                    '/admin/plugins/ssm', json={'enabled': True}
+                response = client.put(
+                    '/admin/plugins/ssm/registration', json={'enabled': True}
                 )
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -167,8 +178,9 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
             side_effect=PluginNotFoundError('no-such-plugin'),
         ):
             with testclient.TestClient(self.test_app) as client:
-                response = client.patch(
-                    '/admin/plugins/no-such', json={'enabled': True}
+                response = client.put(
+                    '/admin/plugins/no-such/registration',
+                    json={'enabled': True},
                 )
         self.assertEqual(response.status_code, 404)
 
