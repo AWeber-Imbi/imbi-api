@@ -77,12 +77,7 @@ def _identity_manifest(login_capable: bool = True) -> PluginManifest:
 
 
 def _entry(manifest: PluginManifest) -> RegistryEntry:
-    return RegistryEntry(
-        plugin_cls=_FakePlugin,
-        manifest=manifest,
-        package_name=f'imbi-plugin-{manifest.slug}',
-        package_version='1.0.0',
-    )
+    return support.registry_entry(manifest, plugin_cls=_FakePlugin)
 
 
 def _node(slug: str = 'logzio-prod', **over: typing.Any) -> dict[str, object]:

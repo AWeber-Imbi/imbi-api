@@ -75,11 +75,9 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
         from imbi_common.plugins.base import (
             Capability,
             ConfigurationCapability,
-            Plugin,
             PluginEdgeLabel,
             PluginManifest,
         )
-        from imbi_common.plugins.registry import RegistryEntry
 
         class _FakeConfiguration(ConfigurationCapability):
             async def list_keys(self, ctx, credentials):  # type: ignore[override]
@@ -113,17 +111,7 @@ class AdminPluginsEndpointTestCase(support.SharedAppTestCase):
             ],
         )
 
-        class _FakePlugin(Plugin):
-            pass
-
-        _FakePlugin.manifest = manifest  # type: ignore[misc]
-
-        return RegistryEntry(
-            plugin_cls=_FakePlugin,
-            manifest=manifest,
-            package_name='imbi-plugin-ssm',
-            package_version='1.0.0',
-        )
+        return support.registry_entry(manifest)
 
     def test_get_plugin_found(self) -> None:
         entry = self._make_entry()

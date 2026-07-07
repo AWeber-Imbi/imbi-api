@@ -49,11 +49,9 @@ class PluginManifestEndpointTestCase(support.SharedAppTestCase):
             Capability,
             CredentialField,
             LogsCapability,
-            Plugin,
             PluginManifest,
             PluginOption,
         )
-        from imbi_common.plugins.registry import RegistryEntry
 
         class _FakeLogs(LogsCapability):
             async def search(self, ctx, credentials, query):  # type: ignore[override]
@@ -92,17 +90,7 @@ class PluginManifestEndpointTestCase(support.SharedAppTestCase):
             ],
         )
 
-        class _FakePlugin(Plugin):
-            pass
-
-        _FakePlugin.manifest = manifest  # type: ignore[misc]
-
-        return RegistryEntry(
-            plugin_cls=_FakePlugin,
-            manifest=manifest,
-            package_name='imbi-plugin-logzio',
-            package_version='0.1.0',
-        )
+        return support.registry_entry(manifest, package_version='0.1.0')
 
     def test_returns_manifest(self) -> None:
         with (

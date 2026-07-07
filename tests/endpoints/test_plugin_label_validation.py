@@ -13,7 +13,6 @@ import fastapi
 from imbi_common.plugins.base import (
     Capability,
     ConfigurationCapability,
-    Plugin,
     PluginEdgeLabel,
     PluginManifest,
     PluginVertexLabel,
@@ -21,6 +20,7 @@ from imbi_common.plugins.base import (
 from imbi_common.plugins.registry import RegistryEntry
 
 from imbi_api.endpoints import plugin_edges, plugin_entities
+from tests import support
 
 
 class _FakeConfiguration(ConfigurationCapability):
@@ -56,17 +56,7 @@ def _registry_entry(
         ],
     )
 
-    class _FakePlugin(Plugin):
-        pass
-
-    _FakePlugin.manifest = manifest  # type: ignore[misc]
-
-    return RegistryEntry(
-        plugin_cls=_FakePlugin,
-        manifest=manifest,
-        package_name='imbi-plugin-evil',
-        package_version='1.0.0',
-    )
+    return support.registry_entry(manifest)
 
 
 class ResolveLabelValidationTests(unittest.IsolatedAsyncioTestCase):
