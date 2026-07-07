@@ -531,6 +531,11 @@ async def set_login_provider(
         ['integration'],
     )
     login_providers.invalidate_cache()
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Integration with slug {slug!r} not found',
+        )
     return _build_response(graph.parse_agtype(updated[0]['integration']))
 
 
