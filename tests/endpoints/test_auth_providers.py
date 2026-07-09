@@ -187,6 +187,19 @@ class AuthProvidersEndpointTestCase(support.SharedAppTestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_update_login_provider_vanishes_returns_404(self) -> None:
+        # The initial lookup succeeds but the org-less scoped update matches
+        # nothing (concurrent delete / organization-owned) -> 404, not 500.
+        self.mock_db.execute.side_effect = [
+            [{'integration': _node()}],  # initial lookup
+            [],  # scoped update matched no org-less row
+        ]
+        response = self.client.patch(
+            '/login-providers/google',
+            json={'options': {'hd': 'example.com'}},
+        )
+        self.assertEqual(response.status_code, 404)
+
     # -- credentials -----------------------------------------------------
 
     def test_update_credentials(self) -> None:
@@ -207,8 +220,8 @@ class AuthProvidersEndpointTestCase(support.SharedAppTestCase):
 
     def test_set_used_as_login_promotes(self) -> None:
         self.mock_db.execute.side_effect = [
-            [],  # demote others
-            [{'integration': _node(used_as_login=True)}],
+            [{'integration': _node(used_as_login=True)}],  # promote target
+            [],  # demote org-less others
         ]
         with mock.patch(
             'imbi_api.endpoints.auth_providers.login_repo.invalidate_cache'
@@ -231,6 +244,22 @@ class AuthProvidersEndpointTestCase(support.SharedAppTestCase):
                 json={'used_as_login': True},
             )
         self.assertEqual(response.status_code, 404)
+
+    def test_set_used_as_login_missing_target_does_not_demote(self) -> None:
+        # A missing (or organization-owned) target must 404 before demoting
+        # any active provider, so the existing SSO provider stays enabled.
+        self.mock_db.execute.side_effect = [[]]
+        with mock.patch(
+            'imbi_api.endpoints.auth_providers.login_repo.invalidate_cache'
+        ) as invalidate:
+            response = self.client.put(
+                '/login-providers/missing/used-as-login',
+                json={'used_as_login': True},
+            )
+        self.assertEqual(response.status_code, 404)
+        # Only the promote query ran; demotion was never issued.
+        self.assertEqual(self.mock_db.execute.call_count, 1)
+        invalidate.assert_not_called()
 
     # -- delete ----------------------------------------------------------
 

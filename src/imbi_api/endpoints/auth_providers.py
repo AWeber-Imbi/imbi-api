@@ -212,6 +212,11 @@ async def update_login_provider(
         ' RETURN i{{.*}} AS integration'
     )
     updated = await db.execute(query, {'slug': slug, **props}, ['integration'])
+    if not updated:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f'Login provider with slug {slug!r} not found',
+        )
     return build_response(graph.parse_agtype(updated[0]['integration']))
 
 
@@ -241,7 +246,9 @@ async def update_login_provider_credentials(
 
 _DEMOTE_OTHERS: typing.LiteralString = """
 MATCH (other:Integration)
-WHERE other.slug <> {slug} AND other.used_as_login = true
+OPTIONAL MATCH (other)-[:BELONGS_TO]->(o:Organization)
+WITH other, o
+WHERE other.slug <> {slug} AND other.used_as_login = true AND o IS NULL
 SET other.used_as_login = false
 """
 
@@ -276,20 +283,21 @@ async def set_used_as_login(
 
     """
     _ = auth
-    if data.used_as_login:
-        await db.execute(_DEMOTE_OTHERS, {'slug': slug}, [])
-
+    # Promote the org-less target first so a missing (or organization-owned)
+    # target returns 404 without first disabling the active SSO provider.
     updated = await db.execute(
         _SET_USED_AS_LOGIN,
         {'slug': slug, 'used_as_login': data.used_as_login},
         ['integration'],
     )
-    login_repo.invalidate_cache()
     if not updated:
         raise fastapi.HTTPException(
             status_code=404,
             detail=f'Login provider with slug {slug!r} not found',
         )
+    if data.used_as_login:
+        await db.execute(_DEMOTE_OTHERS, {'slug': slug}, [])
+    login_repo.invalidate_cache()
     return build_response(graph.parse_agtype(updated[0]['integration']))
 
 

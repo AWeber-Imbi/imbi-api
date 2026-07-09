@@ -36,6 +36,9 @@ LIMIT 1
 # are addressed by their (globally unique) slug alone.
 _READ_CREDS_GLOBAL: typing.LiteralString = """
 MATCH (i:Integration {{slug: {slug}}})
+OPTIONAL MATCH (i)-[:BELONGS_TO]->(owner:Organization)
+WITH i, owner
+WHERE owner IS NULL
 RETURN i.encrypted_credentials AS creds
 LIMIT 1
 """
@@ -139,7 +142,10 @@ async def patch_integration_credentials(
         if org_slug is None:
             global_query: typing.LiteralString = """
             MATCH (i:Integration {{slug: {slug}}})
-            WHERE coalesce(i.encrypted_credentials, '') = {expected}
+            OPTIONAL MATCH (i)-[:BELONGS_TO]->(owner:Organization)
+            WITH i, owner
+            WHERE owner IS NULL
+              AND coalesce(i.encrypted_credentials, '') = {expected}
             SET i.encrypted_credentials = {blob}
             RETURN i
             """
