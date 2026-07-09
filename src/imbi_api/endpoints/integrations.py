@@ -30,6 +30,11 @@ def build_response(
         integration.get('encrypted_credentials') or {}
     )
     credential_fields = sorted(encrypted_credentials)
+    # Non-secret credential values (e.g. a GitHub App id) are echoed back so
+    # the UI can display them; secret values never leave the server.
+    credential_values = _non_secret_credential_values(
+        str(integration.get('plugin') or ''), encrypted_credentials
+    )
     raw_capabilities: dict[str, typing.Any] = (
         integration.get('capabilities') or {}
     )
@@ -59,7 +64,40 @@ def build_response(
         organization=integration.get('organization'),
         team=integration.get('team'),
         used_as_login=bool(integration.get('used_as_login')),
+        credential_values=credential_values,
     )
+
+
+def _non_secret_credential_values(
+    plugin_slug: str,
+    encrypted_credentials: dict[str, typing.Any],
+) -> dict[str, str]:
+    """Decrypt and return the values of populated, non-secret credential
+    fields (``secret=False`` in the plugin manifest). Secret values are
+    never returned."""
+    if not encrypted_credentials:
+        return {}
+    try:
+        entry = get_plugin(plugin_slug)
+    except PluginNotFoundError:
+        return {}
+    non_secret = {
+        field.name
+        for field in entry.manifest.credentials
+        if field.secret is False
+    }
+    if not non_secret:
+        return {}
+    encryptor = TokenEncryption.get_instance()
+    values: dict[str, str] = {}
+    for name in non_secret:
+        ciphertext = encrypted_credentials.get(name)
+        if not ciphertext:
+            continue
+        plaintext = encryptor.decrypt(str(ciphertext))
+        if plaintext:
+            values[name] = plaintext
+    return values
 
 
 _LIST_QUERY: typing.LiteralString = """

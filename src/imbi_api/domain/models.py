@@ -720,6 +720,9 @@ class IntegrationResponse(pydantic.BaseModel):
     capabilities: dict[str, CapabilityToggle] = {}
     #: Names of the credential fields currently populated (never values).
     credential_fields: list[str] = []
+    #: Values of populated, non-secret credential fields (``secret=False``
+    #: in the plugin manifest). Secret values are never included.
+    credential_values: dict[str, str] = {}
     links: dict[str, typing.Any] = {}
     identifiers: dict[str, typing.Any] = {}
     organization: dict[str, typing.Any] | None = None
