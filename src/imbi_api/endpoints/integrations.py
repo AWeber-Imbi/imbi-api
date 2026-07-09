@@ -4,6 +4,7 @@ import json
 import typing
 
 import fastapi
+import nanoid
 from imbi_common import graph
 from imbi_common.auth.encryption import TokenEncryption
 from imbi_common.plugins.errors import PluginNotFoundError
@@ -20,7 +21,7 @@ from imbi_api.plugins.credentials import patch_integration_credentials
 integrations_router = fastapi.APIRouter(tags=['Integrations'])
 
 
-def _build_response(
+def build_response(
     props: dict[str, typing.Any],
 ) -> models.IntegrationResponse:
     """Build an ``IntegrationResponse`` from a hydrated Integration node."""
@@ -56,6 +57,7 @@ def _build_response(
         identifiers=integration.get('identifiers') or {},
         organization=integration.get('organization'),
         team=integration.get('team'),
+        used_as_login=bool(integration.get('used_as_login')),
     )
 
 
@@ -91,7 +93,7 @@ async def list_integrations(
         _LIST_QUERY, {'org_slug': org_slug}, ['integration']
     )
     return [
-        _build_response(graph.parse_agtype(r['integration'])) for r in records
+        build_response(graph.parse_agtype(r['integration'])) for r in records
     ]
 
 
@@ -145,6 +147,7 @@ async def create_integration(
     }
 
     props: dict[str, typing.Any] = {
+        'id': nanoid.generate(),
         'name': data.name,
         'slug': data.slug,
         'description': data.description,
@@ -208,7 +211,7 @@ async def create_integration(
             detail=f'Organization with slug {org_slug!r} not found',
         )
 
-    return _build_response(graph.parse_agtype(records[0]['integration']))
+    return build_response(graph.parse_agtype(records[0]['integration']))
 
 
 @integrations_router.get('/{slug}')
@@ -238,10 +241,10 @@ async def get_integration(
             status_code=404,
             detail=f'Integration with slug {slug!r} not found',
         )
-    return _build_response(graph.parse_agtype(records[0]['integration']))
+    return build_response(graph.parse_agtype(records[0]['integration']))
 
 
-def _merged_update_props(
+def merged_update_props(
     data: models.IntegrationUpdate,
     existing: dict[str, typing.Any],
 ) -> dict[str, typing.Any]:
@@ -331,7 +334,7 @@ async def update_integration(
     )
 
     sent = data.model_fields_set
-    props = _merged_update_props(data, existing)
+    props = merged_update_props(data, existing)
 
     if 'team_slug' in sent:
         if data.team_slug:
@@ -370,7 +373,7 @@ async def update_integration(
             params = {'slug': slug, 'org_slug': org_slug, **props}
     else:
         if not props:
-            return _build_response(
+            return build_response(
                 graph.parse_agtype(records[0]['integration'])
             )
         set_stmt = set_clause('i', props)
@@ -395,7 +398,7 @@ async def update_integration(
             detail=f'Integration with slug {slug!r} not found',
         )
 
-    return _build_response(graph.parse_agtype(updated[0]['integration']))
+    return build_response(graph.parse_agtype(updated[0]['integration']))
 
 
 @integrations_router.delete('/{slug}', status_code=204)
@@ -502,7 +505,7 @@ async def set_login_provider(
     )
 
     if data.used_as_login:
-        _require_login_capable(str(integration.get('plugin') or ''))
+        require_login_capable(str(integration.get('plugin') or ''))
         # At most one login provider per org: clear the flag on siblings.
         await db.execute(
             """
@@ -536,10 +539,10 @@ async def set_login_provider(
             status_code=404,
             detail=f'Integration with slug {slug!r} not found',
         )
-    return _build_response(graph.parse_agtype(updated[0]['integration']))
+    return build_response(graph.parse_agtype(updated[0]['integration']))
 
 
-def _require_login_capable(plugin_slug: str) -> None:
+def require_login_capable(plugin_slug: str) -> None:
     """Raise 400 unless ``plugin_slug`` declares a login-capable identity.
 
     Raises:

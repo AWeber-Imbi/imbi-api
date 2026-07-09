@@ -721,6 +721,8 @@ class IntegrationResponse(pydantic.BaseModel):
     identifiers: dict[str, typing.Any] = {}
     organization: dict[str, typing.Any] | None = None
     team: dict[str, typing.Any] | None = None
+    #: Whether this Integration is the organization's SSO login provider.
+    used_as_login: bool = False
 
 
 # -- Admin plugin (installed package) models ------------------------------

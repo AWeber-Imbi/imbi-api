@@ -134,6 +134,27 @@ class PatchCredentialsTestCase(unittest.TestCase):
         self.assertEqual(stored['token'], 'enc:new')
         self.assertNotIn('drop', stored)
 
+    def test_global_provider_matches_by_slug_alone(self) -> None:
+        # org_slug=None -> global login provider: read and CAS write must
+        # not reference an organization.
+        db = mock.AsyncMock()
+        db.execute.side_effect = [
+            [{'creds': _blob({})}],
+            [{'i': {'id': '1'}}],  # successful CAS write
+        ]
+        fields = _run(
+            credentials.patch_integration_credentials(
+                db, 'google', None, {'client_id': 'cid'}
+            )
+        )
+        self.assertEqual(fields, ['client_id'])
+        read_query, read_params = db.execute.await_args_list[0].args[:2]
+        write_query, write_params = db.execute.await_args_list[1].args[:2]
+        self.assertNotIn('Organization', read_query)
+        self.assertNotIn('Organization', write_query)
+        self.assertNotIn('org_slug', read_params)
+        self.assertNotIn('org_slug', write_params)
+
     def test_concurrent_modification_retries_then_409(self) -> None:
         db = mock.AsyncMock()
         # Every read succeeds, every CAS write returns no rows -> retry
