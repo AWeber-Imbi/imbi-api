@@ -41,6 +41,7 @@ def build_response(
         if isinstance(state, dict)
     }
     return models.IntegrationResponse(
+        id=integration.get('id'),
         plugin=integration['plugin'],
         name=integration['name'],
         slug=integration['slug'],

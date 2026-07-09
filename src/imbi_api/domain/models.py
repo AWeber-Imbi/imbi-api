@@ -704,6 +704,9 @@ class IntegrationResponse(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra='ignore')
 
+    #: Stable node id. ``None`` only for legacy Integrations created before
+    #: ids were persisted; the identity connect flow keys off this.
+    id: str | None = None
     plugin: str
     name: str
     slug: str

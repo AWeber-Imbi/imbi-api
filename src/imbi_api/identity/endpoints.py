@@ -96,6 +96,7 @@ async def list_my_identities(
                 integration_id=row['integration_id'],
                 integration_slug=row.get('integration_slug') or '',
                 integration_name=row.get('integration_name'),
+                plugin=row.get('plugin'),
                 subject=row.get('subject') or '',
                 status=row.get('status') or 'active',
                 expires_at=row.get('expires_at'),
