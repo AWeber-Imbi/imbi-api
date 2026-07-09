@@ -126,10 +126,13 @@ async def patch_integration_credentials(
                 status_code=404, detail='Integration not found'
             )
         for field, value in updates.items():
-            if not value:
+            # Surrounding whitespace in a pasted credential is never
+            # meaningful and breaks downstream uses (e.g. HTTP auth headers).
+            stripped = (value or '').strip()
+            if not stripped:
                 current.pop(field, None)
             else:
-                encrypted = encryptor.encrypt(value)
+                encrypted = encryptor.encrypt(stripped)
                 if encrypted is not None:
                     current[field] = encrypted
         blob = json.dumps(current)

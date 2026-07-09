@@ -180,9 +180,13 @@ async def create_integration(
             }
 
     encryptor = TokenEncryption.get_instance()
+    # Strip surrounding whitespace (paste artifacts) and drop blanks so a
+    # credential is never stored with whitespace that breaks downstream
+    # uses (e.g. an HTTP auth header).
     encrypted_credentials = {
-        field: encryptor.encrypt(value)
+        field: encryptor.encrypt(stripped)
         for field, value in data.credentials.items()
+        if (stripped := value.strip())
     }
 
     props: dict[str, typing.Any] = {
