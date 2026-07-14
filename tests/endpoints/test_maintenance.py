@@ -80,6 +80,22 @@ class MaintenanceEndpointTestCase(support.SharedAppTestCase):
             self.assertTrue(op['label'])
             self.assertTrue(op['description'])
 
+    def test_list_operations_unavailable_without_valkey(self) -> None:
+        self.test_app.dependency_overrides[scoring._inject_optional_client] = (
+            lambda: None
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get('/maintenance/operations')
+        self.assertEqual(503, response.status_code)
+
+    def test_get_operation_unavailable_without_valkey(self) -> None:
+        self.test_app.dependency_overrides[scoring._inject_optional_client] = (
+            lambda: None
+        )
+        with testclient.TestClient(self.test_app) as client:
+            response = client.get('/maintenance/operations/rescore')
+        self.assertEqual(503, response.status_code)
+
     def test_list_operations_requires_permission(self) -> None:
         self._use_non_admin()
         with testclient.TestClient(self.test_app) as client:

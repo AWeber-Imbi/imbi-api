@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 import unittest
 from unittest import mock
@@ -54,7 +55,9 @@ class ExecuteAnalysisTests(unittest.IsolatedAsyncioTestCase):
 class ExecuteCommitSyncTests(unittest.IsolatedAsyncioTestCase):
     def _patches(
         self, run_sync: mock.AsyncMock
-    ) -> tuple[mock.AsyncMock, list[object]]:
+    ) -> tuple[
+        mock.AsyncMock, list[contextlib.AbstractContextManager[object]]
+    ]:
         set_status = mock.AsyncMock()
         return set_status, [
             mock.patch.object(operations, '_org_slug_for', _org_slug('org')),

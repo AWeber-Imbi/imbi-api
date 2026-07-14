@@ -65,11 +65,20 @@ class StartRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_project_set_finalizes_immediately(self) -> None:
         client, _ = _client_with_pipeline()
         client.set = mock.AsyncMock(return_value=True)
-        with mock.patch.object(
-            state, 'maybe_finalize', mock.AsyncMock()
-        ) as finalize:
+        completed = state.RunStatus(state='completed', total=0)
+        with (
+            mock.patch.object(
+                state, 'maybe_finalize', mock.AsyncMock()
+            ) as finalize,
+            mock.patch.object(
+                state,
+                'read_status',
+                mock.AsyncMock(return_value=completed),
+            ),
+        ):
             status = await state.start_run(client, 'op', [], 'alice')
         assert status is not None
+        self.assertEqual('completed', status.state)
         self.assertEqual(0, status.total)
         finalize.assert_awaited_once_with(client, 'op')
 

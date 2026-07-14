@@ -59,9 +59,16 @@ class TickOperationTests(unittest.IsolatedAsyncioTestCase):
         result = await worker._tick_operation(self.client, self.db, operation)
         self.assertTrue(result)
         self.state['record_outcome'].assert_awaited_once_with(
-            self.client, 'op', 'p1', 'succeeded'
+            self.client, 'op', 'p1', 'succeeded', ''
         )
         self.state['maybe_finalize'].assert_awaited()
+
+    async def test_record_outcome_failure_requeues(self) -> None:
+        self.state['record_outcome'].side_effect = RuntimeError('valkey down')
+        operation = _operation(mock.AsyncMock(return_value='succeeded'))
+        result = await worker._tick_operation(self.client, self.db, operation)
+        self.assertTrue(result)
+        self.state['requeue'].assert_awaited_once_with(self.client, 'op', 'p1')
 
     async def test_drained_finalizes(self) -> None:
         self.state['checkout'].return_value = None

@@ -122,13 +122,15 @@ async def list_maintenance_operations(
 ) -> list[MaintenanceOperation]:
     """The operation registry merged with each operation's run state."""
     _ = auth
+    if client is None:
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail='Maintenance state is unavailable '
+            '(Valkey is not connected).',
+        )
     results: list[MaintenanceOperation] = []
     for definition in OPERATIONS.values():
-        status = (
-            await state.read_status(client, definition.slug)
-            if client is not None
-            else state.RunStatus()
-        )
+        status = await state.read_status(client, definition.slug)
         results.append(_to_operation(definition, status))
     return results
 
@@ -143,7 +145,11 @@ async def get_maintenance_operation(
     _ = auth
     definition = _definition_or_404(slug)
     if client is None:
-        return _to_operation(definition, state.RunStatus())
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail='Maintenance state is unavailable '
+            '(Valkey is not connected).',
+        )
     status = await state.read_status(client, definition.slug)
     failures = await state.read_failures(client, definition.slug)
     return _to_operation(definition, status, failures or None)

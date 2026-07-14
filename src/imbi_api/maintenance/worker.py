@@ -75,6 +75,8 @@ async def _tick_operation(
     if project_id is None:
         await state.maybe_finalize(client, operation.slug)
         return False
+    outcome: state.Outcome
+    error = ''
     try:
         outcome = await operation.execute(db, client, project_id)
     except asyncio.CancelledError:
@@ -93,22 +95,26 @@ async def _tick_operation(
         )
         return False
     except MaintenanceItemFailed as exc:
-        await state.record_outcome(
-            client, operation.slug, project_id, 'failed', str(exc)
-        )
+        outcome, error = 'failed', str(exc)
     except Exception:
         LOGGER.exception(
             'maintenance %s failed for %s', operation.slug, project_id
         )
+        outcome = 'failed'
+        error = 'Operation failed. See server logs for details.'
+    try:
         await state.record_outcome(
-            client,
+            client, operation.slug, project_id, outcome, error
+        )
+    except Exception:
+        # Compensate so in_flight cannot stay stuck until the lock TTL:
+        # hand the project back; its outcome is recorded on the retry.
+        LOGGER.exception(
+            'maintenance %s failed to record outcome for %s; requeueing',
             operation.slug,
             project_id,
-            'failed',
-            'Operation failed. See server logs for details.',
         )
-    else:
-        await state.record_outcome(client, operation.slug, project_id, outcome)
+        await state.requeue(client, operation.slug, project_id)
     if await state.maybe_finalize(client, operation.slug):
         LOGGER.info('maintenance %s run completed', operation.slug)
     return True

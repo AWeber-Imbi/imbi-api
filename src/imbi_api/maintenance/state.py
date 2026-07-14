@@ -149,6 +149,7 @@ async def start_run(
         await pipe.execute()  # pyright: ignore[reportUnknownMemberType]
     if not ids:
         await maybe_finalize(client, slug)
+        return await read_status(client, slug)
     return RunStatus(
         state='running',
         run_id=run_id,
