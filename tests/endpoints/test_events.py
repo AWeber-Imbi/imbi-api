@@ -278,11 +278,14 @@ class GlobalListTests(_EventsTestBase):
         sql = self.mock_query.await_args.args[0]
         # Outer query reads the heavy JSON columns exactly once...
         self.assertEqual(sql.count('toJSONString(payload)'), 1)
+        self.assertEqual(sql.count('toJSONString(metadata)'), 1)
         # ...and only for the page selected by the light-column subquery.
         self.assertIn('(recorded_at, id) IN (', sql)
         self.assertIn('SELECT recorded_at, id FROM events WHERE', sql)
         inner = sql.split('(recorded_at, id) IN (', 1)[1]
-        self.assertNotIn('payload', inner.split('LIMIT', 1)[0])
+        inner_page = inner.split('LIMIT', 1)[0]
+        self.assertNotIn('payload', inner_page)
+        self.assertNotIn('metadata', inner_page)
         self.assertIn('LIMIT {row_limit:UInt32}', inner)
 
     def test_list_with_since_until(self) -> None:
