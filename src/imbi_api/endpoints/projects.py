@@ -3234,10 +3234,19 @@ async def delete_project(
     bundle = None
     resolved_lifecycle = None
     if delete_repository:
-        bundle = await build_lifecycle_context_bundle(db, project_id)
-        resolved_lifecycle = await resolve_all_capabilities(
-            db, project_id, 'lifecycle'
-        )
+        try:
+            bundle = await build_lifecycle_context_bundle(db, project_id)
+            resolved_lifecycle = await resolve_all_capabilities(
+                db, project_id, 'lifecycle'
+            )
+        except Exception:
+            LOGGER.exception(
+                'Unable to snapshot lifecycle bindings for project %s; '
+                'proceeding with delete and skipping dispatch',
+                project_id,
+            )
+            bundle = None
+            resolved_lifecycle = None
 
     query: typing.LiteralString = """
     MATCH (p:Project {{id: {project_id}}})

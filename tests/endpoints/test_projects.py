@@ -1119,6 +1119,38 @@ class ProjectEndpointsTestCase(support.SharedAppTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('not found', response.json()['detail'])
 
+    def test_delete_succeeds_when_snapshot_raises(self) -> None:
+        """A lifecycle snapshot failure must not abort the delete.
+
+        ``build_lifecycle_context_bundle`` /
+        ``resolve_all_capabilities`` run before the ``DETACH DELETE``;
+        a transient failure there must be logged, the delete must still
+        proceed, and dispatch must be skipped (no complete snapshot).
+        """
+        self.mock_db.execute.return_value = [{'deleted': 1}]
+
+        with (
+            mock.patch(
+                'imbi_common.graph.parse_agtype',
+                side_effect=lambda x: x,
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.build_lifecycle_context_bundle',
+                new=mock.AsyncMock(side_effect=RuntimeError('boom')),
+            ),
+            mock.patch(
+                'imbi_api.endpoints.projects.dispatch_lifecycle',
+                new=mock.AsyncMock(return_value=[]),
+            ) as mock_dispatch,
+        ):
+            response = self.client.delete(
+                f'/organizations/engineering/projects/{PROJECT_ID}',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'lifecycle_results': []})
+        mock_dispatch.assert_not_awaited()
+
     # -- Archive -------------------------------------------------------
 
     def test_archive_success(self) -> None:
