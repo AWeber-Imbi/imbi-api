@@ -828,7 +828,9 @@ async def _existing_tag_for_committish(
     existing tagged ``Release`` node -- the one the release-history UI
     reads, keyed by tag -- rather than spawning a duplicate untagged node
     the UI never surfaces.  Returns ``None`` when no tagged release exists
-    for the commit.
+    for the commit, and raises ``ValueError`` when the commit carries more
+    than one distinct tag -- a retagged commit is ambiguous, so we fail the
+    observation rather than silently attaching notes to the wrong release.
     """
     query: typing.LiteralString = """
     MATCH (:Project {{id: {project_id}}})
@@ -841,10 +843,17 @@ async def _existing_tag_for_committish(
         {'project_id': project_id, 'committish': committish},
         ['tag'],
     )
+    tags: set[str] = set()
     for row in rows:
         tag = graph.parse_agtype(row.get('tag'))
         if tag:
-            return str(tag)
+            tags.add(str(tag))
+    if len(tags) == 1:
+        return tags.pop()
+    if len(tags) > 1:
+        raise ValueError(
+            'Multiple tagged Releases match this deployment committish'
+        )
     return None
 
 

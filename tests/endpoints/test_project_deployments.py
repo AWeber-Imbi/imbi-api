@@ -2416,3 +2416,41 @@ class ResolveTagFormatsTestCase(unittest.IsolatedAsyncioTestCase):
             db, 'org', 'pid'
         )
         self.assertEqual([f.label for f in result], ['Org'])
+
+
+class ExistingTagForCommittishTestCase(unittest.IsolatedAsyncioTestCase):
+    """Unit tests for the ``_existing_tag_for_committish`` reconcile helper."""
+
+    @staticmethod
+    def _db(rows: list[dict[str, typing.Any]]) -> mock.AsyncMock:
+        db = mock.AsyncMock(spec=graph.Graph)
+        db.execute = mock.AsyncMock(return_value=rows)
+        return db
+
+    async def test_returns_none_when_no_tagged_release(self) -> None:
+        db = self._db([])
+        result = await project_deployments._existing_tag_for_committish(
+            db, project_id='pid', committish='deadbeef'
+        )
+        self.assertIsNone(result)
+
+    async def test_returns_single_tag(self) -> None:
+        db = self._db([{'tag': 'v1.0.0'}])
+        result = await project_deployments._existing_tag_for_committish(
+            db, project_id='pid', committish='deadbeef'
+        )
+        self.assertEqual(result, 'v1.0.0')
+
+    async def test_deduplicates_repeated_tag(self) -> None:
+        db = self._db([{'tag': 'v1.0.0'}, {'tag': 'v1.0.0'}])
+        result = await project_deployments._existing_tag_for_committish(
+            db, project_id='pid', committish='deadbeef'
+        )
+        self.assertEqual(result, 'v1.0.0')
+
+    async def test_raises_when_commit_has_multiple_tags(self) -> None:
+        db = self._db([{'tag': 'v1.0.0'}, {'tag': 'v2.0.0'}])
+        with self.assertRaises(ValueError):
+            await project_deployments._existing_tag_for_committish(
+                db, project_id='pid', committish='deadbeef'
+            )
