@@ -1088,7 +1088,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "filetype" },
     { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main" },
+    { name = "imbi-common", extras = ["databases", "llm", "sentry", "server"], git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=1ac105c7aad0624e9e3b8b9ae7a4ef150b6294c4" },
     { name = "jinja2" },
     { name = "jsonpatch", specifier = ">=1.33" },
     { name = "mcp", specifier = ">=1.26.0" },
@@ -1137,7 +1137,7 @@ docs = [
 [[package]]
 name = "imbi-common"
 version = "2.14.0"
-source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?branch=main#1ac105c7aad0624e9e3b8b9ae7a4ef150b6294c4" }
+source = { git = "https://github.com/AWeber-Imbi/imbi-common.git?rev=1ac105c7aad0624e9e3b8b9ae7a4ef150b6294c4#1ac105c7aad0624e9e3b8b9ae7a4ef150b6294c4" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
