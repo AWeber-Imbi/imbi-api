@@ -599,6 +599,29 @@ def _handler(resolved: ResolvedCapability) -> DeploymentCapability:
     return typing.cast(DeploymentCapability, resolved.capability_cls())
 
 
+def _require_deployment_sync_support(resolved: ResolvedCapability) -> None:
+    """Raise 400 unless the plugin opts into deployment resync.
+
+    Shared by the enqueue endpoint and the worker-side
+    :func:`resync_for_project` so the gate cannot silently diverge.
+    """
+    deployment_capability = resolved.entry.manifest.get_capability(
+        'deployment'
+    )
+    supports_deployment_sync = bool(
+        deployment_capability
+        and deployment_capability.hints.get('supports_deployment_sync')
+    )
+    if not supports_deployment_sync:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=(
+                f'Plugin {resolved.plugin_slug!r} does not support '
+                'deployment resync.'
+            ),
+        )
+
+
 def _resolve_credentials(
     ctx: PluginContext, fallback: dict[str, str]
 ) -> dict[str, str]:
@@ -955,21 +978,7 @@ async def resync_for_project(
         source=source,
         best_effort_identity=True,
     )
-    deployment_capability = resolved.entry.manifest.get_capability(
-        'deployment'
-    )
-    supports_deployment_sync = bool(
-        deployment_capability
-        and deployment_capability.hints.get('supports_deployment_sync')
-    )
-    if not supports_deployment_sync:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Plugin {resolved.plugin_slug!r} does not support '
-                'deployment resync.'
-            ),
-        )
+    _require_deployment_sync_support(resolved)
     environments = await _load_resync_environments(db, project_id=project_id)
     if not environments:
         return summary
@@ -1402,35 +1411,29 @@ async def resync_project_deployments(
     when the job was debounced or Valkey is unavailable.
     """
     resolved = await resolve_capability(db, project_id, 'deployment', source)
-    deployment_capability = resolved.entry.manifest.get_capability(
-        'deployment'
-    )
-    supports_deployment_sync = bool(
-        deployment_capability
-        and deployment_capability.hints.get('supports_deployment_sync')
-    )
-    if not supports_deployment_sync:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=(
-                f'Plugin {resolved.plugin_slug!r} does not support '
-                'deployment resync.'
-            ),
-        )
+    _require_deployment_sync_support(resolved)
     requested_by = auth.principal_name
+    # Captured before the XADD: every worker write for this job lands
+    # after the enqueue, so guarding the optimistic ``queued`` on this
+    # timestamp keeps it from clobbering a worker that already advanced
+    # (or even finished) the run before this write executes.
+    enqueued_at = deployment_sync_service.now_iso()
     enqueued = await deployment_sync_queue.enqueue_deployment_sync(
         valkey_client, org_slug, project_id, requested_by, limit=limit
     )
     if enqueued:
         # Optimistic, best-effort: if the worker has already flipped the
         # project to ``running``, that newer write must win -- so this
-        # one does not retry the concurrent-update conflict.
+        # one does not retry the concurrent-update conflict and skips
+        # the write entirely once ``deployment_sync_at`` has advanced
+        # past the enqueue time.
         await deployment_sync_service.set_status(
             db,
             project_id,
             status='queued',
             requested_by=requested_by,
             retry=False,
+            only_if_before=enqueued_at,
         )
     return DeploymentResyncEnqueueResponse(enqueued=enqueued)
 

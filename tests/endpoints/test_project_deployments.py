@@ -1554,7 +1554,12 @@ class ResyncEndpointTestCase(ProjectDeploymentsTestCase):
         self.assertEqual(response.status_code, 202, response.text)
         self.assertTrue(response.json()['enqueued'])
         self.assertEqual(enqueue.await_args.kwargs['limit'], 50)
-        self.assertEqual(set_status.await_args.kwargs['status'], 'queued')
+        kwargs = set_status.await_args.kwargs
+        self.assertEqual(kwargs['status'], 'queued')
+        # The optimistic write is guarded by a pre-enqueue timestamp so
+        # a worker that already finished the job cannot be clobbered.
+        self.assertIsInstance(kwargs['only_if_before'], str)
+        self.assertFalse(kwargs['retry'])
 
     def test_resync_debounced_skips_status(self) -> None:
         with (

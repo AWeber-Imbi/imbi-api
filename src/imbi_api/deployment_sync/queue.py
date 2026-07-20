@@ -11,6 +11,7 @@ the ``Project`` node.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import socket
@@ -36,6 +37,10 @@ DEBOUNCE_PREFIX = 'imbi:deployment-sync:debounce'
 DEBOUNCE_SECONDS = 10
 MAX_DELIVERIES = 3
 CLAIM_IDLE_MS = 120_000
+#: How often an in-flight job renews its claim; keeps a deep backfill
+#: (minutes of remote calls) from looking stale to other workers while
+#: leaving crashed-worker recovery at ``CLAIM_IDLE_MS``.
+CLAIM_RENEW_SECONDS = 30
 PAUSE_KEY = 'imbi:deployment-sync:paused-until'
 PAUSE_POLL_CAP_SECONDS = 30
 PAUSE_KEY_BUFFER_SECONDS = 5
@@ -227,6 +232,37 @@ async def _claim_stale(
     return []
 
 
+async def _renew_claim(
+    client: valkey.Valkey,
+    consumer: str,
+    msg_id: bytes,
+) -> None:
+    """Reset *msg_id*'s idle clock while its job is still running.
+
+    ``xautoclaim``'s ``min_idle_time`` measures "no ack yet", not
+    consumer liveness, so a deep backfill that legitimately runs past
+    ``CLAIM_IDLE_MS`` would otherwise be reclaimed and duplicate-
+    processed by another worker mid-flight.  ``JUSTID`` renews without
+    re-reading the entry or bumping the delivery counter, so renewal
+    never pushes a healthy job toward the dead-letter threshold.
+
+    Runs until cancelled by :func:`_handle_entries`.
+    """
+    while True:
+        await asyncio.sleep(CLAIM_RENEW_SECONDS)
+        try:
+            await client.xclaim(
+                STREAM,
+                GROUP,
+                consumer,
+                min_idle_time=0,
+                message_ids=[msg_id],
+                justid=True,
+            )
+        except Exception as err:  # noqa: BLE001
+            LOGGER.debug('claim renewal failed for %s: %s', msg_id, err)
+
+
 async def _maybe_dead_letter(
     client: valkey.Valkey,
     msg_id: bytes,
@@ -266,12 +302,14 @@ async def _handle_entries(
     client: valkey.Valkey,
     entries: list[tuple[bytes, abc.Mapping[bytes | str, bytes | str]]],
     db: graph.Graph,
+    consumer: str,
     check_dlq: bool = False,
 ) -> None:
     for msg_id, raw_fields in entries:
         fields = _decode_fields(raw_fields)
         if check_dlq and await _maybe_dead_letter(client, msg_id, fields):
             continue
+        renewer = asyncio.ensure_future(_renew_claim(client, consumer, msg_id))
         try:
             await _process_message(db, fields)
         except PluginRateLimited as exc:
@@ -290,6 +328,10 @@ async def _handle_entries(
         except Exception:
             LOGGER.exception('deployment-sync failed for %s', fields)
             continue
+        finally:
+            renewer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await renewer
         await client.xack(STREAM, GROUP, msg_id)
 
 
@@ -318,7 +360,9 @@ async def consume_deployment_sync(
         stale = await _claim_stale(client, consumer)
         if stale:
             try:
-                await _handle_entries(client, stale, db, check_dlq=True)
+                await _handle_entries(
+                    client, stale, db, consumer, check_dlq=True
+                )
             except Exception:
                 LOGGER.exception('deployment-sync stale-entry handling failed')
                 await asyncio.sleep(1)
@@ -345,7 +389,7 @@ async def consume_deployment_sync(
             'list[tuple[object, list[typing.Any]]]', response
         ):
             try:
-                await _handle_entries(client, entries, db)
+                await _handle_entries(client, entries, db, consumer)
             except Exception:
                 LOGGER.exception('deployment-sync entry handling failed')
                 await asyncio.sleep(1)

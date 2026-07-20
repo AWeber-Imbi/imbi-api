@@ -103,7 +103,12 @@ async def run_resync(
         raise
 
 
-def _now_iso() -> str:
+def now_iso() -> str:
+    """Current UTC time in the ISO-8601 form stored on the Project node.
+
+    Public so the enqueue endpoint can capture a pre-enqueue timestamp
+    for :func:`set_status`'s ``only_if_before`` guard.
+    """
     return datetime.datetime.now(datetime.UTC).isoformat()
 
 
@@ -121,6 +126,7 @@ async def set_status(
     summary: ResyncSummary | None = None,
     error: str = '',
     retry: bool = True,
+    only_if_before: str | None = None,
 ) -> None:
     """Persist last-resync state on the ``Project`` node (best-effort).
 
@@ -130,9 +136,26 @@ async def set_status(
     project mid-write.  The enqueue endpoint passes ``retry=False`` for
     its optimistic ``queued`` write: dropping that on conflict is
     correct, since the worker's newer ``running`` write must win.
+
+    *only_if_before* skips the write entirely when the stored
+    ``deployment_sync_at`` has already advanced to or past the given
+    ISO-8601 timestamp.  AGE only raises a conflict for truly
+    concurrent transactions, so without this guard an optimistic
+    ``queued`` write that merely executes *after* the worker finished
+    would silently clobber the newer terminal status.
     """
-    query: typing.LiteralString = """
-    MATCH (p:Project {{id: {project_id}}})
+    guard: typing.LiteralString = (
+        ''
+        if only_if_before is None
+        else """
+    WHERE p.deployment_sync_at IS NULL
+       OR p.deployment_sync_at < {only_if_before}"""
+    )
+    query: typing.LiteralString = (
+        """
+    MATCH (p:Project {{id: {project_id}}})"""
+        + guard
+        + """
     SET p.deployment_sync_status = {status},
         p.deployment_sync_at = {at},
         p.deployment_sync_by = {by},
@@ -144,10 +167,11 @@ async def set_status(
         p.deployment_sync_error = {error}
     RETURN p.id AS id
     """
+    )
     params = {
         'project_id': project_id,
         'status': status,
-        'at': _now_iso(),
+        'at': now_iso(),
         'by': requested_by,
         'observed': summary.observed if summary else 0,
         'releases_created': summary.releases_created if summary else 0,
@@ -156,6 +180,8 @@ async def set_status(
         'errors': len(summary.errors) if summary else 0,
         'error': error[:_MAX_ERROR_LEN],
     }
+    if only_if_before is not None:
+        params['only_if_before'] = only_if_before
     attempts = _STATUS_WRITE_RETRIES if retry else 1
     for attempt in range(attempts):
         try:

@@ -95,6 +95,32 @@ class StatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, params['errors'])
         self.assertEqual('alice', params['by'])
 
+    async def test_set_status_unguarded_omits_where(self) -> None:
+        db = mock.AsyncMock()
+        await service.set_status(db, 'p1', status='running')
+        query = db.execute.await_args.args[0]
+        self.assertNotIn('WHERE', query)
+
+    async def test_set_status_guard_adds_timestamp_predicate(self) -> None:
+        db = mock.AsyncMock()
+        enqueued_at = service.now_iso()
+        await service.set_status(
+            db,
+            'p1',
+            status='queued',
+            retry=False,
+            only_if_before=enqueued_at,
+        )
+        db.execute.assert_awaited_once()
+        query = db.execute.await_args.args[0]
+        # The guard must land between MATCH and SET so a status that
+        # already advanced past the enqueue time is left untouched.
+        self.assertIn('WHERE p.deployment_sync_at IS NULL', query)
+        self.assertIn('p.deployment_sync_at < {only_if_before}', query)
+        self.assertLess(query.index('WHERE'), query.index('SET'))
+        params = db.execute.await_args.args[1]
+        self.assertEqual(enqueued_at, params['only_if_before'])
+
     async def test_set_status_retries_on_write_conflict(self) -> None:
         db = mock.AsyncMock()
         db.execute.side_effect = [

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import unittest
 from unittest import mock
@@ -145,7 +146,10 @@ class ConsumerTests(unittest.IsolatedAsyncioTestCase):
         client = mock.AsyncMock()
         with mock.patch.object(queue, '_process_message', mock.AsyncMock()):
             await queue._handle_entries(
-                client, [(b'1-0', {b'project_id': b'p1'})], mock.AsyncMock()
+                client,
+                [(b'1-0', {b'project_id': b'p1'})],
+                mock.AsyncMock(),
+                'w',
             )
         client.xack.assert_awaited_once()
 
@@ -157,9 +161,56 @@ class ConsumerTests(unittest.IsolatedAsyncioTestCase):
             mock.AsyncMock(side_effect=RuntimeError('boom')),
         ):
             await queue._handle_entries(
-                client, [(b'1-0', {b'project_id': b'p1'})], mock.AsyncMock()
+                client,
+                [(b'1-0', {b'project_id': b'p1'})],
+                mock.AsyncMock(),
+                'w',
             )
         client.xack.assert_not_called()
+
+    async def test_renews_claim_while_processing(self) -> None:
+        # A long-running backfill must keep XCLAIMing its own message
+        # (JUSTID -> no delivery-count bump) so another worker's
+        # stale-reclaim never duplicate-processes an in-flight job.
+        client = mock.AsyncMock()
+
+        async def _slow(db: object, fields: dict[str, str]) -> None:
+            del db, fields
+            await asyncio.sleep(0.05)
+
+        with (
+            mock.patch.object(queue, 'CLAIM_RENEW_SECONDS', 0.01),
+            mock.patch.object(queue, '_process_message', _slow),
+        ):
+            await queue._handle_entries(
+                client,
+                [(b'1-0', {b'project_id': b'p1'})],
+                mock.AsyncMock(),
+                'w',
+            )
+        client.xclaim.assert_awaited()
+        kwargs = client.xclaim.await_args.kwargs
+        self.assertEqual(0, kwargs['min_idle_time'])
+        self.assertEqual([b'1-0'], kwargs['message_ids'])
+        self.assertTrue(kwargs['justid'])
+        client.xack.assert_awaited_once()
+
+    async def test_renewal_stops_after_processing(self) -> None:
+        client = mock.AsyncMock()
+        with (
+            mock.patch.object(queue, 'CLAIM_RENEW_SECONDS', 0.01),
+            mock.patch.object(queue, '_process_message', mock.AsyncMock()),
+        ):
+            await queue._handle_entries(
+                client,
+                [(b'1-0', {b'project_id': b'p1'})],
+                mock.AsyncMock(),
+                'w',
+            )
+            renews = client.xclaim.await_count
+            await asyncio.sleep(0.05)
+        # The renewer was cancelled with the job; no further XCLAIMs.
+        self.assertEqual(renews, client.xclaim.await_count)
 
     async def test_dlq_after_max_deliveries(self) -> None:
         client = mock.AsyncMock()
@@ -188,6 +239,7 @@ class ConsumerTests(unittest.IsolatedAsyncioTestCase):
                     (b'2-0', {b'project_id': b'p2'}),
                 ],
                 mock.AsyncMock(),
+                'w',
             )
         # Pause marker set; message left pending (no ack), not
         # dead-lettered, and the batch stopped before the sibling job.
