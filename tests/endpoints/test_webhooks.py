@@ -433,6 +433,21 @@ class WebhookEndpointsTestCase(support.SharedAppTestCase):
         data = response.json()
         self.assertEqual(data['user_type_selector'], '/sender/type')
 
+        write_params = [
+            call.args[1]
+            for call in self.mock_db.execute.call_args_list
+            if len(call.args) > 1
+            and isinstance(call.args[1], dict)
+            and 'user_type_selector' in call.args[1]
+        ]
+        self.assertTrue(
+            any(
+                params['user_type_selector'] == '/sender/type'
+                for params in write_params
+            ),
+            'CREATE write must pass user_type_selector to the query',
+        )
+
     def test_create_user_type_selector_without_service(self) -> None:
         """user_type_selector requires a third-party service."""
         response = self.client.post(
