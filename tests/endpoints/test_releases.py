@@ -961,6 +961,33 @@ class DeploymentEdgeTestCase(_ReleasesTestBase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._current_release_calls(), [])
 
+    def test_record_deployment_current_release_empty_logs_warning(
+        self,
+    ) -> None:
+        self.mock_db.execute.side_effect = [
+            [{'release': _release_row()}],
+            [{'env': self._env(), 'deployments': None}],
+            [{'deployments': None}],  # create edge
+            [],  # current_release write matched nothing
+        ]
+        with mock.patch(
+            'imbi_common.graph.parse_agtype',
+            side_effect=lambda x: x,
+        ):
+            with self.assertLogs(
+                'imbi_api.endpoints.releases', level='WARNING'
+            ) as logs:
+                response = self.client.post(
+                    self._url(f'/{RELEASE_ID}/environments/production'),
+                    json={'status': 'success'},
+                )
+        # The deployment write still succeeds; only the pointer is skipped.
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self._current_release_calls()), 1)
+        self.assertTrue(
+            any('current_release update skipped' in m for m in logs.output)
+        )
+
 
 class AppendDeploymentEventDedupeTestCase(_ReleasesTestBase):
     """Direct coverage for ``append_deployment_event`` dedupe semantics."""

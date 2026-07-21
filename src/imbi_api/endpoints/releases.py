@@ -1321,7 +1321,7 @@ async def _set_current_release(
           THEN {ts} ELSE d.current_release_at END
     RETURN d.current_release AS current_release
     """
-    await db.execute(
+    rows = await db.execute(
         query,
         {
             'project_id': project_id,
@@ -1332,6 +1332,14 @@ async def _set_current_release(
         },
         ['current_release'],
     )
+    if not rows:
+        LOGGER.warning(
+            'current_release update skipped: project %r or environment '
+            '%r in organization %r no longer exists',
+            project_id,
+            env_slug,
+            org_slug,
+        )
 
 
 @releases_router.post(
